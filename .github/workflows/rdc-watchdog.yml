@@ -1,11 +1,15 @@
 name: RDC Lab Watchdog
 
 on:
+  # Primary trigger: react as soon as an RDC Lab run ends.
   workflow_run:
     workflows: [Remote Desktop Commander Lab]
     types: [completed]
+
+  # Same periodic backstop cadence as the proven Exit Node watchdog.
   schedule:
     - cron: '*/10 * * * *'
+
   workflow_dispatch:
 
 permissions:
@@ -41,19 +45,20 @@ jobs:
       - name: Ensure RDC Lab is running
         if: steps.bootstrap.outputs.ready == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           WORKFLOW: rdc-lab.yml
           REF: main
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         run: bash .github/scripts/ensure-rdc-lab.sh
 
-      - name: Report state
+      - name: Report State
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           BOOTSTRAP_READY: ${{ steps.bootstrap.outputs.ready }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         shell: bash
         run: |
           set -uo pipefail
@@ -66,6 +71,9 @@ jobs:
           {
             echo "### RDC Runner Lab"
             echo
+            case "${DISABLED,,}" in
+              true|1|yes) echo "Kill switch \`RDC_LAB_DISABLED\` is **on**. The lab will not restart." ; echo ;;
+            esac
             if [ "$BOOTSTRAP_READY" != "true" ]; then
               echo "Bootstrap identity is not configured; automatic relaunch is intentionally dormant."
               echo
