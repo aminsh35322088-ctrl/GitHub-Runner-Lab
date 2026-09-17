@@ -1,0 +1,67 @@
+name: Remote Desktop Commander Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: How long to keep the disposable runner online
+        required: true
+        default: '60'
+        type: choice
+        options:
+          - '15'
+          - '30'
+          - '60'
+          - '120'
+          - '300'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rdc-runner-lab
+  cancel-in-progress: true
+
+jobs:
+  runner-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 315
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Prepare scripts
+        run: chmod +x scripts/*.sh
+
+      - name: Install Remote Desktop Commander
+        run: |
+          set -euo pipefail
+          npm install --global @wonderwhy-er/desktop-commander@0.2.50
+          command -v desktop-commander
+          node --version
+          npm --version
+
+      - name: Start Remote Desktop Commander
+        env:
+          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        run: ./scripts/start-rdc.sh
+
+      - name: Connection diagnostics
+        run: |
+          sleep 12
+          ./scripts/health.sh
+
+      - name: Keep runner online
+        env:
+          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        run: ./scripts/keepalive.sh '${{ inputs.minutes }}'
+
+      - name: Final diagnostics
+        if: always()
+        run: ./scripts/health.sh
