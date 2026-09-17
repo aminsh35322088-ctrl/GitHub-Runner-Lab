@@ -1,12 +1,10 @@
 name: RDC Lab Watchdog
 
 on:
-  # Primary trigger: react as soon as an RDC Lab run ends.
   workflow_run:
     workflows: [Remote Desktop Commander Lab]
     types: [completed]
 
-  # Same periodic backstop cadence as the proven Exit Node watchdog.
   schedule:
     - cron: '*/10 * * * *'
 
@@ -28,22 +26,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Check RDC bootstrap
-        id: bootstrap
+      - name: Check persistent RDC state
+        id: state
         env:
-          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         shell: bash
         run: |
-          if [ -n "$RDC_DEVICE_STATE_B64" ]; then
+          if [ ${#RDC_STATE_KEY} -lt 32 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RDC_STATE_KEY is not configured; watchdog remains dormant."
+            exit 0
+          fi
+
+          if git ls-remote --exit-code origin refs/heads/rdc-state >/dev/null 2>&1; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Persistent RDC state exists."
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::RDC bootstrap identity is not configured; watchdog remains dormant."
+            echo "::notice::No rdc-state branch exists yet; run RDC Lab once with bootstrap=true."
           fi
 
       - name: Ensure RDC Lab is running
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: steps.state.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
@@ -57,7 +64,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
-          BOOTSTRAP_READY: ${{ steps.bootstrap.outputs.ready }}
+          STATE_READY: ${{ steps.state.outputs.ready }}
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         shell: bash
         run: |
@@ -74,8 +81,8 @@ jobs:
             case "${DISABLED,,}" in
               true|1|yes) echo "Kill switch \`RDC_LAB_DISABLED\` is **on**. The lab will not restart." ; echo ;;
             esac
-            if [ "$BOOTSTRAP_READY" != "true" ]; then
-              echo "Bootstrap identity is not configured; automatic relaunch is intentionally dormant."
+            if [ "$STATE_READY" != "true" ]; then
+              echo "Persistent RDC state is not initialized yet; automatic relaunch is intentionally dormant."
               echo
             fi
             if [ -z "$RUNS" ]; then
