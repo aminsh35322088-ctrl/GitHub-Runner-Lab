@@ -1,28 +1,39 @@
 # GitHub Runner Lab
 
-A disposable GitHub Actions lab for testing Remote Desktop Commander on an ephemeral Ubuntu runner without touching the production Tailscale Exit Node repository.
+A self-relaunching GitHub Actions lab for keeping a disposable Ubuntu runner reachable through Remote Desktop Commander without modifying the stable Tailscale Exit Node repository.
 
-## What it does
+## Architecture
 
-- Starts only by manual `workflow_dispatch`.
-- Uses Node.js 22.14.0 and Remote Desktop Commander 0.2.50.
-- Restores an RDC device identity from the GitHub Actions secret `RDC_DEVICE_STATE_B64`.
-- Keeps the runner online for 15, 30, 60, 120, or 300 minutes.
-- Restarts the RDC process if it crashes, up to three times.
-- Includes `scripts/health.sh` for a compact runner/RDC diagnostic snapshot.
+- `rdc-lab.yml` runs the active lab for about 330 minutes, then pre-queues a successor before releasing its concurrency lock.
+- `rdc-watchdog.yml` reacts to completed runs and also checks every 10 minutes as a backstop.
+- `.github/scripts/ensure-rdc-lab.sh` prevents duplicate active runners, replaces stale/pending runs, and includes a short-failure crash-loop guard.
+- `repository-heartbeat.yml` periodically keeps this public repository active so scheduled workflows remain eligible.
+- RDC 0.2.50 is installed fresh on every runner and its process is locally restarted if it crashes.
 
-## Required one-time secret
+## RDC identity handoff
 
-This repository is public, so manual RDC pairing inside Actions is intentionally disabled: a pairing code must never be exposed in public workflow logs.
+RDC requires one initial browser/device authorization. The resulting `device.json` is the only manual bootstrap required.
 
-Create a repository Actions secret named `RDC_DEVICE_STATE_B64` containing the Base64 form of a paired `~/.desktop-commander-device/device.json` file. Do not commit the file or its Base64 value.
+Create the repository Actions secret `RDC_DEVICE_STATE_B64` from a dedicated, paired RDC identity. Never commit `device.json` or its Base64 value.
 
-If you reuse an identity that is currently running on another machine, stop that RDC agent before starting this lab. A dedicated lab identity is preferable.
+After bootstrap, each runner restores an encrypted rolling state from GitHub Actions cache, starts RDC with the same identity, checkpoints the current session every five minutes, gracefully saves it before handoff, and encrypts the state before caching it for the successor.
 
-## Run the lab
+The cache copy is encrypted with AES-256-CBC/PBKDF2. Its encryption passphrase is derived at runtime from the repository secret and is never committed.
 
-Open **Actions → Remote Desktop Commander Lab → Run workflow**, select a duration, and start it. Once RDC reconnects, the ephemeral GitHub runner should appear as the paired device in ChatGPT/Remote Desktop Commander.
+## RDC 0.2.50 restart hardening
 
-## Safety boundary
+RDC 0.2.50 can rotate its refresh token in memory without rewriting the persisted `device.json`. That is unsafe for ephemeral runners because a later process may restore a stale refresh token.
 
-This lab has no schedule, watchdog, self-relaunch chain, Tailscale exit-node advertisement, or production Exit Node secrets. The production `GitHub-Tailscale-Exit-Node` repository is not modified by this lab.
+`scripts/patch-rdc-refresh.sh` applies a narrow runtime patch to the freshly installed package so the current session is periodically persisted and saved again during graceful shutdown. The upstream package in npm and this repository's source remain untouched.
+
+## Automatic lifecycle
+
+Once `RDC_DEVICE_STATE_B64` exists, no normal manual restart is required. The active run keeps RDC online, pre-queues its successor, transfers encrypted session state, and the watchdog repairs a broken relaunch chain.
+
+There can still be a short GitHub-hosted runner startup/handover gap; this design is self-healing and near-continuous rather than a literal single machine with uninterrupted uptime.
+
+If the bootstrap secret is absent, both the lab and watchdog intentionally remain dormant instead of entering a failing relaunch loop.
+
+## Isolation
+
+This repository does not modify `GitHub-Tailscale-Exit-Node`, its Tailscale OAuth credentials, exit-node advertisements, SSH configuration, or watchdog chain. The two automation systems are independent.
