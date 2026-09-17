@@ -2,25 +2,27 @@
 
 A disposable GitHub Actions lab for testing Remote Desktop Commander on an ephemeral Ubuntu runner without touching the production Tailscale Exit Node repository.
 
-## Goals
+## What it does
 
-- Start only by manual `workflow_dispatch`.
-- Install a pinned Remote Desktop Commander version.
-- Allow one-time manual pairing when no saved device identity is configured.
-- Support automatic reconnect when `RDC_DEVICE_STATE_B64` is added as a repository secret.
-- Keep the runner alive for a selectable test window and restart the RDC process if it crashes.
-- Never modify the production Exit Node workflow.
+- Starts only by manual `workflow_dispatch`.
+- Uses Node.js 22.14.0 and Remote Desktop Commander 0.2.50.
+- Restores an RDC device identity from the GitHub Actions secret `RDC_DEVICE_STATE_B64`.
+- Keeps the runner online for 15, 30, 60, 120, or 300 minutes.
+- Restarts the RDC process if it crashes, up to three times.
+- Includes `scripts/health.sh` for a compact runner/RDC diagnostic snapshot.
 
-## First test
+## Required one-time secret
 
-Open **Actions → Remote Desktop Commander Lab → Run workflow**. If `RDC_DEVICE_STATE_B64` is not configured, the workflow log will show the normal RDC pairing flow. Complete the pairing in your browser, then use ChatGPT to verify that the runner appears online.
+This repository is public, so manual RDC pairing inside Actions is intentionally disabled: a pairing code must never be exposed in public workflow logs.
 
-## Automatic reconnect
+Create a repository Actions secret named `RDC_DEVICE_STATE_B64` containing the Base64 form of a paired `~/.desktop-commander-device/device.json` file. Do not commit the file or its Base64 value.
 
-For a persistent RDC identity across ephemeral runners, store the paired `~/.desktop-commander-device/device.json` as a Base64-encoded GitHub Actions secret named `RDC_DEVICE_STATE_B64`.
+If you reuse an identity that is currently running on another machine, stop that RDC agent before starting this lab. A dedicated lab identity is preferable.
 
-Do not commit `device.json` or its Base64 value to this repository. Treat it as a credential. Prefer a dedicated RDC identity for this lab; do not run two machines simultaneously with the same restored identity.
+## Run the lab
 
-## Safety
+Open **Actions → Remote Desktop Commander Lab → Run workflow**, select a duration, and start it. Once RDC reconnects, the ephemeral GitHub runner should appear as the paired device in ChatGPT/Remote Desktop Commander.
 
-This repository intentionally has no schedule, watchdog, self-relaunch chain, exit-node advertisement, or production secrets. It is a disposable test bed only.
+## Safety boundary
+
+This lab has no schedule, watchdog, self-relaunch chain, Tailscale exit-node advertisement, or production Exit Node secrets. The production `GitHub-Tailscale-Exit-Node` repository is not modified by this lab.
