@@ -1,33 +1,30 @@
 name: Remote Desktop Commander Lab
 
 on:
-  # Starts automatically when the lab infrastructure itself changes.
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/rdc-lab.yml'
-      - '.github/scripts/**'
-      - 'scripts/**'
-  # Backstop only; normal operation pre-queues its own successor.
+  # Same continuity model as the proven Tailscale Exit Node workflow:
+  # self-handover is primary, schedule is only a backstop.
   schedule:
     - cron: '31 */6 * * *'
+
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: write
 
+env:
+  # Leave headroom below the GitHub-hosted job timeout for handover/state save.
+  ONLINE_MINUTES: 330
+
 concurrency:
   group: rdc-runner-lab
   cancel-in-progress: false
-
-env:
-  ONLINE_MINUTES: 330
 
 jobs:
   runner-lab:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+
     outputs:
       configured: ${{ steps.bootstrap.outputs.ready }}
       queued: ${{ steps.handover.outputs.queued }}
@@ -44,8 +41,6 @@ jobs:
       - name: Prepare scripts
         run: chmod +x scripts/*.sh .github/scripts/*.sh
 
-      # RDC itself requires one initial device authorization. Until that
-      # bootstrap state exists, stay dormant instead of entering a failure loop.
       - name: Check RDC bootstrap
         id: bootstrap
         env:
@@ -62,7 +57,6 @@ jobs:
 
       - name: Restore encrypted rolling RDC state
         if: steps.bootstrap.outputs.ready == 'true'
-        id: state-cache
         uses: actions/cache/restore@v4
         with:
           path: .rdc-state
@@ -92,57 +86,61 @@ jobs:
         if: steps.bootstrap.outputs.ready == 'true'
         run: ./scripts/health.sh
 
-      - name: Keep runner online
+      - name: Keep RDC Lab Alive
         if: steps.bootstrap.outputs.ready == 'true'
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
         run: ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
-      # Queue the successor while this run still owns the concurrency group.
-      # It cannot start until this job ends, which gives us time to checkpoint
-      # the freshest rotated RDC credentials before handover.
-      - name: Queue successor
+      # Exact handover idea used by the Exit Node: pre-queue the successor while
+      # this run still owns the concurrency group. The replacement can only start
+      # after this run releases the group.
+      - name: Queue Successor Run
         id: handover
         if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           SELF_RUN_ID: ${{ github.run_id }}
           REF: ${{ github.ref_name }}
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
-        shell: bash
         run: |
+          set -uo pipefail
           if bash .github/scripts/ensure-rdc-lab.sh; then
             echo "queued=true" >> "$GITHUB_OUTPUT"
           else
             echo "queued=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Handover failed. The relaunch job/watchdog will retry."
           fi
 
-      - name: Gracefully stop RDC
+      - name: Gracefully Stop RDC
         if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/stop-rdc.sh
 
-      - name: Save final encrypted RDC state
+      - name: Save Final Encrypted RDC State
         if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
         run: ./scripts/save-rdc-state.sh
 
-      - name: Persist rolling state for successor
+      - name: Persist Rolling State for Successor
         if: ${{ always() && steps.bootstrap.outputs.ready == 'true' && hashFiles('.rdc-state/device.json.enc') != '' }}
         uses: actions/cache/save@v4
         with:
           path: .rdc-state
           key: rdc-state-v1-${{ github.run_id }}
 
-  # Fallback if the pre-queue step was never reached or GitHub rejected it.
+  # Same fallback role as the Exit Node relaunch job. It is skipped when the
+  # pre-queued successor already exists, so normal handover has no extra delay.
   relaunch:
     needs: [runner-lab]
     if: ${{ always() && needs.runner-lab.outputs.configured == 'true' && needs.runner-lab.outputs.queued != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
     permissions:
       contents: read
       actions: write
@@ -151,9 +149,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure a successor exists
+      - name: Ensure a Successor Exists
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           WORKFLOW: rdc-lab.yml
           SELF_RUN_ID: ${{ github.run_id }}
