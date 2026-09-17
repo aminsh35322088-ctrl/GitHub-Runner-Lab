@@ -19,16 +19,21 @@ echo "Starting one-time RDC account authorization."
 echo "Open the verification URL/code printed below and authorize it with YOUR Desktop Commander account."
 echo "This step waits up to $((TIMEOUT_SECONDS / 60)) minutes."
 
-# Keep the official first-run flow visible in the Actions log, but never print
-# device.json itself. The resulting credential is persisted separately in an
-# encrypted state branch.
-npx -y @wonderwhy-er/desktop-commander@latest remote \
+# Run the bootstrap connector in its own process group. `npx` spawns a child
+# Node process, so killing only the npx parent can leave an authenticated RDC
+# connector orphaned beside the normal long-running connector.
+setsid npx -y @wonderwhy-er/desktop-commander@latest remote \
   > >(tee -a "$LOG_FILE") 2>&1 &
 RDC_PID=$!
 
 cleanup() {
   if kill -0 "$RDC_PID" 2>/dev/null; then
-    kill -TERM "$RDC_PID" 2>/dev/null || true
+    kill -TERM -- "-$RDC_PID" 2>/dev/null || kill -TERM "$RDC_PID" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+      kill -0 "$RDC_PID" 2>/dev/null || break
+      sleep 1
+    done
+    kill -KILL -- "-$RDC_PID" 2>/dev/null || true
     wait "$RDC_PID" 2>/dev/null || true
   fi
 }
