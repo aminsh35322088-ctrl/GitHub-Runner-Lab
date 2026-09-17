@@ -25,7 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check RDC bootstrap
+        id: bootstrap
+        env:
+          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        shell: bash
+        run: |
+          if [ -n "$RDC_DEVICE_STATE_B64" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RDC bootstrap identity is not configured; watchdog remains dormant."
+          fi
+
       - name: Ensure RDC Lab is running
+        if: steps.bootstrap.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -39,6 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          BOOTSTRAP_READY: ${{ steps.bootstrap.outputs.ready }}
         shell: bash
         run: |
           set -uo pipefail
@@ -51,6 +66,10 @@ jobs:
           {
             echo "### RDC Runner Lab"
             echo
+            if [ "$BOOTSTRAP_READY" != "true" ]; then
+              echo "Bootstrap identity is not configured; automatic relaunch is intentionally dormant."
+              echo
+            fi
             if [ -z "$RUNS" ]; then
               echo "GitHub API unavailable; state unknown."
             else
