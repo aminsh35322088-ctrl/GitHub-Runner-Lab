@@ -15,15 +15,17 @@ df -h / || true
 
 echo "=== Remote Desktop Commander ==="
 if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  PID=$(cat "$PID_FILE")
+  PID="$(cat "$PID_FILE")"
   echo "status=running pid=$PID"
-  ps -p "$PID" -o pid,ppid,etime,%cpu,%mem,rss,args --no-headers || true
+  ps -p "$PID" -o pid,ppid,etime,%cpu,%mem,rss --no-headers || true
+  if grep -q 'Device ready' "$LOG_FILE" 2>/dev/null; then
+    echo "remote_status=ready"
+  else
+    echo "remote_status=starting-or-degraded"
+  fi
 else
   echo "status=not-running"
 fi
-
-echo "=== Recent RDC log ==="
-tail -n 40 "$LOG_FILE" 2>/dev/null || echo "No RDC log yet."
 
 echo "=== Git ==="
 git status --short --branch 2>/dev/null || true
