@@ -2,24 +2,17 @@
 set -euo pipefail
 
 RDC_DIR="$HOME/.desktop-commander-device"
+DEVICE_FILE="$RDC_DIR/device.json"
 LOG_FILE="${RDC_LOG_FILE:-/tmp/rdc.log}"
 PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
 
+[[ -s "$DEVICE_FILE" ]] || { echo "RDC device state was not restored."; exit 2; }
 mkdir -p "$RDC_DIR"
 chmod 700 "$RDC_DIR"
-
-if [[ -z "${RDC_DEVICE_STATE_B64:-}" ]]; then
-  echo "ERROR: RDC_DEVICE_STATE_B64 is not configured."
-  echo "This public lab intentionally refuses manual pairing so a pairing code is never exposed in Actions logs."
-  exit 2
-fi
-
-printf '%s' "$RDC_DEVICE_STATE_B64" | base64 --decode > "$RDC_DIR/device.json"
-chmod 600 "$RDC_DIR/device.json"
-echo "Restored RDC device identity from GitHub Actions secret."
+chmod 600 "$DEVICE_FILE"
 
 if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "RDC is already running with PID $(cat "$PID_FILE")."
+  echo "RDC is already running."
   exit 0
 fi
 
@@ -32,13 +25,23 @@ nohup env \
 
 PID=$!
 echo "$PID" > "$PID_FILE"
-echo "Started RDC with PID $PID."
-sleep 6
+echo "RDC agent started; waiting for authenticated readiness."
 
-if ! kill -0 "$PID" 2>/dev/null; then
-  echo "RDC exited during startup."
-  tail -n 120 "$LOG_FILE" || true
-  exit 1
-fi
+for attempt in $(seq 1 30); do
+  if ! kill -0 "$PID" 2>/dev/null; then
+    echo "RDC exited during startup. Check the private state/bootstrap configuration."
+    exit 1
+  fi
+  if grep -q 'Device ready' "$LOG_FILE" 2>/dev/null; then
+    echo "RDC authenticated and ready."
+    exit 0
+  fi
+  if grep -q 'Please complete authentication' "$LOG_FILE" 2>/dev/null; then
+    echo "RDC requires interactive re-authorization; stored identity is no longer valid."
+    exit 1
+  fi
+  sleep 1
+done
 
-tail -n 80 "$LOG_FILE" || true
+echo "RDC did not reach ready state within 30 seconds."
+exit 1
