@@ -1,24 +1,28 @@
 name: Remote Desktop Commander Lab
 
 on:
-  # Same continuity model as the proven Tailscale Exit Node workflow:
-  # self-handover is primary, schedule is only a backstop.
+  # Proven Exit-Node continuity model: self-handover is primary, schedule is only a backstop.
   schedule:
     - cron: '31 */6 * * *'
 
   workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'One-time RDC account authorization (use only for first setup/recovery)'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
   actions: write
-
-env:
-  # Leave headroom below the GitHub-hosted job timeout for handover/state save.
-  ONLINE_MINUTES: 330
 
 concurrency:
   group: rdc-runner-lab
   cancel-in-progress: false
+
+env:
+  ONLINE_MINUTES: 330
 
 jobs:
   runner-lab:
@@ -26,12 +30,15 @@ jobs:
     timeout-minutes: 350
 
     outputs:
-      configured: ${{ steps.bootstrap.outputs.ready }}
+      configured: ${{ steps.mode.outputs.ready }}
       queued: ${{ steps.handover.outputs.queued }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -41,63 +48,94 @@ jobs:
       - name: Prepare scripts
         run: chmod +x scripts/*.sh .github/scripts/*.sh
 
-      - name: Check RDC bootstrap
-        id: bootstrap
+      - name: Check persistent state key
+        id: key
         env:
-          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         shell: bash
         run: |
-          if [ -n "$RDC_DEVICE_STATE_B64" ]; then
+          if [ ${#RDC_STATE_KEY} -ge 32 ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "RDC bootstrap identity is configured."
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::RDC bootstrap identity is not configured; persistent lab remains dormant."
+            echo "::notice::Create repository secret RDC_STATE_KEY with at least 32 random characters."
           fi
 
-      - name: Restore encrypted rolling RDC state
-        if: steps.bootstrap.outputs.ready == 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: .rdc-state
-          key: rdc-state-v1-${{ github.run_id }}
-          restore-keys: |
-            rdc-state-v1-
+      - name: Restore latest RDC state
+        id: restore
+        if: steps.key.outputs.ready == 'true'
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        shell: bash
+        run: |
+          set +e
+          ./scripts/restore-rdc-state.sh
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "restored=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "restored=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: Select startup mode
+        id: mode
+        env:
+          KEY_READY: ${{ steps.key.outputs.ready }}
+          STATE_RESTORED: ${{ steps.restore.outputs.restored }}
+          BOOTSTRAP_REQUESTED: ${{ inputs.bootstrap || 'false' }}
+        shell: bash
+        run: |
+          if [ "$KEY_READY" != "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+          elif [ "$STATE_RESTORED" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+            echo "Persistent RDC state found; unattended auto-login enabled."
+          elif [ "$BOOTSTRAP_REQUESTED" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+            echo "No RDC state exists yet; entering one-time account authorization."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No RDC state exists yet. Run this workflow manually once with bootstrap=true."
+          fi
 
       - name: Install Remote Desktop Commander
-        if: steps.bootstrap.outputs.ready == 'true'
-        run: npm install --global @wonderwhy-er/desktop-commander@0.2.50
+        if: steps.mode.outputs.ready == 'true'
+        run: npm install --global @wonderwhy-er/desktop-commander@latest
 
-      - name: Apply unattended-session hotfix
-        if: steps.bootstrap.outputs.ready == 'true'
-        run: ./scripts/patch-rdc-refresh.sh
+      - name: One-time RDC account authorization
+        if: steps.mode.outputs.bootstrap == 'true'
+        run: ./scripts/bootstrap-rdc.sh
 
-      - name: Restore RDC identity
-        if: steps.bootstrap.outputs.ready == 'true'
+      - name: Persist bootstrap identity
+        if: steps.mode.outputs.bootstrap == 'true'
         env:
-          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
-        run: ./scripts/restore-rdc-state.sh
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/persist-rdc-state.sh
 
       - name: Start Remote Desktop Commander
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: steps.mode.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
 
       - name: Verify connection
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: steps.mode.outputs.ready == 'true'
         run: ./scripts/health.sh
 
       - name: Keep RDC Lab Alive
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: steps.mode.outputs.ready == 'true'
         env:
-          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
-      # Exact handover idea used by the Exit Node: pre-queue the successor while
-      # this run still owns the concurrency group. The replacement can only start
-      # after this run releases the group.
+      # Same handover model as the proven Tailscale Exit Node: queue the successor
+      # while this run still owns the concurrency group.
       - name: Queue Successor Run
         id: handover
-        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
@@ -115,26 +153,18 @@ jobs:
           fi
 
       - name: Gracefully Stop RDC
-        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/stop-rdc.sh
 
-      - name: Save Final Encrypted RDC State
-        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
+      - name: Persist final RDC state
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         continue-on-error: true
         env:
-          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
-        run: ./scripts/save-rdc-state.sh
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/persist-rdc-state.sh
 
-      - name: Persist Rolling State for Successor
-        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' && hashFiles('.rdc-state/device.json.enc') != '' }}
-        uses: actions/cache/save@v4
-        with:
-          path: .rdc-state
-          key: rdc-state-v1-${{ github.run_id }}
-
-  # Same fallback role as the Exit Node relaunch job. It is skipped when the
-  # pre-queued successor already exists, so normal handover has no extra delay.
+  # Same fallback role as Exit Node's relaunch job.
   relaunch:
     needs: [runner-lab]
     if: ${{ always() && needs.runner-lab.outputs.configured == 'true' && needs.runner-lab.outputs.queued != 'true' }}
