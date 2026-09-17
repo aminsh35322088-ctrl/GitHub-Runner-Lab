@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     outputs:
+      configured: ${{ steps.bootstrap.outputs.ready }}
       queued: ${{ steps.handover.outputs.queued }}
 
     steps:
@@ -43,7 +44,24 @@ jobs:
       - name: Prepare scripts
         run: chmod +x scripts/*.sh .github/scripts/*.sh
 
+      # RDC itself requires one initial device authorization. Until that
+      # bootstrap state exists, stay dormant instead of entering a failure loop.
+      - name: Check RDC bootstrap
+        id: bootstrap
+        env:
+          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        shell: bash
+        run: |
+          if [ -n "$RDC_DEVICE_STATE_B64" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "RDC bootstrap identity is configured."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RDC bootstrap identity is not configured; persistent lab remains dormant."
+          fi
+
       - name: Restore encrypted rolling RDC state
+        if: steps.bootstrap.outputs.ready == 'true'
         id: state-cache
         uses: actions/cache/restore@v4
         with:
@@ -53,23 +71,29 @@ jobs:
             rdc-state-v1-
 
       - name: Install Remote Desktop Commander
+        if: steps.bootstrap.outputs.ready == 'true'
         run: npm install --global @wonderwhy-er/desktop-commander@0.2.50
 
       - name: Apply unattended-session hotfix
+        if: steps.bootstrap.outputs.ready == 'true'
         run: ./scripts/patch-rdc-refresh.sh
 
       - name: Restore RDC identity
+        if: steps.bootstrap.outputs.ready == 'true'
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
         run: ./scripts/restore-rdc-state.sh
 
       - name: Start Remote Desktop Commander
+        if: steps.bootstrap.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
 
       - name: Verify connection
+        if: steps.bootstrap.outputs.ready == 'true'
         run: ./scripts/health.sh
 
       - name: Keep runner online
+        if: steps.bootstrap.outputs.ready == 'true'
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
         run: ./scripts/keepalive.sh "$ONLINE_MINUTES"
@@ -79,7 +103,7 @@ jobs:
       # the freshest rotated RDC credentials before handover.
       - name: Queue successor
         id: handover
-        if: always()
+        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -95,19 +119,19 @@ jobs:
           fi
 
       - name: Gracefully stop RDC
-        if: always()
+        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/stop-rdc.sh
 
       - name: Save final encrypted RDC state
-        if: always()
+        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
         run: ./scripts/save-rdc-state.sh
 
       - name: Persist rolling state for successor
-        if: ${{ always() && hashFiles('.rdc-state/device.json.enc') != '' }}
+        if: ${{ always() && steps.bootstrap.outputs.ready == 'true' && hashFiles('.rdc-state/device.json.enc') != '' }}
         uses: actions/cache/save@v4
         with:
           path: .rdc-state
@@ -116,7 +140,7 @@ jobs:
   # Fallback if the pre-queue step was never reached or GitHub rejected it.
   relaunch:
     needs: [runner-lab]
-    if: ${{ always() && needs.runner-lab.outputs.queued != 'true' }}
+    if: ${{ always() && needs.runner-lab.outputs.configured == 'true' && needs.runner-lab.outputs.queued != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
