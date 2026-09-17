@@ -1,31 +1,35 @@
 name: Remote Desktop Commander Lab
 
 on:
+  # Starts automatically when the lab infrastructure itself changes.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rdc-lab.yml'
+      - '.github/scripts/**'
+      - 'scripts/**'
+  # Backstop only; normal operation pre-queues its own successor.
+  schedule:
+    - cron: '31 */6 * * *'
   workflow_dispatch:
-    inputs:
-      minutes:
-        description: How long to keep the disposable runner online
-        required: true
-        default: '60'
-        type: choice
-        options:
-          - '15'
-          - '30'
-          - '60'
-          - '120'
-          - '300'
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: rdc-runner-lab
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+env:
+  ONLINE_MINUTES: 330
 
 jobs:
   runner-lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 315
+    timeout-minutes: 350
+    outputs:
+      queued: ${{ steps.handover.outputs.queued }}
 
     steps:
       - name: Checkout
@@ -37,31 +41,98 @@ jobs:
           node-version: '22.14.0'
 
       - name: Prepare scripts
-        run: chmod +x scripts/*.sh
+        run: chmod +x scripts/*.sh .github/scripts/*.sh
+
+      - name: Restore encrypted rolling RDC state
+        id: state-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .rdc-state
+          key: rdc-state-v1-${{ github.run_id }}
+          restore-keys: |
+            rdc-state-v1-
 
       - name: Install Remote Desktop Commander
-        run: |
-          set -euo pipefail
-          npm install --global @wonderwhy-er/desktop-commander@0.2.50
-          command -v desktop-commander
-          node --version
-          npm --version
+        run: npm install --global @wonderwhy-er/desktop-commander@0.2.50
 
-      - name: Start Remote Desktop Commander
+      - name: Apply unattended-session hotfix
+        run: ./scripts/patch-rdc-refresh.sh
+
+      - name: Restore RDC identity
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        run: ./scripts/restore-rdc-state.sh
+
+      - name: Start Remote Desktop Commander
         run: ./scripts/start-rdc.sh
 
-      - name: Connection diagnostics
-        run: |
-          sleep 12
-          ./scripts/health.sh
+      - name: Verify connection
+        run: ./scripts/health.sh
 
       - name: Keep runner online
         env:
           RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
-        run: ./scripts/keepalive.sh '${{ inputs.minutes }}'
+        run: ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
-      - name: Final diagnostics
+      # Queue the successor while this run still owns the concurrency group.
+      # It cannot start until this job ends, which gives us time to checkpoint
+      # the freshest rotated RDC credentials before handover.
+      - name: Queue successor
+        id: handover
         if: always()
-        run: ./scripts/health.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
+        shell: bash
+        run: |
+          if bash .github/scripts/ensure-rdc-lab.sh; then
+            echo "queued=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "queued=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gracefully stop RDC
+        if: always()
+        continue-on-error: true
+        run: ./scripts/stop-rdc.sh
+
+      - name: Save final encrypted RDC state
+        if: always()
+        continue-on-error: true
+        env:
+          RDC_DEVICE_STATE_B64: ${{ secrets.RDC_DEVICE_STATE_B64 }}
+        run: ./scripts/save-rdc-state.sh
+
+      - name: Persist rolling state for successor
+        if: ${{ always() && hashFiles('.rdc-state/device.json.enc') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .rdc-state
+          key: rdc-state-v1-${{ github.run_id }}
+
+  # Fallback if the pre-queue step was never reached or GitHub rejected it.
+  relaunch:
+    needs: [runner-lab]
+    if: ${{ always() && needs.runner-lab.outputs.queued != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure a successor exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: rdc-lab.yml
+          SELF_RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
+        run: bash .github/scripts/ensure-rdc-lab.sh
