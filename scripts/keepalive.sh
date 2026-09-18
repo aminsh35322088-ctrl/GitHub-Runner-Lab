@@ -6,9 +6,11 @@ set -Eeuo pipefail
 MINUTES="${1:-330}"
 PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
 DEVICE_FILE="$HOME/.desktop-commander-device/device.json"
+REQUEST_FILE="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}/handoff.request"
 RESTARTS=0
 MAX_RESTARTS=3
 CHECKPOINT_DONE=false
+SUCCESSOR_QUEUED=false
 
 if ! [[ "$MINUTES" =~ ^[0-9]+$ ]] || (( MINUTES < 1 || MINUTES > 330 )); then
   echo "Duration must be an integer between 1 and 330 minutes."
@@ -26,14 +28,36 @@ runtime_value() {
   ./scripts/agent-runtime.sh status | awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/,""); print; exit}'
 }
 
+queue_successor() {
+  if [[ "$SUCCESSOR_QUEUED" == "true" ]]; then
+    return 0
+  fi
+  if [[ -z "${GH_TOKEN:-}" || -z "${REPO:-}" ]]; then
+    echo "::warning::GitHub Actions credentials are unavailable inside keepalive; the normal handover/watchdog step will queue the successor."
+    return 0
+  fi
+  if bash .github/scripts/ensure-rdc-lab.sh; then
+    SUCCESSOR_QUEUED=true
+    echo "Successor run confirmed/queued before ending this runner."
+  else
+    echo "::warning::Could not pre-queue successor; the normal handover/watchdog step will retry."
+  fi
+}
+
+create_checkpoint() {
+  if [[ "$CHECKPOINT_DONE" == "false" ]]; then
+    echo "Creating agent checkpoint before runner handoff."
+    ./scripts/agent-checkpoint.sh auto-pre-handoff || echo "::warning::Agent checkpoint failed."
+    CHECKPOINT_DONE=true
+  fi
+}
+
 if [[ "$(runtime_value RUNTIME_STATE)" == "UNKNOWN" ]]; then
-  # Fallback for manual/local invocation. Normal workflow runs initialize the
-  # lifecycle clock immediately after checkout so setup time counts too.
   ./scripts/agent-runtime.sh start "$MINUTES" >/dev/null
 fi
 
 LAST_HASH="$(hash_state)"
-echo "Keeping RDC Lab online until the runner lifecycle clock reaches handoff."
+echo "Keeping RDC Lab online until the lifecycle enters the final auto-restart window."
 ./scripts/agent-runtime.sh status
 
 TOTAL_TICKS=$((MINUTES * 6))
@@ -48,7 +72,7 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
     fi
 
     RESTARTS=$((RESTARTS + 1))
-    echo "[$minute] RDC stopped; automatic restart $RESTARTS/$MAX_RESTARTS."
+    echo "[$minute] RDC stopped; automatic RDC process restart $RESTARTS/$MAX_RESTARTS."
     if (( RESTARTS > MAX_RESTARTS )); then
       echo "RDC exceeded the local restart limit; ending this runner so the watchdog can replace it."
       exit 1
@@ -63,31 +87,32 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
     LAST_HASH="$CURRENT_HASH"
   fi
 
+  if [[ -f "$REQUEST_FILE" ]]; then
+    echo "[$minute] Agent requested a clean runner restart."
+    create_checkpoint
+    queue_successor
+    break
+  fi
+
   if (( tick == 1 || tick % 6 == 0 || tick == TOTAL_TICKS )); then
     RUNTIME="$(./scripts/agent-runtime.sh status)"
     STATE="$(awk -F= '$1=="RUNTIME_STATE"{print $2}' <<<"$RUNTIME")"
     REMAINING="$(awk -F= '$1=="REMAINING_MINUTES"{print $2}' <<<"$RUNTIME")"
+    AUTO_HANDOFF="$(awk -F= '$1=="AUTO_HANDOFF_MINUTES"{print $2}' <<<"$RUNTIME")"
     ELAPSED="$(awk -F= '$1=="ELAPSED_MINUTES"{print $2}' <<<"$RUNTIME")"
-
-    case "$STATE" in
-      CHECKPOINT_REQUIRED|HANDOFF_IMMINENT|HANDOFF_DUE)
-        if [[ "$CHECKPOINT_DONE" == "false" ]]; then
-          echo "[$minute] Handoff window approaching; creating agent checkpoint."
-          ./scripts/agent-checkpoint.sh auto-pre-handoff || echo "::warning::Agent checkpoint failed."
-          CHECKPOINT_DONE=true
-        fi
-        ;;
-    esac
+    AUTO_HANDOFF="${AUTO_HANDOFF:-20}"
 
     PID="$(cat "$PID_FILE")"
     RSS="$(ps -p "$PID" -o rss= 2>/dev/null | xargs || true)"
     echo "[$minute] RDC healthy pid=$PID rss_kb=${RSS:-unknown} lifecycle=${STATE:-UNKNOWN} elapsed=${ELAPSED:-?}m remaining=${REMAINING:-?}m."
 
-    if [[ "$STATE" == "HANDOFF_DUE" ]]; then
-      echo "Runner lifecycle handoff deadline reached; ending keepalive cleanly."
+    if [[ "$STATE" == "HANDOFF_DUE" ]] || { [[ "$REMAINING" =~ ^[0-9]+$ ]] && (( REMAINING <= AUTO_HANDOFF )); }; then
+      echo "[$minute] Final ${AUTO_HANDOFF}m restart window reached; checkpointing and rotating to a fresh runner."
+      create_checkpoint
+      queue_successor
       break
     fi
   fi
 done
 
-echo "RDC Lab keepalive window completed."
+echo "RDC Lab keepalive window completed; workflow finalizers will persist state and release the successor."

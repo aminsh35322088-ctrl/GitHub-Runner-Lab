@@ -23,6 +23,7 @@ concurrency:
 
 env:
   ONLINE_MINUTES: 330
+  AGENT_AUTO_HANDOFF_MINUTES: 20
 
 jobs:
   runner-lab:
@@ -128,12 +129,31 @@ jobs:
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/health.sh
 
+      # Restore dependency/download caches only after RDC is already reachable.
+      # Target-repository setup scripts own the cache contents; the Lab only
+      # persists this generic, secret-free cache between ephemeral runners.
+      - name: Restore Agent Project Cache
+        if: steps.mode.outputs.ready == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/agent-projects
+            ~/.npm
+          key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
+          restore-keys: |
+            agent-lab-projects-${{ runner.os }}-node22-
+
       # RDC is already healthy at this point. Keep the prewarm child in the
       # same long-lived step as keepalive so it cannot be reaped between steps.
       - name: Prewarm Agent Toolchain and Keep RDC Lab Alive
         if: steps.mode.outputs.ready == 'true'
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         shell: bash
         run: |
           ./scripts/agent-prewarm.sh --background

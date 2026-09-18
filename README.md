@@ -31,7 +31,7 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 ## Lifecycle
 
-The lifecycle clock targets handoff 330 minutes after runner initialization, while the job hard timeout is 350 minutes. This reserves 20 minutes for safe checkpoint/upload/handoff cleanup before GitHub can terminate the job. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
+The lifecycle clock targets handoff 330 minutes after runner initialization, while the job hard timeout is 350 minutes. Normal agent work remains SAFE until the final 20 minutes. At that point the keepalive path checkpoints work, confirms/queues a successor, ends cleanly, and lets workflow finalizers persist RDC state before the fresh runner starts. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
 
 Startup is intentionally ordered for fast remote access:
 
@@ -61,11 +61,13 @@ The one-call status check is:
 ./scripts/agent-run.sh status
 ```
 
-A typical workspace handoff is:
+A typical project-aware workspace preparation is:
 
 ```bash
-./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --ref main
+./scripts/agent-run.sh work --repo https://github.com/OWNER/REPO.git --ref main
 ```
+
+Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
 For this project's default OpenCode Telegram bot repository:
 
@@ -87,6 +89,8 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-checkpoint.sh` — snapshots tracked changes and unpushed commits without copying untracked file contents.
 - `scripts/package-agent-checkpoints.sh` — encrypts the latest snapshot before artifact upload.
 - `scripts/agent-workspace.sh` — safe branch/PR checkout under `~/agent-workspaces`.
+- `scripts/agent-project.sh` — invokes the target branch's project-specific Agent Lab runner using an external persistent cache.
+- `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
 - `scripts/agent-run.sh` — one-call entry point for status, prepare, workspace and bootstrap.
 - RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
@@ -98,7 +102,7 @@ Canonical prewarm files:
 ~/.cache/agent-runner-kit/prewarm.log
 ```
 
-A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The lifecycle clock starts during early workflow setup; it switches to CAUTION at 60 minutes remaining and CHECKPOINT_REQUIRED at 30 minutes remaining.
+A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The lifecycle clock starts during early workflow setup. It stays SAFE until 20 minutes remain, then switches to the restart window and rotates to a fresh runner instead of making the agent abandon work 30–60 minutes early.
 
 ## Test policy
 

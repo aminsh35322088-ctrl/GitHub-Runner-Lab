@@ -44,8 +44,13 @@ def api(path):
 def workflow_limits():
     text = Path(".github/workflows/rdc-lab.yml").read_text()
     online = re.search(r"^  ONLINE_MINUTES:\s*(\d+)\s*$", text, re.M)
+    auto_handoff = re.search(r"^  AGENT_AUTO_HANDOFF_MINUTES:\s*(\d+)\s*$", text, re.M)
     timeout = re.search(r"(?ms)^  runner-lab:\s*$.*?^    timeout-minutes:\s*(\d+)\s*$", text)
-    return (int(online.group(1)) if online else 330, int(timeout.group(1)) if timeout else 350)
+    return (
+        int(online.group(1)) if online else 330,
+        int(timeout.group(1)) if timeout else 350,
+        int(auto_handoff.group(1)) if auto_handoff else 20,
+    )
 
 def step_by_names(steps, names):
     for name in names:
@@ -94,16 +99,14 @@ def reliability(repo, runs):
         "median_gap": round(statistics.median(gaps), 1) if gaps else None,
     }
 
-def work_mode(remaining):
+def work_mode(remaining, auto_handoff):
     if remaining is None: return "unknown"
     if remaining <= 0: return "due"
-    if remaining <= 15: return "imminent"
-    if remaining <= 30: return "checkpoint"
-    if remaining <= 60: return "caution"
+    if remaining <= auto_handoff: return "restart"
     return "safe"
 
 def collect(repo, branch, now):
-    online_minutes, timeout_minutes = workflow_limits()
+    online_minutes, timeout_minutes, auto_handoff_minutes = workflow_limits()
     query = urlencode({"per_page": 50, "branch": branch})
     runs = api(f"/repos/{repo}/actions/workflows/{WORKFLOW}/runs?{query}")["workflow_runs"]
     runs = [r for r in runs if r.get("head_repository", {}).get("full_name") == repo
@@ -117,6 +120,7 @@ def collect(repo, branch, now):
         "state": "idle", "checked": now.isoformat(), "run_id": None, "run_url": None,
         "job_started": None, "keepalive_started": None, "elapsed": None, "remaining": None,
         "handoff": None, "hard_timeout": None, "headroom": timeout_minutes - online_minutes,
+        "auto_handoff_minutes": auto_handoff_minutes,
         "work_mode": "unknown", "successor_queued": bool(queued), **stats,
     }
     if not run:
@@ -143,7 +147,8 @@ def collect(repo, branch, now):
         state.update(job_started=job_start.isoformat(),
                      elapsed=max(0, int((now - job_start).total_seconds() / 60)),
                      remaining=remaining, handoff=handoff.isoformat(),
-                     hard_timeout=hard_timeout.isoformat(), work_mode=work_mode(remaining))
+                     hard_timeout=hard_timeout.isoformat(),
+                     work_mode=work_mode(remaining, auto_handoff_minutes))
     if job.get("status") == "in_progress" and keep.get("status") == "in_progress" and verify.get("conclusion") == "success":
         state["state"] = "running"
         if keep.get("started_at"):
@@ -159,9 +164,8 @@ STATE_LABELS = {
     "unknown":"⚪ Unknown · GitHub API check failed",
 }
 MODE_LABELS = {
-    "safe":"🟢 SAFE — normal work window","caution":"🟡 CAUTION — finish bounded work only",
-    "checkpoint":"🟠 CHECKPOINT — stop heavy work; push/snapshot now",
-    "imminent":"🔴 HANDOFF IMMINENT — finalize and stop heavy work",
+    "safe":"🟢 SAFE — normal work window",
+    "restart":"🟠 RESTART WINDOW — checkpoint + rotate to a fresh runner",
     "due":"🔴 HANDOFF DUE — move to successor runner","unknown":"⚪ UNKNOWN",
 }
 
@@ -179,7 +183,8 @@ def render(state, repo):
         ("Runner/job started", utc(timestamp(state.get("job_started")))),
         ("Keepalive started", utc(timestamp(state.get("keepalive_started")))),
         ("Runner age", fmtmin("elapsed")),
-        ("Safe remaining", fmtmin("remaining")),
+        ("Runner lifecycle remaining", fmtmin("remaining")),
+        ("Auto restart threshold", f'{state.get("auto_handoff_minutes", 20)} min remaining'),
         ("Nominal handoff", utc(timestamp(state.get("handoff")))),
         ("Hard job timeout", utc(timestamp(state.get("hard_timeout")))),
         ("Planned timeout headroom", fmtmin("headroom")),
@@ -193,7 +198,9 @@ def render(state, repo):
     note = (
         "Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, "
         "run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is "
-        "planned at 330 minutes with a 350-minute hard job timeout. Reliability percentages are measured from "
+        "planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final "
+        f'{state.get("auto_handoff_minutes", 20)} minutes, when the current run checkpoints and rotates to a fresh runner. '
+        "Reliability percentages are measured from "
         f"the corresponding workflow steps in up to the last {SAMPLE_RUNS} completed runs; handoff reliability "
         f"means the next run started within {HANDOFF_TARGET_MINUTES} minutes."
     )
@@ -224,7 +231,7 @@ def git(*args):
 def unknown_state(now):
     return {"state":"unknown","checked":now.isoformat(),"run_id":None,"run_url":None,"job_started":None,
             "keepalive_started":None,"elapsed":None,"remaining":None,"handoff":None,"hard_timeout":None,
-            "headroom":None,"work_mode":"unknown","successor_queued":False,"verify_rate":None,"verify_sample":0,
+            "headroom":None,"auto_handoff_minutes":20,"work_mode":"unknown","successor_queued":False,"verify_rate":None,"verify_sample":0,
             "keepalive_rate":None,"keepalive_sample":0,"handoff_rate":None,"handoff_sample":0,"median_gap":None}
 
 def main():

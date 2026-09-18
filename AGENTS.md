@@ -58,13 +58,12 @@ If GitHub connector access is available, also inspect the current **Remote Deskt
 
 Interpret the local runtime state strictly:
 
-- `SAFE`: more than 60 minutes remain; normal work is allowed.
-- `CAUTION`: 31–60 minutes remain; finish bounded work only and prepare commits.
-- `CHECKPOINT_REQUIRED`: 16–30 minutes remain; do **not** start new heavy work. Push durable changes and create/verify a checkpoint.
-- `HANDOFF_IMMINENT`: 0–15 minutes remain; stop heavy work, push what is safe, and leave the workspace recoverable.
+- `SAFE`: more than 20 minutes remain; normal work is allowed. Do **not** abandon a task merely because 30–60 minutes remain.
+- `RESTART_WINDOW`: 1–20 minutes remain; finish only the current atomic operation, push durable work, and rotate to a fresh runner.
+- `RESTART_REQUESTED`: an agent already requested a clean rotation; do not start new work.
 - `HANDOFF_DUE`: stop using this runner and move to its successor.
 
-The keepalive loop automatically creates a fallback checkpoint about 30 minutes before nominal handoff. This checkpoint is not a substitute for pushing durable work to GitHub.
+The keepalive loop automatically enters a clean handoff in the final 20 minutes: it creates a checkpoint, confirms/queues a successor using the existing workflow, then lets workflow finalizers persist RDC state. An agent with shell access can request the same path with `./scripts/agent-run.sh restart`; the command refuses early restarts while the runner is still SAFE unless `--force` is explicit. This checkpoint is not a substitute for pushing durable work to GitHub.
 
 Manual checkpoint:
 
@@ -88,17 +87,19 @@ Preferred behavior:
 - Use subsequent RDC calls only when the previous command genuinely needs follow-up input/output.
 - Do not repeatedly query static machine information already emitted by `agent-doctor.sh`.
 
-A typical repository handoff should start with one command:
+A typical repository task should use the project-aware one-call path:
 
 ```bash
-./scripts/agent-run.sh prepare --repo <url> --ref <branch>
+./scripts/agent-run.sh work --repo <url> --ref <branch>
 ```
 
-or:
+or, for a PR with one or more targeted tests:
 
 ```bash
-./scripts/agent-run.sh prepare --pr <number>
+./scripts/agent-run.sh work --repo <url> --pr <number> --test tests/path/to/test.ts
 ```
+
+Project-specific setup and test commands do **not** belong in this Lab repository. The target branch owns them in `.github/agent-lab/runner.sh`. The Lab exports a persistent, secret-free `AGENT_PROJECT_CACHE_DIR` outside the workspace; the workflow restores/saves that cache plus the npm download cache between ephemeral runners. This keeps dependency/test harness preparation branch-specific while avoiding repeated downloads and repeated RDC setup calls.
 
 ## Heavy workloads
 
