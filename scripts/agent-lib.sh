@@ -1,34 +1,45 @@
 #!/usr/bin/env bash
-# Shared constants/helpers for the disposable agent toolchain.\n# shellcheck disable=SC2034
+# Shared helpers for the disposable agent toolchain.
 
-AGENT_TOOLCHAIN_VERSION="2026-09-18.2"
-AGENT_CACHE_DIR="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
-AGENT_STATUS_FILE="$AGENT_CACHE_DIR/prewarm.env"
-AGENT_LOG_FILE="$AGENT_CACHE_DIR/prewarm.log"
+agent_toolchain_version() {
+  printf '%s\n' "2026-09-18.3"
+}
 
-AGENT_REQUIRED_FULL_COMMANDS=(
-  git gh node npm python3 rg fd jq
-  cmake ninja gcc clang gdb git-lfs
-  ffmpeg convert sqlite3 shellcheck
-)
+agent_cache_dir() {
+  printf '%s\n' "${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
+}
+
+agent_status_file() {
+  printf '%s/prewarm.env\n' "$(agent_cache_dir)"
+}
+
+agent_log_file() {
+  printf '%s/prewarm.log\n' "$(agent_cache_dir)"
+}
 
 agent_status_value() {
   local key="$1"
-  [[ -f "$AGENT_STATUS_FILE" ]] || return 0
-  awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/,""); print; exit}' "$AGENT_STATUS_FILE"
+  local status_file
+  status_file="$(agent_status_file)"
+  [[ -f "$status_file" ]] || return 0
+  awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/,""); print; exit}' "$status_file"
+}
+
+agent_required_full_commands() {
+  printf '%s\n'     git gh node npm python3 rg fd jq     cmake ninja gcc clang gdb git-lfs     ffmpeg convert sqlite3 shellcheck
 }
 
 agent_full_toolchain_ready() {
   local cmd
-  for cmd in "${AGENT_REQUIRED_FULL_COMMANDS[@]}"; do
+  while IFS= read -r cmd; do
     command -v "$cmd" >/dev/null 2>&1 || return 1
-  done
+  done < <(agent_required_full_commands)
   return 0
 }
 
 agent_missing_full_commands() {
   local cmd
-  for cmd in "${AGENT_REQUIRED_FULL_COMMANDS[@]}"; do
+  while IFS= read -r cmd; do
     command -v "$cmd" >/dev/null 2>&1 || printf '%s\n' "$cmd"
-  done
+  done < <(agent_required_full_commands)
 }

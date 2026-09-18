@@ -52,7 +52,8 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 
 ## Helper scripts
 
-- `scripts/agent-lib.sh` — shared toolchain version, readiness and required-command contract.\n- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer.
+- `scripts/agent-lib.sh` — shared toolchain version/readiness contract.
+- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer.
 - `scripts/agent-prewarm.sh` — self-contained foreground/background full prewarm with locking and canonical state/log files.
 - `scripts/agent-status.sh` — compact readiness report for prewarm and key tools.
 - `scripts/agent-workspace.sh` — safe branch/PR checkout under `~/agent-workspaces`.
