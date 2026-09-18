@@ -178,25 +178,36 @@ def render(state, repo):
         ("Last checked", utc(timestamp(state.get("checked")))),
         ("Runner/job started", utc(timestamp(state.get("job_started")))),
         ("Keepalive started", utc(timestamp(state.get("keepalive_started")))),
-        ("Runner age", fmtmin("elapsed")), ("Safe remaining", fmtmin("remaining")),
+        ("Runner age", fmtmin("elapsed")),
+        ("Safe remaining", fmtmin("remaining")),
         ("Nominal handoff", utc(timestamp(state.get("handoff")))),
         ("Hard job timeout", utc(timestamp(state.get("hard_timeout")))),
-        ("Planned timeout headroom", fmtmin("headroom")), ("Successor already queued", successor),
-        ("RDC verification success", pct(state.get("verify_rate"), state.get("verify_sample",0))),
-        ("Keepalive completion", pct(state.get("keepalive_rate"), state.get("keepalive_sample",0))),
-        ("Handoff ≤15 min", pct(state.get("handoff_rate"), state.get("handoff_sample",0))),
+        ("Planned timeout headroom", fmtmin("headroom")),
+        ("Successor already queued", successor),
+        ("RDC verification success", pct(state.get("verify_rate"), state.get("verify_sample", 0))),
+        ("Keepalive completion", pct(state.get("keepalive_rate"), state.get("keepalive_sample", 0))),
+        ("Handoff ≤15 min", pct(state.get("handoff_rate"), state.get("handoff_sample", 0))),
         ("Median handoff gap", fmtmin("median_gap")),
         ("Run details", f"[Open current run]({run_link})"),
     ]
     note = (
         "Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, "
-        "run \`./scripts/agent-run.sh status\`. The lifecycle clock starts during early runner setup: handoff is "
+        "run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is "
         "planned at 330 minutes with a 350-minute hard job timeout. Reliability percentages are measured from "
         f"the corresponding workflow steps in up to the last {SAMPLE_RUNS} completed runs; handoff reliability "
         f"means the next run started within {HANDOFF_TARGET_MINUTES} minutes."
     )
-    return BEGIN+"\\n\\n## ⏱️ Live Runner status\\n\\n| Item | Value |\\n| :--- | :--- |\\n"+"\\n".join(
-        f"| {k} | {v} |" for k,v in rows)+"\\n\\n> "+note+"\\n\\n"+END
+    return (
+        BEGIN
+        + "\n\n## ⏱️ Live Runner status\n\n"
+        + "| Item | Value |\n| :--- | :--- |\n"
+        + "\n".join(f"| {k} | {v} |" for k, v in rows)
+        + "\n\n> "
+        + note
+        + "\n\n"
+        + END
+    )
+
 
 def replace_block(text, block):
     if text.count(BEGIN)!=1 or text.count(END)!=1: raise ValueError("README must contain exactly one RDC Lab status marker pair")
