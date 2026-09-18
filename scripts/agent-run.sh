@@ -6,51 +6,33 @@ cmd="${1:-prepare}"
 [[ $# -gt 0 ]] && shift || true
 
 case "$cmd" in
-  bootstrap)
-    exec "$SELF_DIR/agent-bootstrap.sh" "$@"
-    ;;
-  prewarm)
-    exec "$SELF_DIR/agent-prewarm.sh" "$@"
-    ;;
-  status)
-    exec "$SELF_DIR/agent-status.sh"
-    ;;
-  doctor)
-    exec "$SELF_DIR/agent-doctor.sh" "${1:-$PWD}"
-    ;;
-  workspace)
-    exec "$SELF_DIR/agent-workspace.sh" "$@"
-    ;;
+  bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
+  prewarm) exec "$SELF_DIR/agent-prewarm.sh" "$@" ;;
+  status) exec "$SELF_DIR/agent-status.sh" ;;
+  doctor) exec "$SELF_DIR/agent-doctor.sh" "${1:-$PWD}" ;;
+  workspace) exec "$SELF_DIR/agent-workspace.sh" "$@" ;;
   prepare)
-    bootstrap_args=()
+    profile=""
     workspace_args=()
     while (($#)); do
       case "$1" in
-        --core|--build|--media|--full)
-          bootstrap_args+=("$1")
-          shift
-          ;;
-        --repo|--ref|--pr|--dir)
-          workspace_args+=("$1" "$2")
-          shift 2
-          ;;
-        --deps|--force)
-          workspace_args+=("$1")
-          shift
-          ;;
+        --core|--build|--media|--full) profile="$1"; shift ;;
+        --repo|--ref|--pr|--dir) workspace_args+=("$1" "$2"); shift 2 ;;
+        --deps|--force) workspace_args+=("$1"); shift ;;
         -h|--help)
           echo "Usage: agent-run.sh prepare [--core|--build|--media|--full] [workspace options]"
           exit 0
           ;;
-        *)
-          echo "Unknown prepare option: $1" >&2
-          exit 2
-          ;;
+        *) echo "Unknown prepare option: $1" >&2; exit 2 ;;
       esac
     done
-    # The workflow normally prewarms --full after RDC is healthy. This fast
-    # check only fills any missing requested profile and is idempotent.
-    "$SELF_DIR/agent-bootstrap.sh" "${bootstrap_args[@]}"
+
+    if [[ -n "$profile" ]]; then
+      "$SELF_DIR/agent-bootstrap.sh" "$profile"
+    elif ! command -v git >/dev/null 2>&1 || ! command -v rg >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+      "$SELF_DIR/agent-bootstrap.sh" --core
+    fi
+
     output="$("$SELF_DIR/agent-workspace.sh" "${workspace_args[@]}")"
     printf '%s\n' "$output"
     workspace="$(printf '%s\n' "$output" | sed -n 's/^AGENT_WORKSPACE=//p' | tail -n1)"

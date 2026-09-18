@@ -31,8 +31,8 @@ The automatic prewarm is managed by:
 
 - `scripts/agent-prewarm.sh`
 - `scripts/agent-bootstrap.sh --full`
-- readiness state: `~/.cache/agent-runner-kit/prewarm.env`
-- prewarm log: `~/.cache/agent-runner-kit/prewarm.log`
+- canonical readiness state: `~/.cache/agent-runner-kit/prewarm.env`
+- canonical prewarm log: `~/.cache/agent-runner-kit/prewarm.log`
 
 Check readiness with:
 
@@ -93,7 +93,7 @@ The standard prewarm covers:
 - Git/GitHub CLI, curl/wget, jq/yq;
 - ripgrep, fd, fzf, tree, rsync, zip/unzip;
 - Python + venv/dev tooling;
-- build-essential, CMake, Ninja, pkg-config;
+- build-essential, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS and common native headers;
 - shellcheck, sqlite, network/process diagnostics;
 - FFmpeg and ImageMagick;

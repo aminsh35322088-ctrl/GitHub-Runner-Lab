@@ -130,11 +130,7 @@ jobs:
       - name: Start Agent Toolchain Prewarm
         if: steps.mode.outputs.ready == 'true'
         shell: bash
-        run: |
-          mkdir -p "$HOME/.cache/agent-runner-kit"
-          nohup ./scripts/agent-prewarm.sh </dev/null             >"$HOME/.cache/agent-runner-kit/prewarm-launch.log" 2>&1 &
-          echo $! > "$HOME/.cache/agent-runner-kit/prewarm-launch.pid"
-          echo "Agent prewarm started in background with PID $(cat "$HOME/.cache/agent-runner-kit/prewarm-launch.pid")."
+        run: ./scripts/agent-prewarm.sh --background
 
       - name: Keep RDC Lab Alive
         if: steps.mode.outputs.ready == 'true'

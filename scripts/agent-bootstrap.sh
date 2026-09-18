@@ -2,9 +2,8 @@
 set -Eeuo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-CACHE_DIR="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
 LOCAL_BIN="$HOME/.local/bin"
-mkdir -p "$CACHE_DIR" "$LOCAL_BIN"
+mkdir -p "$LOCAL_BIN"
 
 CORE_PACKAGES=(
   ca-certificates curl wget git gh jq yq unzip zip rsync
@@ -12,26 +11,25 @@ CORE_PACKAGES=(
   netcat-openbsd dnsutils sqlite3 shellcheck python3 python3-pip
 )
 BUILD_PACKAGES=(
-  build-essential cmake ninja-build pkg-config python3-venv python3-dev
-  git-lfs libssl-dev libsqlite3-dev
+  build-essential cmake ninja-build pkg-config
+  python3-venv python3-dev python3-setuptools python3-wheel
+  git-lfs clang gdb
+  libssl-dev libsqlite3-dev zlib1g-dev libffi-dev
 )
 MEDIA_PACKAGES=(ffmpeg imagemagick)
 
 PROFILE="core"
-while (($#)); do
-  case "$1" in
-    --core) PROFILE="core"; shift ;;
-    --build) PROFILE="build"; shift ;;
-    --media) PROFILE="media"; shift ;;
-    --full) PROFILE="full"; shift ;;
-    -h|--help)
-      echo "Usage: agent-bootstrap.sh [--core|--build|--media|--full]"
-      echo "core is the default; the workflow background prewarm uses --full."
-      exit 0
-      ;;
-    *) echo "Unknown bootstrap option: $1" >&2; exit 2 ;;
-  esac
-done
+case "${1:-}" in
+  ""|--core) PROFILE="core" ;;
+  --build) PROFILE="build" ;;
+  --media) PROFILE="media" ;;
+  --full) PROFILE="full" ;;
+  -h|--help)
+    echo "Usage: agent-bootstrap.sh [--core|--build|--media|--full]"
+    exit 0
+    ;;
+  *) echo "Unknown bootstrap option: $1" >&2; exit 2 ;;
+esac
 
 PACKAGES=("${CORE_PACKAGES[@]}")
 case "$PROFILE" in
@@ -59,6 +57,8 @@ if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
   ln -sfn "$(command -v fdfind)" "$LOCAL_BIN/fd"
 fi
 
+# GitHub-hosted runners normally provide Node.js already. Recover it from the
+# hosted toolcache instead of downloading another copy if PATH was lost.
 if ! command -v node >/dev/null 2>&1 && [[ -d /opt/hostedtoolcache/node ]]; then
   node_bin="$(find /opt/hostedtoolcache/node -type f -path '*/x64/bin/node' 2>/dev/null | sort -V | tail -n 1 || true)"
   if [[ -n "$node_bin" ]]; then
@@ -80,14 +80,7 @@ git config --global fetch.prune true
 git config --global init.defaultBranch main
 git config --global core.autocrlf false
 git config --global advice.detachedHead false
+command -v git-lfs >/dev/null 2>&1 && git lfs install --skip-repo >/dev/null 2>&1 || true
 
-if command -v git-lfs >/dev/null 2>&1; then
-  git lfs install --skip-repo >/dev/null 2>&1 || true
-fi
-
-date -u +"%Y-%m-%dT%H:%M:%SZ" > "$CACHE_DIR/bootstrap-$PROFILE"
-
-echo "[agent-bootstrap] Ready."
-printf '  git=%s\n' "$(git --version 2>/dev/null || true)"
-printf '  node=%s npm=%s python=%s\n' "$(node --version 2>/dev/null || echo missing)" "$(npm --version 2>/dev/null || echo missing)" "$(python3 --version 2>/dev/null || true)"
-printf '  rg=%s fd=%s jq=%s cmake=%s ffmpeg=%s\n'   "$(rg --version 2>/dev/null | head -n1 || echo missing)"   "$(fd --version 2>/dev/null | head -n1 || echo missing)"   "$(jq --version 2>/dev/null || echo missing)"   "$(cmake --version 2>/dev/null | head -n1 || echo missing)"   "$(ffmpeg -version 2>/dev/null | head -n1 || echo missing)"
+echo "[agent-bootstrap] Ready profile=$PROFILE"
+printf 'git=%s node=%s npm=%s python=%s rg=%s cmake=%s clang=%s ffmpeg=%s\n'   "$(git --version 2>/dev/null | awk '{print $3}' || echo missing)"   "$(node --version 2>/dev/null || echo missing)"   "$(npm --version 2>/dev/null || echo missing)"   "$(python3 --version 2>/dev/null | awk '{print $2}' || echo missing)"   "$(rg --version 2>/dev/null | awk 'NR==1 {print $2}' || echo missing)"   "$(cmake --version 2>/dev/null | awk 'NR==1 {print $3}' || echo missing)"   "$(clang --version 2>/dev/null | awk 'NR==1 {print $4}' || echo missing)"   "$(ffmpeg -version 2>/dev/null | awk 'NR==1 {print $3}' || echo missing)"

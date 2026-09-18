@@ -1,13 +1,40 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF="$(readlink -f "$0")"
+SELF_DIR="$(dirname "$SELF")"
 CACHE_DIR="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
 STATUS_FILE="$CACHE_DIR/prewarm.env"
 LOG_FILE="$CACHE_DIR/prewarm.log"
 LOCK_FILE="$CACHE_DIR/prewarm.lock"
-PID_FILE="$CACHE_DIR/prewarm.pid"
 mkdir -p "$CACHE_DIR"
+
+read_state() {
+  local key="$1"
+  [[ -f "$STATUS_FILE" ]] || return 0
+  awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/,""); print; exit}' "$STATUS_FILE"
+}
+
+if [[ "${1:-}" == "--background" ]]; then
+  state="$(read_state STATUS)"
+  pid="$(read_state PID)"
+  if [[ "$state" == "READY" ]]; then
+    echo "[agent-prewarm] Full toolchain is already ready."
+    exit 0
+  fi
+  if [[ "$state" == "RUNNING" && -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "[agent-prewarm] Already running pid=$pid."
+    exit 0
+  fi
+  nohup "$SELF" --foreground </dev/null >/dev/null 2>&1 &
+  echo "[agent-prewarm] Background prewarm started pid=$!."
+  exit 0
+fi
+
+if [[ -n "${1:-}" && "${1:-}" != "--foreground" ]]; then
+  echo "Usage: agent-prewarm.sh [--background|--foreground]" >&2
+  exit 2
+fi
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -16,18 +43,25 @@ if ! flock -n 9; then
 fi
 
 started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-printf '%s\n'   "STATUS=RUNNING"   "STARTED_AT=$started_at"   "FINISHED_AT="   "PROFILE=full"   "PID=$$" > "$STATUS_FILE"
-printf '%s\n' "$$" > "$PID_FILE"
+write_status() {
+  local state="$1" finished_at="${2:-}" exit_code="${3:-}"
+  {
+    echo "STATUS=$state"
+    echo "STARTED_AT=$started_at"
+    echo "FINISHED_AT=$finished_at"
+    echo "PROFILE=full"
+    echo "PID=$$"
+    [[ -n "$exit_code" ]] && echo "EXIT_CODE=$exit_code"
+  } > "$STATUS_FILE"
+}
+
+write_status RUNNING
 
 finish() {
   code=$?
-  finished_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   if ((code == 0)); then state="READY"; else state="FAILED"; fi
-  printf '%s\n'     "STATUS=$state"     "STARTED_AT=$started_at"     "FINISHED_AT=$finished_at"     "PROFILE=full"     "PID=$$"     "EXIT_CODE=$code" > "$STATUS_FILE"
-  rm -f "$PID_FILE"
-  if ((code == 0)); then
-    echo "[agent-prewarm] Full toolchain is ready."
-  else
+  write_status "$state" "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$code"
+  if ((code != 0)); then
     echo "[agent-prewarm] Failed with exit code $code. See $LOG_FILE." >&2
   fi
 }

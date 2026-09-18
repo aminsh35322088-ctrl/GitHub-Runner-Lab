@@ -1,79 +1,78 @@
 # GitHub Runner Lab
 
-A self-relaunching GitHub Actions lab for keeping a disposable Ubuntu runner reachable through Remote Desktop Commander without modifying the stable Tailscale Exit Node repository.
+A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reachable through Remote Desktop Commander (RDC) and prewarms it for heavy development work.
 
-## Architecture
+## Lifecycle
 
-- `rdc-lab.yml` runs the active lab for about 330 minutes, then pre-queues a successor before releasing its concurrency lock.
-- `rdc-watchdog.yml` reacts to completed runs and also checks every 10 minutes as a backstop.
-- `.github/scripts/ensure-rdc-lab.sh` prevents duplicate active runners, replaces stale/pending runs, and includes a short-failure crash-loop guard.
-- `repository-heartbeat.yml` periodically keeps this public repository active so scheduled workflows remain eligible.
-- RDC 0.2.50 is installed fresh on every runner and its process is locally restarted if it crashes.
+The active `rdc-lab.yml` run lasts about 330 minutes and queues a successor before releasing its concurrency lock. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
 
-## RDC identity handoff
+Startup is intentionally ordered for fast remote access:
 
-RDC requires one initial browser/device authorization. The resulting `device.json` is the only manual bootstrap required.
+1. Checkout and restore encrypted RDC state from the private `rdc-state` branch.
+2. Install/start RDC and verify authenticated health.
+3. Launch the full agent toolchain prewarm in the background.
+4. Keep RDC online while prewarm finishes.
+5. Persist rotated RDC state and hand off to the successor runner.
 
-Create the repository Actions secret `RDC_DEVICE_STATE_B64` from a dedicated, paired RDC identity. Never commit `device.json` or its Base64 value.
+Heavy package installation therefore never blocks initial RDC connectivity.
 
-After bootstrap, each runner restores an encrypted rolling state from GitHub Actions cache, starts RDC with the same identity, checkpoints the current session every five minutes, gracefully saves it before handoff, and encrypts the state before caching it for the successor.
+## RDC state
 
-The cache copy is encrypted with AES-256-CBC/PBKDF2. Its encryption passphrase is derived at runtime from the repository secret and is never committed.
+The only required persistence secret is `RDC_STATE_KEY` (at least 32 random characters). The encrypted `device.json` is stored on the dedicated `rdc-state` branch; plaintext credentials are never committed.
 
-## RDC 0.2.50 restart hardening
+For first setup or recovery, manually dispatch `rdc-lab.yml` with `bootstrap=true` and complete the RDC browser authorization. Normal successor runs restore state unattended.
 
-RDC 0.2.50 can rotate its refresh token in memory without rewriting the persisted `device.json`. That is unsafe for ephemeral runners because a later process may restore a stale refresh token.
+The workflow installs the current Desktop Commander package on each fresh runner. The repository does not carry a version-specific runtime patch.
 
-`scripts/patch-rdc-refresh.sh` applies a narrow runtime patch to the freshly installed package so the current session is periodically persisted and saved again during graceful shutdown. The upstream package in npm and this repository's source remain untouched.
+## Agent environment
 
-## Automatic lifecycle
+Read `AGENTS.md` before using the Lab. The target repository's own agent instructions remain authoritative.
 
-Once `RDC_DEVICE_STATE_B64` exists, no normal manual restart is required. The active run keeps RDC online, pre-queues its successor, transfers encrypted session state, and the watchdog repairs a broken relaunch chain.
-
-There can still be a short GitHub-hosted runner startup/handover gap; this design is self-healing and near-continuous rather than a literal single machine with uninterrupted uptime.
-
-If the bootstrap secret is absent, both the lab and watchdog intentionally remain dormant instead of entering a failing relaunch loop.
-
-## Agent fast path
-
-The `agent-*.sh` helpers prepare a disposable coding workspace with as few Remote Desktop Commander calls as possible.
-
-The common one-call entry point is:
-
-```bash
-./scripts/agent-run.sh prepare --repo https://github.com/aminsh35322088-ctrl/opencode-telegram-bot.git --ref main
-```
-
-For a pull request:
-
-```bash
-./scripts/agent-run.sh prepare --pr 99
-```
-
-`prepare` is idempotent: it creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. The workflow now starts the **full heavy toolchain prewarm automatically after RDC passes health**, so remote access comes online first while build/media dependencies install in the background. Manual profile flags remain available as an idempotent fallback.
-
-Heavy local builds, debugging and targeted tests are welcome on this Lab when the target repository permits them. A target repository's own `AGENTS.md` remains authoritative; for `opencode-telegram-bot`, full-suite validation intentionally remains GitHub Actions CI. Dependency installation inside a prepared workspace is still opt-in with `--deps`.
-
-Available helpers:
-
-- `scripts/agent-bootstrap.sh` — installs the common toolchain; the workflow prewarm calls it with `--full` after RDC is healthy.
-- `scripts/agent-workspace.sh` — prepares a clean branch or PR checkout under `~/agent-workspaces`.
-- `scripts/agent-doctor.sh` — emits environment, tool, Git, status, recent commit, and package-script context in one call.
-- `scripts/agent-prewarm.sh` — locked background full-toolchain preparation with readiness/failure markers.\n- `scripts/agent-status.sh` — one-call readiness report for the prewarm and key tools.\n- `scripts/agent-run.sh` — one-call wrapper for prewarm/status/bootstrap/workspace/context.
-
-## Isolation
-
-This repository does not modify `GitHub-Tailscale-Exit-Node`, its Tailscale OAuth credentials, exit-node advertisements, SSH configuration, or watchdog chain. The two automation systems are independent.
-
-
-## Background prewarm
-
-RDC connectivity is deliberately established before heavy package installation. After `scripts/health.sh` succeeds, the workflow launches `scripts/agent-prewarm.sh` with `nohup` and immediately proceeds to the normal keepalive step.
-
-Check readiness at any time:
+The one-call status check is:
 
 ```bash
 ./scripts/agent-run.sh status
 ```
 
-The canonical state file is `~/.cache/agent-runner-kit/prewarm.env`. A failed prewarm does not take RDC offline; agents can inspect the failure log and continue using tools that are already available.
+A typical workspace handoff is:
+
+```bash
+./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --ref main
+```
+
+For this project's default OpenCode Telegram bot repository:
+
+```bash
+./scripts/agent-run.sh prepare --pr 99
+```
+
+The automatic full prewarm covers the common coding/debugging stack: Git/GitHub CLI, Node/npm, Python, ripgrep/fd/fzf, jq/yq, C/C++ build tools, CMake, Ninja, Clang, GDB, Git LFS, SQLite, diagnostics/network tools, FFmpeg, and ImageMagick. GitHub-hosted tools such as Docker remain available when provided by the runner image.
+
+Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser bundles, or database servers remain on-demand.
+
+## Helper scripts
+
+- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer.
+- `scripts/agent-prewarm.sh` — self-contained foreground/background full prewarm with locking and canonical state/log files.
+- `scripts/agent-status.sh` — compact readiness report for prewarm and key tools.
+- `scripts/agent-workspace.sh` — safe branch/PR checkout under `~/agent-workspaces`.
+- `scripts/agent-doctor.sh` — compact machine/repository context report.
+- `scripts/agent-run.sh` — one-call entry point for status, prepare, workspace and bootstrap.
+- RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
+
+Canonical prewarm files:
+
+```text
+~/.cache/agent-runner-kit/prewarm.env
+~/.cache/agent-runner-kit/prewarm.log
+```
+
+A failed prewarm does not take RDC offline.
+
+## Test policy
+
+This Lab can run heavy local builds and tests when the target repository permits it. For `opencode-telegram-bot`, its own `AGENTS.md` requires the full suite to run in GitHub Actions CI because Railway production is resource-constrained; that repository policy takes precedence.
+
+## Isolation
+
+This repository is independent from `GitHub-Tailscale-Exit-Node`. Do not modify that stable exit-node system from this Lab unless explicitly requested.
