@@ -15,7 +15,9 @@ if ! [[ "$MINUTES" =~ ^[0-9]+$ ]] || (( MINUTES < 1 || MINUTES > 330 )); then
 fi
 
 hash_state() {
-  [[ -s "$DEVICE_FILE" ]] && sha256sum "$DEVICE_FILE" | awk '{print $1}' || true
+  if [[ -s "$DEVICE_FILE" ]]; then
+    sha256sum "$DEVICE_FILE" | awk '{print $1}'
+  fi
 }
 
 LAST_HASH="$(hash_state)"
