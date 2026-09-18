@@ -62,28 +62,75 @@ def duration_minutes(run):
     return max(0.0, (end - start).total_seconds() / 60)
 
 
-def reliability(runs, online_minutes):
-    completed = [r for r in runs if r.get("status") == "completed"][:SAMPLE_RUNS]
-    threshold = max(1, online_minutes - 20)
-    good_cycles = [
-        r for r in completed
-        if r.get("conclusion") == "success" and (duration_minutes(r) or 0) >= threshold
-    ]
-    cycle_rate = round(100 * len(good_cycles) / len(completed)) if completed else None
+def keep_step(job):
+    steps = {s.get("name"): s for s in job.get("steps", [])}
+    return next((steps[name] for name in KEEP_STEPS if name in steps), {})
 
-    chronological = sorted(
-        [r for r in runs if r.get("run_started_at")],
-        key=lambda r: r["run_started_at"],
+
+def reliability(repo, runs, online_minutes):
+    threshold = max(1, online_minutes - 20)
+    records = []
+
+    candidates = [
+        r for r in runs
+        if r.get("status") in ("completed", "in_progress")
+        and r.get("conclusion") != "cancelled"
+    ][: SAMPLE_RUNS + 5]
+
+    for run in candidates:
+        try:
+            jobs = api(f'/repos/{repo}/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100')["jobs"]
+        except Exception:
+            continue
+        job = next((j for j in jobs if j.get("name") == JOB_NAME), None)
+        if not job or not job.get("started_at"):
+            continue
+
+        keep = keep_step(job)
+        started = timestamp(job.get("started_at"))
+        completed = timestamp(job.get("completed_at"))
+        keep_started = timestamp(keep.get("started_at"))
+        keep_completed = timestamp(keep.get("completed_at"))
+        keep_minutes = (
+            max(0.0, (keep_completed - keep_started).total_seconds() / 60)
+            if keep_started and keep_completed
+            else None
+        )
+        records.append({
+            "run_id": run["id"],
+            "run_status": run.get("status"),
+            "run_conclusion": run.get("conclusion"),
+            "job_started": started,
+            "job_completed": completed,
+            "job_conclusion": job.get("conclusion"),
+            "keep_conclusion": keep.get("conclusion"),
+            "keep_minutes": keep_minutes,
+        })
+
+    completed_cycles = [
+        r for r in records
+        if r["run_status"] == "completed" and r["keep_minutes"] is not None
+    ][:SAMPLE_RUNS]
+    good_cycles = [
+        r for r in completed_cycles
+        if r["run_conclusion"] == "success"
+        and r["job_conclusion"] == "success"
+        and r["keep_conclusion"] == "success"
+        and r["keep_minutes"] >= threshold
+    ]
+    cycle_rate = (
+        round(100 * len(good_cycles) / len(completed_cycles))
+        if completed_cycles else None
     )
+
+    chronological = sorted(records, key=lambda r: r["job_started"])
     gaps = []
     for previous, current in zip(chronological, chronological[1:]):
-        if previous.get("status") != "completed":
+        if not previous["job_completed"] or not current["job_started"]:
             continue
-        prev_end = timestamp(previous.get("updated_at"))
-        next_start = timestamp(current.get("run_started_at"))
-        if not prev_end or not next_start:
+        gap = (current["job_started"] - previous["job_completed"]).total_seconds() / 60
+        if gap < 0:
             continue
-        gap = max(0.0, (next_start - prev_end).total_seconds() / 60)
         gaps.append(gap)
     gaps = gaps[-SAMPLE_RUNS:]
     handoff_rate = (
@@ -91,14 +138,14 @@ def reliability(runs, online_minutes):
         if gaps else None
     )
     median_gap = round(statistics.median(gaps), 1) if gaps else None
+
     return {
         "cycle_rate": cycle_rate,
-        "cycle_sample": len(completed),
+        "cycle_sample": len(completed_cycles),
         "handoff_rate": handoff_rate,
         "handoff_sample": len(gaps),
         "median_gap": median_gap,
     }
-
 
 def work_mode(remaining):
     if remaining is None:
@@ -124,7 +171,7 @@ def collect(repo, branch, now):
         and r.get("event") in ("workflow_dispatch", "schedule")
     ]
     runs.sort(key=lambda r: (r.get("created_at", ""), r["id"]), reverse=True)
-    stats = reliability(runs, online_minutes)
+    stats = reliability(repo, runs, online_minutes)
 
     active = [r for r in runs if r.get("status") == "in_progress"]
     queued = [r for r in runs if r.get("status") not in ("completed", "in_progress")]
@@ -160,7 +207,7 @@ def collect(repo, branch, now):
     jobs = api(f'/repos/{repo}/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100')["jobs"]
     job = next((j for j in jobs if j.get("name") == JOB_NAME), {})
     steps = {s.get("name"): s for s in job.get("steps", [])}
-    keep = next((steps[name] for name in KEEP_STEPS if name in steps), {})
+    keep = keep_step(job)
     verify = steps.get(VERIFY_STEP, {})
 
     if (
@@ -220,8 +267,8 @@ def render(state, repo):
         "README is a GitHub Actions snapshot refreshed on run events and about every 10 minutes. "
         "For the exact live countdown while connected, run `./scripts/agent-run.sh status`; "
         "an agent with GitHub access should also inspect the current workflow run before starting long work. "
-        "Full-cycle reliability means a successful run lasting at least ONLINE_MINUTES−20; "
-        "handoff reliability means the next run started within 15 minutes."
+        "Full-cycle reliability uses the actual keepalive-step duration and requires at least ONLINE_MINUTES−20; "
+        "handoff reliability uses actual runner-lab job start/end times and means the next job started within 15 minutes."
     )
     rows = [
         ("Runner state", STATE_LABELS.get(state.get("state"), STATE_LABELS["unknown"])),
