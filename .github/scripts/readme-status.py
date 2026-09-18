@@ -20,7 +20,7 @@ END = "<!-- RDC-LAB-STATUS:END -->"
 UTC = dt.timezone.utc
 WORKFLOW = "rdc-lab.yml"
 JOB_NAME = "runner-lab"
-KEEP_STEP = "Prewarm Agent Toolchain and Keep RDC Lab Alive"
+KEEP_STEPS = ("Prewarm Agent Toolchain and Keep RDC Lab Alive", "Keep RDC Lab Alive")
 VERIFY_STEP = "Verify connection"
 SAMPLE_RUNS = 20
 HANDOFF_TARGET_MINUTES = 15
@@ -160,7 +160,7 @@ def collect(repo, branch, now):
     jobs = api(f'/repos/{repo}/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100')["jobs"]
     job = next((j for j in jobs if j.get("name") == JOB_NAME), {})
     steps = {s.get("name"): s for s in job.get("steps", [])}
-    keep = steps.get(KEEP_STEP, {})
+    keep = next((steps[name] for name in KEEP_STEPS if name in steps), {})
     verify = steps.get(VERIFY_STEP, {})
 
     if (
