@@ -50,13 +50,13 @@ For a pull request:
 ./scripts/agent-run.sh prepare --pr 99
 ```
 
-`prepare` is idempotent: it installs only missing system prerequisites, creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. Re-running it on the same runner is fast because installed tools are detected before apt is touched.
+`prepare` is idempotent: it installs only missing **core** prerequisites, creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. Re-running it on the same runner is fast because installed tools are detected before apt is touched. Heavy extras are opt-in: use `--media` for FFmpeg/ImageMagick, `--build` for native build tooling, or `--full` for both.
 
 Full test-suite execution intentionally stays on GitHub Actions. The runner helpers are for source inspection, targeted debugging, edits, and lightweight local checks. Dependency installation is opt-in with `--deps`.
 
 Available helpers:
 
-- `scripts/agent-bootstrap.sh` — installs common debugging/build/media CLIs and restores hosted Node to PATH when needed.
+- `scripts/agent-bootstrap.sh` — installs the fast core CLI set by default and restores hosted Node to PATH; build/media packages are optional profiles.
 - `scripts/agent-workspace.sh` — prepares a clean branch or PR checkout under `~/agent-workspaces`.
 - `scripts/agent-doctor.sh` — emits environment, tool, Git, status, recent commit, and package-script context in one call.
 - `scripts/agent-run.sh` — one-call wrapper for bootstrap + workspace + context.
