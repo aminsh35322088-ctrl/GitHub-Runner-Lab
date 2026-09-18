@@ -34,6 +34,33 @@ There can still be a short GitHub-hosted runner startup/handover gap; this desig
 
 If the bootstrap secret is absent, both the lab and watchdog intentionally remain dormant instead of entering a failing relaunch loop.
 
+## Agent fast path
+
+The `agent-*.sh` helpers prepare a disposable coding workspace with as few Remote Desktop Commander calls as possible.
+
+The common one-call entry point is:
+
+```bash
+./scripts/agent-run.sh prepare --repo https://github.com/aminsh35322088-ctrl/opencode-telegram-bot.git --ref main
+```
+
+For a pull request:
+
+```bash
+./scripts/agent-run.sh prepare --pr 99
+```
+
+`prepare` is idempotent: it installs only missing system prerequisites, creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. Re-running it on the same runner is fast because installed tools are detected before apt is touched.
+
+Full test-suite execution intentionally stays on GitHub Actions. The runner helpers are for source inspection, targeted debugging, edits, and lightweight local checks. Dependency installation is opt-in with `--deps`.
+
+Available helpers:
+
+- `scripts/agent-bootstrap.sh` — installs common debugging/build/media CLIs and restores hosted Node to PATH when needed.
+- `scripts/agent-workspace.sh` — prepares a clean branch or PR checkout under `~/agent-workspaces`.
+- `scripts/agent-doctor.sh` — emits environment, tool, Git, status, recent commit, and package-script context in one call.
+- `scripts/agent-run.sh` — one-call wrapper for bootstrap + workspace + context.
+
 ## Isolation
 
 This repository does not modify `GitHub-Tailscale-Exit-Node`, its Tailscale OAuth credentials, exit-node advertisements, SSH configuration, or watchdog chain. The two automation systems are independent.
