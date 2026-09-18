@@ -10,7 +10,7 @@ Startup is intentionally ordered for fast remote access:
 
 1. Checkout and restore encrypted RDC state from the private `rdc-state` branch.
 2. Install/start RDC and verify authenticated health.
-3. Launch the full agent toolchain prewarm in the background.
+3. Enter the long-lived keepalive step and launch the full agent toolchain prewarm in its background.
 4. Keep RDC online while prewarm finishes.
 5. Persist rotated RDC state and hand off to the successor runner.
 

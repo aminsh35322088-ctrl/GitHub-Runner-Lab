@@ -125,18 +125,16 @@ jobs:
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/health.sh
 
-      # RDC is already healthy at this point. Prewarm the heavy development
-      # toolchain in the background so remote access is never delayed by apt.
-      - name: Start Agent Toolchain Prewarm
-        if: steps.mode.outputs.ready == 'true'
-        shell: bash
-        run: ./scripts/agent-prewarm.sh --background
-
-      - name: Keep RDC Lab Alive
+      # RDC is already healthy at this point. Keep the prewarm child in the
+      # same long-lived step as keepalive so it cannot be reaped between steps.
+      - name: Prewarm Agent Toolchain and Keep RDC Lab Alive
         if: steps.mode.outputs.ready == 'true'
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
-        run: ./scripts/keepalive.sh "$ONLINE_MINUTES"
+        shell: bash
+        run: |
+          ./scripts/agent-prewarm.sh --background
+          ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
       # Same handover model as the proven Tailscale Exit Node: queue the successor
       # while this run still owns the concurrency group.

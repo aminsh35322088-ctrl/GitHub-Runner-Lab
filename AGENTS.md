@@ -22,7 +22,7 @@ The workflow must follow this order:
 1. Restore RDC identity/state.
 2. Install and start RDC.
 3. Pass RDC health verification.
-4. Start the heavy toolchain prewarm **in the background**.
+4. Enter the long-lived keepalive step, start heavy toolchain prewarm **in the background**, and keep that parent step alive.
 5. Keep RDC online while prewarm continues.
 
 Never delay RDC connectivity just to install build/media dependencies.
