@@ -27,7 +27,7 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 ## Lifecycle
 
-The active `rdc-lab.yml` run lasts about 330 minutes and queues a successor before releasing its concurrency lock. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
+The lifecycle clock targets handoff 330 minutes after runner initialization, while the job hard timeout is 350 minutes. This reserves 20 minutes for safe checkpoint/upload/handoff cleanup before GitHub can terminate the job. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
 
 Startup is intentionally ordered for fast remote access:
 
@@ -94,7 +94,7 @@ Canonical prewarm files:
 ~/.cache/agent-runner-kit/prewarm.log
 ```
 
-A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The runtime timer switches to CAUTION at 60 minutes remaining and CHECKPOINT_REQUIRED at 30 minutes remaining.
+A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The lifecycle clock starts during early workflow setup; it switches to CAUTION at 60 minutes remaining and CHECKPOINT_REQUIRED at 30 minutes remaining.
 
 ## Test policy
 

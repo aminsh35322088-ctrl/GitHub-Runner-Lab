@@ -45,8 +45,11 @@ jobs:
         with:
           node-version: '22.14.0'
 
-      - name: Prepare scripts
-        run: chmod +x scripts/*.sh .github/scripts/*.sh
+      - name: Prepare scripts and initialize lifecycle clock
+        shell: bash
+        run: |
+          chmod +x scripts/*.sh .github/scripts/*.sh
+          ./scripts/agent-runtime.sh start "$ONLINE_MINUTES"
 
       - name: Check persistent state key
         id: key

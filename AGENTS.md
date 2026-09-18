@@ -46,7 +46,7 @@ If prewarm is still running, continue with work that only needs already-availabl
 
 ## Runner lifetime and handoff safety
 
-The nominal interactive lifetime is **330 minutes**, not the theoretical 6-hour GitHub ceiling. Never plan work against the hard platform limit.
+The nominal lifecycle is **330 minutes from runner initialization**, not 330 minutes from keepalive start and not the theoretical 6-hour GitHub ceiling. The job timeout is 350 minutes, deliberately leaving 20 minutes for checkpoint packaging, successor handoff, RDC shutdown, and state persistence. Never plan work against the hard platform limit.
 
 At the start of every substantial task, and again before any operation expected to take more than a few minutes, run:
 
@@ -54,7 +54,7 @@ At the start of every substantial task, and again before any operation expected 
 ./scripts/agent-run.sh status
 ```
 
-If GitHub connector access is available, also inspect the current **Remote Desktop Commander Lab** workflow run. Prefer live workflow/run timestamps over assumptions.
+If GitHub connector access is available, also inspect the current **Remote Desktop Commander Lab** workflow run. Prefer the earlier of the local lifecycle deadline and GitHub's hard job deadline; live workflow/run timestamps are authoritative when they disagree with assumptions.
 
 Interpret the local runtime state strictly:
 
