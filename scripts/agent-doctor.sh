@@ -2,9 +2,14 @@
 set -Eeuo pipefail
 
 TARGET="${1:-$PWD}"
+OS_NAME="unknown"
+if [[ -r /etc/os-release ]]; then
+  OS_NAME="$(awk -F= '$1=="PRETTY_NAME"{gsub(/^"|"$/, "", $2); print $2; exit}' /etc/os-release)"
+fi
+
 echo "=== AGENT RUNNER CONTEXT ==="
 printf 'host=%s\n' "$(hostname)"
-printf 'os=%s\n' "$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}")"
+printf 'os=%s\n' "${OS_NAME:-unknown}"
 printf 'cwd=%s\n' "$TARGET"
 printf 'disk=%s\n' "$(df -h "$HOME" | awk 'NR==2 {print $3 "/" $2 " used=" $5}')"
 printf 'tools: git=%s node=%s npm=%s python=%s rg=%s jq=%s\n'   "$(git --version 2>/dev/null | awk '{print $3}' || echo missing)"   "$(node --version 2>/dev/null || echo missing)"   "$(npm --version 2>/dev/null || echo missing)"   "$(python3 --version 2>/dev/null | awk '{print $2}' || echo missing)"   "$(rg --version 2>/dev/null | awk 'NR==1 {print $2}' || echo missing)"   "$(jq --version 2>/dev/null || echo missing)"
