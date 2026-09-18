@@ -33,6 +33,7 @@ The automatic prewarm is managed by:
 - `scripts/agent-bootstrap.sh --full`
 - canonical readiness state: `~/.cache/agent-runner-kit/prewarm.env`
 - canonical prewarm log: `~/.cache/agent-runner-kit/prewarm.log`
+- toolchain compatibility/version rules: `scripts/agent-lib.sh`
 
 Check readiness with:
 
@@ -40,7 +41,7 @@ Check readiness with:
 ./scripts/agent-run.sh status
 ```
 
-If prewarm is still running, continue with work that only needs already-available tools. Do not restart the installation unless it actually failed.
+If prewarm is still running, continue with work that only needs already-available tools. A stale or outdated READY marker is invalidated automatically when the toolchain version changes or a required command is missing.
 
 ## Remote Desktop Commander call budget
 

@@ -1,30 +1,32 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-CACHE_DIR="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
-STATUS_FILE="$CACHE_DIR/prewarm.env"
-LOG_FILE="$CACHE_DIR/prewarm.log"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=agent-lib.sh
+source "$SELF_DIR/agent-lib.sh"
 
-value() {
-  local key="$1"
-  [[ -f "$STATUS_FILE" ]] || return 0
-  awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/,""); print; exit}' "$STATUS_FILE"
-}
-
-state="$(value STATUS)"
+state="$(agent_status_value STATUS)"
 state="${state:-UNKNOWN}"
-pid="$(value PID)"
+version="$(agent_status_value TOOLCHAIN_VERSION)"
+pid="$(agent_status_value PID)"
+
 if [[ "$state" == "RUNNING" && -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
   state="STALE"
+elif [[ "$state" == "READY" ]]; then
+  if [[ "$version" != "$AGENT_TOOLCHAIN_VERSION" ]] || ! agent_full_toolchain_ready; then
+    state="OUTDATED"
+  fi
 fi
 
 echo "AGENT_PREWARM=$state"
-echo "STARTED_AT=$(value STARTED_AT)"
-echo "FINISHED_AT=$(value FINISHED_AT)"
-echo "PROFILE=$(value PROFILE)"
+echo "TOOLCHAIN_VERSION=${version:-unknown}"
+echo "EXPECTED_TOOLCHAIN_VERSION=$AGENT_TOOLCHAIN_VERSION"
+echo "STARTED_AT=$(agent_status_value STARTED_AT)"
+echo "FINISHED_AT=$(agent_status_value FINISHED_AT)"
+echo "PROFILE=$(agent_status_value PROFILE)"
 echo "PID=${pid:-}"
 
-for pair in   "git:git" "gh:gh" "node:node" "npm:npm" "python:python3"   "rg:rg" "fd:fd" "jq:jq" "cmake:cmake" "ninja:ninja"   "gcc:gcc" "clang:clang" "gdb:gdb" "git_lfs:git-lfs"   "docker:docker" "ffmpeg:ffmpeg" "imagemagick:convert" "sqlite:sqlite3"; do
+for pair in   "git:git" "gh:gh" "node:node" "npm:npm" "python:python3"   "rg:rg" "fd:fd" "jq:jq" "cmake:cmake" "ninja:ninja"   "gcc:gcc" "clang:clang" "gdb:gdb" "git_lfs:git-lfs"   "docker:docker" "ffmpeg:ffmpeg" "imagemagick:convert" "sqlite:sqlite3"   "shellcheck:shellcheck"; do
   name="${pair%%:*}"
   cmd="${pair#*:}"
   if command -v "$cmd" >/dev/null 2>&1; then
@@ -34,7 +36,7 @@ for pair in   "git:git" "gh:gh" "node:node" "npm:npm" "python:python3"   "rg:rg"
   fi
 done
 
-if [[ "$state" == "FAILED" || "$state" == "STALE" ]]; then
+if [[ "$state" == "FAILED" || "$state" == "STALE" || "$state" == "OUTDATED" ]]; then
   echo "--- prewarm log tail ---"
-  tail -n 40 "$LOG_FILE" 2>/dev/null || true
+  tail -n 40 "$AGENT_LOG_FILE" 2>/dev/null || true
 fi
