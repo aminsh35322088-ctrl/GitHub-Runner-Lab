@@ -126,6 +126,15 @@ def reliability(repo, runs, online_minutes):
     chronological = sorted(records, key=lambda r: r["job_started"])
     gaps = []
     for previous, current in zip(chronological, chronological[1:]):
+        previous_completed_full_cycle = (
+            previous["run_conclusion"] == "success"
+            and previous["job_conclusion"] == "success"
+            and previous["keep_conclusion"] == "success"
+            and previous["keep_minutes"] is not None
+            and previous["keep_minutes"] >= threshold
+        )
+        if not previous_completed_full_cycle:
+            continue
         if not previous["job_completed"] or not current["job_started"]:
             continue
         gap = (current["job_started"] - previous["job_completed"]).total_seconds() / 60
@@ -268,7 +277,7 @@ def render(state, repo):
         "For the exact live countdown while connected, run `./scripts/agent-run.sh status`; "
         "an agent with GitHub access should also inspect the current workflow run before starting long work. "
         "Full-cycle reliability uses the actual keepalive-step duration and requires at least ONLINE_MINUTES−20; "
-        "handoff reliability uses actual runner-lab job start/end times and means the next job started within 15 minutes."
+        "handoff reliability uses actual runner-lab job start/end times after a successful full cycle and means the next job started within 15 minutes."
     )
     rows = [
         ("Runner state", STATE_LABELS.get(state.get("state"), STATE_LABELS["unknown"])),
@@ -280,7 +289,7 @@ def render(state, repo):
         ("Nominal handoff", utc(timestamp(state.get("handoff")))),
         ("Successor already queued", successor),
         ("Full-cycle success", pct(state.get("cycle_rate"), state.get("cycle_sample", 0))),
-        ("Handoff ≤15 min", pct(state.get("handoff_rate"), state.get("handoff_sample", 0))),
+        ("Full-cycle handoff ≤15 min", pct(state.get("handoff_rate"), state.get("handoff_sample", 0))),
         ("Median handoff gap", median),
         ("Run details", f"[Open current run]({run_link})"),
     ]
