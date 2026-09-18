@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared constants/helpers for the disposable agent toolchain.\n# shellcheck disable=SC2034 # exported-by-source constants are consumed by callers
+# Shared constants/helpers for the disposable agent toolchain.\n# shellcheck disable=SC2034
 
 AGENT_TOOLCHAIN_VERSION="2026-09-18.2"
 AGENT_CACHE_DIR="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}"
