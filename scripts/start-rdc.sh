@@ -17,17 +17,13 @@ if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
 fi
 
 : > "$LOG_FILE"
-nohup env \
-  NODE_OPTIONS=--dns-result-order=ipv4first \
-  RUNNER_TRACKING_ID=rdc-runner-lab \
-  desktop-commander remote \
-  >"$LOG_FILE" 2>&1 < /dev/null &
+nohup env   NODE_OPTIONS=--dns-result-order=ipv4first   RUNNER_TRACKING_ID=rdc-runner-lab   desktop-commander remote   >"$LOG_FILE" 2>&1 < /dev/null &
 
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "RDC agent started; waiting for authenticated readiness."
 
-for attempt in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if ! kill -0 "$PID" 2>/dev/null; then
     echo "RDC exited during startup. Check the private state/bootstrap configuration."
     exit 1
