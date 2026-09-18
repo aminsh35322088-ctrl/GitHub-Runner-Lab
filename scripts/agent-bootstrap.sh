@@ -8,10 +8,13 @@ mkdir -p "$CACHE_DIR" "$LOCAL_BIN"
 
 CORE_PACKAGES=(
   ca-certificates curl wget git gh jq yq unzip zip rsync
-  ripgrep fd-find fzf tree file lsof netcat-openbsd dnsutils
-  sqlite3 shellcheck python3 python3-pip
+  ripgrep fd-find fzf tree file lsof strace procps net-tools
+  netcat-openbsd dnsutils sqlite3 shellcheck python3 python3-pip
 )
-BUILD_PACKAGES=(build-essential pkg-config python3-venv)
+BUILD_PACKAGES=(
+  build-essential cmake ninja-build pkg-config python3-venv python3-dev
+  git-lfs libssl-dev libsqlite3-dev
+)
 MEDIA_PACKAGES=(ffmpeg imagemagick)
 
 PROFILE="core"
@@ -23,7 +26,7 @@ while (($#)); do
     --full) PROFILE="full"; shift ;;
     -h|--help)
       echo "Usage: agent-bootstrap.sh [--core|--build|--media|--full]"
-      echo "core is the default; media/build extras are installed only when requested."
+      echo "core is the default; the workflow background prewarm uses --full."
       exit 0
       ;;
     *) echo "Unknown bootstrap option: $1" >&2; exit 2 ;;
@@ -78,9 +81,13 @@ git config --global init.defaultBranch main
 git config --global core.autocrlf false
 git config --global advice.detachedHead false
 
+if command -v git-lfs >/dev/null 2>&1; then
+  git lfs install --skip-repo >/dev/null 2>&1 || true
+fi
+
 date -u +"%Y-%m-%dT%H:%M:%SZ" > "$CACHE_DIR/bootstrap-$PROFILE"
 
 echo "[agent-bootstrap] Ready."
 printf '  git=%s\n' "$(git --version 2>/dev/null || true)"
 printf '  node=%s npm=%s python=%s\n' "$(node --version 2>/dev/null || echo missing)" "$(npm --version 2>/dev/null || echo missing)" "$(python3 --version 2>/dev/null || true)"
-printf '  rg=%s fd=%s jq=%s\n' "$(rg --version 2>/dev/null | head -n1 || echo missing)" "$(fd --version 2>/dev/null | head -n1 || echo missing)" "$(jq --version 2>/dev/null || echo missing)"
+printf '  rg=%s fd=%s jq=%s cmake=%s ffmpeg=%s\n'   "$(rg --version 2>/dev/null | head -n1 || echo missing)"   "$(fd --version 2>/dev/null | head -n1 || echo missing)"   "$(jq --version 2>/dev/null || echo missing)"   "$(cmake --version 2>/dev/null | head -n1 || echo missing)"   "$(ffmpeg -version 2>/dev/null | head -n1 || echo missing)"

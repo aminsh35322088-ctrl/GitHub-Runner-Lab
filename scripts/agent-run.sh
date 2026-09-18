@@ -9,6 +9,12 @@ case "$cmd" in
   bootstrap)
     exec "$SELF_DIR/agent-bootstrap.sh" "$@"
     ;;
+  prewarm)
+    exec "$SELF_DIR/agent-prewarm.sh" "$@"
+    ;;
+  status)
+    exec "$SELF_DIR/agent-status.sh"
+    ;;
   doctor)
     exec "$SELF_DIR/agent-doctor.sh" "${1:-$PWD}"
     ;;
@@ -42,6 +48,8 @@ case "$cmd" in
           ;;
       esac
     done
+    # The workflow normally prewarms --full after RDC is healthy. This fast
+    # check only fills any missing requested profile and is idempotent.
     "$SELF_DIR/agent-bootstrap.sh" "${bootstrap_args[@]}"
     output="$("$SELF_DIR/agent-workspace.sh" "${workspace_args[@]}")"
     printf '%s\n' "$output"
@@ -50,7 +58,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {prepare|bootstrap|workspace|doctor} [args...]" >&2
+    echo "Usage: agent-run.sh {prepare|bootstrap|prewarm|status|workspace|doctor} [args...]" >&2
     exit 2
     ;;
 esac

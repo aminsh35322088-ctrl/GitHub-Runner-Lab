@@ -50,17 +50,30 @@ For a pull request:
 ./scripts/agent-run.sh prepare --pr 99
 ```
 
-`prepare` is idempotent: it installs only missing **core** prerequisites, creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. Re-running it on the same runner is fast because installed tools are detected before apt is touched. Heavy extras are opt-in: use `--media` for FFmpeg/ImageMagick, `--build` for native build tooling, or `--full` for both.
+`prepare` is idempotent: it creates or refreshes a clean workspace, checks out the requested branch/PR, and prints a compact machine/repository context snapshot. The workflow now starts the **full heavy toolchain prewarm automatically after RDC passes health**, so remote access comes online first while build/media dependencies install in the background. Manual profile flags remain available as an idempotent fallback.
 
-Full test-suite execution intentionally stays on GitHub Actions. The runner helpers are for source inspection, targeted debugging, edits, and lightweight local checks. Dependency installation is opt-in with `--deps`.
+Heavy local builds, debugging and targeted tests are welcome on this Lab when the target repository permits them. A target repository's own `AGENTS.md` remains authoritative; for `opencode-telegram-bot`, full-suite validation intentionally remains GitHub Actions CI. Dependency installation inside a prepared workspace is still opt-in with `--deps`.
 
 Available helpers:
 
-- `scripts/agent-bootstrap.sh` — installs the fast core CLI set by default and restores hosted Node to PATH; build/media packages are optional profiles.
+- `scripts/agent-bootstrap.sh` — installs the common toolchain; the workflow prewarm calls it with `--full` after RDC is healthy.
 - `scripts/agent-workspace.sh` — prepares a clean branch or PR checkout under `~/agent-workspaces`.
 - `scripts/agent-doctor.sh` — emits environment, tool, Git, status, recent commit, and package-script context in one call.
-- `scripts/agent-run.sh` — one-call wrapper for bootstrap + workspace + context.
+- `scripts/agent-prewarm.sh` — locked background full-toolchain preparation with readiness/failure markers.\n- `scripts/agent-status.sh` — one-call readiness report for the prewarm and key tools.\n- `scripts/agent-run.sh` — one-call wrapper for prewarm/status/bootstrap/workspace/context.
 
 ## Isolation
 
 This repository does not modify `GitHub-Tailscale-Exit-Node`, its Tailscale OAuth credentials, exit-node advertisements, SSH configuration, or watchdog chain. The two automation systems are independent.
+
+
+## Background prewarm
+
+RDC connectivity is deliberately established before heavy package installation. After `scripts/health.sh` succeeds, the workflow launches `scripts/agent-prewarm.sh` with `nohup` and immediately proceeds to the normal keepalive step.
+
+Check readiness at any time:
+
+```bash
+./scripts/agent-run.sh status
+```
+
+The canonical state file is `~/.cache/agent-runner-kit/prewarm.env`. A failed prewarm does not take RDC offline; agents can inspect the failure log and continue using tools that are already available.
