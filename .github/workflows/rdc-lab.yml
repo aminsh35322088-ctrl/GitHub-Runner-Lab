@@ -157,6 +157,23 @@ jobs:
             echo "::warning::Handover failed. The relaunch job/watchdog will retry."
           fi
 
+      - name: Package Agent Checkpoint
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        continue-on-error: true
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/package-agent-checkpoints.sh
+
+      - name: Upload Agent Checkpoint
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-checkpoint-${{ github.run_id }}
+          path: .agent-artifacts/*.enc
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Gracefully Stop RDC
         if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         continue-on-error: true

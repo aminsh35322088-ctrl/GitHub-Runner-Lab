@@ -42,3 +42,7 @@ if [[ "$state" == "FAILED" || "$state" == "STALE" || "$state" == "OUTDATED" ]]; 
   echo "--- prewarm log tail ---"
   tail -n 40 "$LOG_FILE" 2>/dev/null || true
 fi
+
+
+echo "=== RUNNER RUNTIME ==="
+"$SELF_DIR/agent-runtime.sh" status

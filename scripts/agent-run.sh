@@ -11,6 +11,8 @@ case "$cmd" in
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
   prewarm) exec "$SELF_DIR/agent-prewarm.sh" "$@" ;;
   status) exec "$SELF_DIR/agent-status.sh" ;;
+  runtime) exec "$SELF_DIR/agent-runtime.sh" "$@" ;;
+  checkpoint) exec "$SELF_DIR/agent-checkpoint.sh" "${1:-manual}" ;;
   doctor) exec "$SELF_DIR/agent-doctor.sh" "${1:-$PWD}" ;;
   workspace) exec "$SELF_DIR/agent-workspace.sh" "$@" ;;
   prepare)
@@ -42,7 +44,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {prepare|bootstrap|prewarm|status|workspace|doctor} [args...]" >&2
+    echo "Usage: agent-run.sh {prepare|bootstrap|prewarm|status|runtime|checkpoint|workspace|doctor} [args...]" >&2
     exit 2
     ;;
 esac

@@ -43,6 +43,37 @@ Check readiness with:
 
 If prewarm is still running, continue with work that only needs already-available tools. A stale or outdated READY marker is invalidated automatically when the toolchain version changes or a required command is missing.
 
+
+## Runner lifetime and handoff safety
+
+The nominal interactive lifetime is **330 minutes**, not the theoretical 6-hour GitHub ceiling. Never plan work against the hard platform limit.
+
+At the start of every substantial task, and again before any operation expected to take more than a few minutes, run:
+
+```bash
+./scripts/agent-run.sh status
+```
+
+If GitHub connector access is available, also inspect the current **Remote Desktop Commander Lab** workflow run. Prefer live workflow/run timestamps over assumptions.
+
+Interpret the local runtime state strictly:
+
+- `SAFE`: more than 60 minutes remain; normal work is allowed.
+- `CAUTION`: 31–60 minutes remain; finish bounded work only and prepare commits.
+- `CHECKPOINT_REQUIRED`: 16–30 minutes remain; do **not** start new heavy work. Push durable changes and create/verify a checkpoint.
+- `HANDOFF_IMMINENT`: 0–15 minutes remain; stop heavy work, push what is safe, and leave the workspace recoverable.
+- `HANDOFF_DUE`: stop using this runner and move to its successor.
+
+The keepalive loop automatically creates a fallback checkpoint about 30 minutes before nominal handoff. This checkpoint is not a substitute for pushing durable work to GitHub.
+
+Manual checkpoint:
+
+```bash
+./scripts/agent-run.sh checkpoint manual
+```
+
+Automatic checkpoints include tracked working-tree diffs, unpushed commits (when an upstream exists), Git metadata, and only the **names** of untracked files. Untracked file contents are intentionally excluded to reduce secret-leak risk. The workflow encrypts the latest checkpoint with `RDC_STATE_KEY` before uploading it as a short-retention Actions artifact.
+
 ## Remote Desktop Commander call budget
 
 RDC tool calls are a limited resource. Minimize them aggressively.

@@ -19,7 +19,12 @@ hash_state() {
 }
 
 LAST_HASH="$(hash_state)"
-echo "Keeping RDC Lab online for $MINUTES minute(s)."
+CHECKPOINT_DONE=false
+CHECKPOINT_MINUTE=$((MINUTES - 30))
+((CHECKPOINT_MINUTE < 1)) && CHECKPOINT_MINUTE=1
+
+./scripts/agent-runtime.sh start "$MINUTES" >/dev/null
+echo "Keeping RDC Lab online for $MINUTES minute(s). Automatic checkpoint at minute $CHECKPOINT_MINUTE."
 
 TOTAL_TICKS=$((MINUTES * 6))
 for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
@@ -47,6 +52,12 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
     echo "[$minute/$MINUTES] RDC session state changed; persisting rotated credentials."
     ./scripts/persist-rdc-state.sh
     LAST_HASH="$CURRENT_HASH"
+  fi
+
+  if [[ "$CHECKPOINT_DONE" == "false" ]] && (( minute >= CHECKPOINT_MINUTE )); then
+    echo "[$minute/$MINUTES] Handoff window approaching; creating agent checkpoint."
+    ./scripts/agent-checkpoint.sh auto-pre-handoff || echo "::warning::Agent checkpoint failed."
+    CHECKPOINT_DONE=true
   fi
 
   if (( tick == 1 || tick % 6 == 0 || tick == TOTAL_TICKS )); then

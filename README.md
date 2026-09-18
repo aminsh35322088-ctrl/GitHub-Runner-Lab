@@ -2,6 +2,29 @@
 
 A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reachable through Remote Desktop Commander (RDC) and prewarms it for heavy development work.
 
+<!-- RDC-LAB-STATUS:START -->
+
+## ⏱️ Live Runner status
+
+| Item | Value |
+| :--- | :--- |
+| Runner state | ⚪ Waiting for the first status refresh |
+| Agent work mode | ⚪ UNKNOWN |
+| Last checked | — |
+| Keepalive started | — |
+| Elapsed at this check | — |
+| Remaining to nominal handoff | — |
+| Nominal handoff | — |
+| Successor already queued | — |
+| Full-cycle success | — |
+| Handoff ≤15 min | — |
+| Median handoff gap | — |
+| Run details | [Open Actions](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions) |
+
+> README is a GitHub Actions snapshot. For the exact live countdown while connected, run `./scripts/agent-run.sh status`.
+
+<!-- RDC-LAB-STATUS:END -->
+
 ## Lifecycle
 
 The active `rdc-lab.yml` run lasts about 330 minutes and queues a successor before releasing its concurrency lock. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
@@ -55,7 +78,10 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-lib.sh` — shared toolchain version/readiness contract.
 - `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer.
 - `scripts/agent-prewarm.sh` — self-contained foreground/background full prewarm with locking and canonical state/log files.
-- `scripts/agent-status.sh` — compact readiness report for prewarm and key tools.
+- `scripts/agent-status.sh` — compact toolchain + exact local runner countdown report.
+- `scripts/agent-runtime.sh` — initializes and reports the local 330-minute handoff timer.
+- `scripts/agent-checkpoint.sh` — snapshots tracked changes and unpushed commits without copying untracked file contents.
+- `scripts/package-agent-checkpoints.sh` — encrypts the latest snapshot before artifact upload.
 - `scripts/agent-workspace.sh` — safe branch/PR checkout under `~/agent-workspaces`.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
 - `scripts/agent-run.sh` — one-call entry point for status, prepare, workspace and bootstrap.
@@ -68,7 +94,7 @@ Canonical prewarm files:
 ~/.cache/agent-runner-kit/prewarm.log
 ```
 
-A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker.
+A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The runtime timer switches to CAUTION at 60 minutes remaining and CHECKPOINT_REQUIRED at 30 minutes remaining.
 
 ## Test policy
 
