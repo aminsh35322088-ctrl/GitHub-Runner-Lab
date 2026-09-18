@@ -18,13 +18,10 @@ manifest="$OUT/manifest.txt"
   echo "workspace_root=$ROOT"
 } > "$manifest"
 
+count=0
 if [[ ! -d "$ROOT" ]]; then
   echo "No workspace root exists: $ROOT" >> "$manifest"
-  echo "CHECKPOINT_DIR=$OUT"
-  exit 0
-fi
-
-count=0
+else
 while IFS= read -r -d '' repo; do
   count=$((count + 1))
   name="$(basename "$repo")"
@@ -54,6 +51,7 @@ while IFS= read -r -d '' repo; do
 
   echo "repo_$count=$repo" >> "$manifest"
 done < <(find "$ROOT" -mindepth 1 -maxdepth 1 -type d -exec test -d '{}/.git' ';' -print0 2>/dev/null)
+fi
 
 echo "repository_count=$count" >> "$manifest"
 ln -sfn "$OUT" "$OUT_ROOT/latest"
