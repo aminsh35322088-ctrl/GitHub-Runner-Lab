@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cmd="${1:-prepare}"
-[[ $# -gt 0 ]] && shift || true
+if (($# > 0)); then
+  shift
+fi
 
 case "$cmd" in
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;

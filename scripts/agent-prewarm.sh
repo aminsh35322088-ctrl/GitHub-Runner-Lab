@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SELF="$(readlink -f "$0")"
 SELF_DIR="$(dirname "$SELF")"
-# shellcheck source=agent-lib.sh
+# shellcheck disable=SC1091
 source "$SELF_DIR/agent-lib.sh"
 LOCK_FILE="$AGENT_CACHE_DIR/prewarm.lock"
 mkdir -p "$AGENT_CACHE_DIR"
@@ -47,8 +47,10 @@ write_status() {
     echo "STARTED_AT=$started_at"
     echo "FINISHED_AT=$finished_at"
     echo "PROFILE=full"
-    echo "PID=$$"
-    [[ -n "$exit_code" ]] && echo "EXIT_CODE=$exit_code"
+    echo "PID=$"
+    if [[ -n "$exit_code" ]]; then
+      echo "EXIT_CODE=$exit_code"
+    fi
   } > "$AGENT_STATUS_FILE"
 }
 

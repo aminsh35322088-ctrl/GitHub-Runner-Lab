@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=agent-lib.sh
+# shellcheck disable=SC1091
 source "$SELF_DIR/agent-lib.sh"
 
 state="$(agent_status_value STATUS)"

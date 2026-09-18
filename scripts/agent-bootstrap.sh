@@ -71,7 +71,10 @@ fi
 
 profile_file="$HOME/.profile"
 touch "$profile_file"
+# Keep the literal shell expression in the profile; do not expand it now.
+# shellcheck disable=SC2016
 if ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$profile_file"; then
+  # shellcheck disable=SC2016
   printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$profile_file"
 fi
 export PATH="$LOCAL_BIN:$PATH"
@@ -80,7 +83,9 @@ git config --global fetch.prune true
 git config --global init.defaultBranch main
 git config --global core.autocrlf false
 git config --global advice.detachedHead false
-command -v git-lfs >/dev/null 2>&1 && git lfs install --skip-repo >/dev/null 2>&1 || true
+if command -v git-lfs >/dev/null 2>&1; then
+  git lfs install --skip-repo >/dev/null 2>&1 || true
+fi
 
 echo "[agent-bootstrap] Ready profile=$PROFILE"
 printf 'git=%s node=%s npm=%s python=%s rg=%s cmake=%s clang=%s ffmpeg=%s\n'   "$(git --version 2>/dev/null | awk '{print $3}' || echo missing)"   "$(node --version 2>/dev/null || echo missing)"   "$(npm --version 2>/dev/null || echo missing)"   "$(python3 --version 2>/dev/null | awk '{print $2}' || echo missing)"   "$(rg --version 2>/dev/null | awk 'NR==1 {print $2}' || echo missing)"   "$(cmake --version 2>/dev/null | awk 'NR==1 {print $3}' || echo missing)"   "$(clang --version 2>/dev/null | awk 'NR==1 {print $4}' || echo missing)"   "$(ffmpeg -version 2>/dev/null | awk 'NR==1 {print $3}' || echo missing)"
