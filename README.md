@@ -10,18 +10,22 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Last checked | 2026-09-18 12:40:40 UTC |
+| Last checked | 2026-09-18 12:45:37 UTC |
+| Runner/job started | 2026-09-18 11:54:06 UTC |
 | Keepalive started | 2026-09-18 11:54:37 UTC |
-| Elapsed at this check | 46 min |
-| Remaining to nominal handoff | 283 min |
-| Nominal handoff | 2026-09-18 17:24:37 UTC |
+| Runner age | 51 min |
+| Safe remaining | 278 min |
+| Nominal handoff | 2026-09-18 17:24:06 UTC |
+| Hard job timeout | 2026-09-18 17:44:06 UTC |
+| Planned timeout headroom | 20 min |
 | Successor already queued | ✅ yes |
-| Full-cycle success | 67% (3 samples) |
-| Full-cycle handoff ≤15 min | 0% (2 samples) |
-| Median handoff gap | 271.7 min |
+| RDC verification success | 50% (8 samples) |
+| Keepalive completion | 40% (5 samples) |
+| Handoff ≤15 min | 82% (11 samples) |
+| Median handoff gap | 0.0 min |
 | Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35340501983) |
 
-> README is a GitHub Actions snapshot refreshed on run events and about every 10 minutes. For the exact live countdown while connected, run `./scripts/agent-run.sh status`; an agent with GitHub access should also inspect the current workflow run before starting long work. Full-cycle reliability uses the actual keepalive-step duration and requires at least ONLINE_MINUTES−20; handoff reliability uses actual runner-lab job start/end times after a successful full cycle and means the next job started within 15 minutes.
+> Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
 <!-- RDC-LAB-STATUS:END -->
 
