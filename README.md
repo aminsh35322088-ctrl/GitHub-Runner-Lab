@@ -10,18 +10,18 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Last checked | 2026-09-18 12:35:39 UTC |
+| Last checked | 2026-09-18 12:40:40 UTC |
 | Keepalive started | 2026-09-18 11:54:37 UTC |
-| Elapsed at this check | 41 min |
-| Remaining to nominal handoff | 288 min |
+| Elapsed at this check | 46 min |
+| Remaining to nominal handoff | 283 min |
 | Nominal handoff | 2026-09-18 17:24:37 UTC |
 | Successor already queued | ✅ yes |
-| Full-cycle success | 22% (9 samples) |
-| Handoff ≤15 min | 78% (9 samples) |
-| Median handoff gap | 0.0 min |
+| Full-cycle success | 67% (3 samples) |
+| Full-cycle handoff ≤15 min | 0% (2 samples) |
+| Median handoff gap | 271.7 min |
 | Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35340501983) |
 
-> README is a GitHub Actions snapshot refreshed on run events and about every 10 minutes. For the exact live countdown while connected, run `./scripts/agent-run.sh status`; an agent with GitHub access should also inspect the current workflow run before starting long work. Full-cycle reliability means a successful run lasting at least ONLINE_MINUTES−20; handoff reliability means the next run started within 15 minutes.
+> README is a GitHub Actions snapshot refreshed on run events and about every 10 minutes. For the exact live countdown while connected, run `./scripts/agent-run.sh status`; an agent with GitHub access should also inspect the current workflow run before starting long work. Full-cycle reliability uses the actual keepalive-step duration and requires at least ONLINE_MINUTES−20; handoff reliability uses actual runner-lab job start/end times after a successful full cycle and means the next job started within 15 minutes.
 
 <!-- RDC-LAB-STATUS:END -->
 
