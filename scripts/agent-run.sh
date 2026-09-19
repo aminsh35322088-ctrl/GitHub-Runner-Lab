@@ -8,6 +8,14 @@ if (($# > 0)); then
 fi
 
 case "$cmd" in
+  job) exec python3 "$SELF_DIR/lab_jobs.py" "$@" ;;
+  resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
+  decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
+  github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
+  ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
+  cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
+  selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
+
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
   prewarm) exec "$SELF_DIR/agent-prewarm.sh" "$@" ;;
   status) exec "$SELF_DIR/agent-status.sh" ;;
@@ -26,7 +34,6 @@ case "$cmd" in
       case "$1" in
         --core|--build|--media|--full) profile="$1"; shift ;;
         --repo|--ref|--pr|--dir) workspace_args+=("$1" "$2"); shift 2 ;;
-        --force) workspace_args+=("$1"); shift ;;
         --test) tests+=("$2"); shift 2 ;;
         --check) run_check=true; shift ;;
         -h|--help)
@@ -76,7 +83,7 @@ case "$cmd" in
       case "$1" in
         --core|--build|--media|--full) profile="$1"; shift ;;
         --repo|--ref|--pr|--dir) workspace_args+=("$1" "$2"); shift 2 ;;
-        --deps|--force) workspace_args+=("$1"); shift ;;
+        --deps) workspace_args+=("$1"); shift ;;
         -h|--help)
           echo "Usage: agent-run.sh prepare [--core|--build|--media|--full] [workspace options]"
           exit 0
@@ -100,7 +107,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor} [args...]" >&2
+    echo "Usage: agent-run.sh {work|prepare|job|resume|decrypt|github|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

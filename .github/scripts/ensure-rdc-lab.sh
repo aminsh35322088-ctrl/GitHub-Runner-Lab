@@ -28,13 +28,13 @@ AUTH=(
   -H "X-GitHub-Api-Version: 2022-11-28"
 )
 
-log()  { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
-warn() { printf '::warning::%s\n' "$*"; }
+log()  { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
+warn() { printf '::warning::%s\n' "$*" >&2; }
 
 get_runs() {
   local json attempt
   for attempt in 1 2 3 4 5; do
-    json="$(curl -fsSL "${AUTH[@]}" "${RUNS_API}?per_page=30" 2>/dev/null || true)"
+    json="$(curl --connect-timeout 10 --max-time 30 -fsSL "${AUTH[@]}" "${RUNS_API}?per_page=30" 2>/dev/null || true)"
     if [ -n "$json" ] && jq -e '.workflow_runs' >/dev/null 2>&1 <<<"$json"; then
       printf '%s' "$json"
       return 0
@@ -51,7 +51,7 @@ cancel_run() {
     log "DRY_RUN: would cancel run ${run_id}"
     return 0
   fi
-  code="$(curl -sS -o /tmp/ensure-rdc-cancel.json -w '%{http_code}' \
+  code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/ensure-rdc-cancel.json -w '%{http_code}' \
     -X POST "${AUTH[@]}" "${RUN_API}/${run_id}/cancel" || true)"
   case "$code" in
     202|409|404) log "Cancel of run ${run_id} accepted/already settled (HTTP ${code})." ;;
@@ -110,7 +110,7 @@ dispatch_run() {
     log "DRY_RUN: would dispatch ${WORKFLOW} on ${REF}"
     return 0
   fi
-  code="$(curl -sS -o /tmp/ensure-rdc-dispatch.json -w '%{http_code}' \
+  code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/ensure-rdc-dispatch.json -w '%{http_code}' \
     -X POST "${AUTH[@]}" \
     -H 'Content-Type: application/json' \
     "$DISPATCH_API" \
@@ -136,8 +136,8 @@ confirm_dispatch() {
     fi
     log "Waiting for dispatched run to appear... ${attempt}/6"
   done
-  warn "Dispatch accepted but no run became visible within 30s. A later backstop will retry."
-  return 0
+  warn "Dispatch accepted but successor not confirmed. A later backstop will retry."
+  return 75
 }
 
 main() {
@@ -148,14 +148,14 @@ main() {
   case "${DISABLED,,}" in
     true|1|yes)
       log "RDC_LAB_DISABLED is set. Not dispatching; relaunch chain stops here."
-      return 0
+      return 20
       ;;
   esac
 
   local runs others_json active pending active_count pending_count
   runs="$(get_runs)" || {
-    warn "GitHub API unreachable. Doing nothing; a later watchdog pass will retry."
-    return 0
+    warn "GitHub API unreachable. State is unknown; a later watchdog pass will retry."
+    return 75
   }
 
   others_json="$(others "$runs")"
@@ -197,7 +197,7 @@ main() {
         log "Waiting for cancellation to settle... ${attempt}/12"
       done
       warn "Run ${id} is still active after 60s. Not dispatching a duplicate."
-      return 0
+      return 75
     fi
 
     log "RDC Lab is healthy. Nothing to do."
@@ -230,7 +230,7 @@ main() {
   if [ "$streak" -ge "$MAX_SHORT_FAILURES" ]; then
     warn "The last ${MAX_SHORT_FAILURES} RDC Lab runs all failed in under ${MIN_HEALTHY_MINUTES}m."
     warn "Refusing to dispatch to avoid a crash loop."
-    return 0
+    return 21
   fi
 
   log "No RDC Lab run is active or queued. Dispatching a new run."

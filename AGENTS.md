@@ -71,7 +71,7 @@ Manual checkpoint:
 ./scripts/agent-run.sh checkpoint manual
 ```
 
-Automatic checkpoints include tracked working-tree diffs, unpushed commits (when an upstream exists), Git metadata, and only the **names** of untracked files. Untracked file contents are intentionally excluded to reduce secret-leak risk. The workflow encrypts the latest checkpoint with `RDC_STATE_KEY` before uploading it as a short-retention Actions artifact.
+Automatic checkpoints cover ordinary clones and linked worktrees. They contain a full Git bundle, staged and unstaged patches, metadata, and allowlisted untracked source/configuration files that pass secret-pattern and size checks. Every stored file is checksummed; recovery verifies the exact file set and extracts only safe paths into a new directory. The workflow authenticates and encrypts the latest checkpoint with `RDC_STATE_KEY`, saves the current encrypted snapshot on the dedicated `agent-checkpoints` branch, and also uploads a short-retention artifact.
 
 ## Remote Desktop Commander call budget
 
@@ -100,6 +100,15 @@ or, for a PR with one or more targeted tests:
 ```
 
 Project-specific setup and test commands do **not** belong in this Lab repository. The target branch owns them in `.github/agent-lab/runner.sh`. The Lab exports a persistent, secret-free `AGENT_PROJECT_CACHE_DIR` outside the workspace; the workflow restores/saves that cache plus the npm download cache between ephemeral runners. This keeps dependency/test harness preparation branch-specific while avoiding repeated downloads and repeated RDC setup calls.
+
+Run tests through Remote Desktop Commander. Use managed jobs when a test must survive a disconnected shell, needs a timeout/report, or can spawn descendants:
+
+```bash
+job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)"
+./scripts/agent-run.sh job wait "$job"
+```
+
+Managed jobs start with a clean environment. Pass a required non-secret fixture explicitly with `--pass-env NAME`; do not pass credentials unless the target repository explicitly requires them. Container jobs default to `--network none`, drop Linux capabilities, and apply CPU, memory, swap, and PID limits. Completed reports and dependency caches older than 14 days are pruned only while no managed job is active.
 
 ## Heavy workloads
 
@@ -137,9 +146,10 @@ Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchain
 ## Workspace safety
 
 - Work under `~/agent-workspaces` unless a task requires another path.
-- `agent-workspace.sh` refuses to overwrite a dirty workspace unless `--force` is explicit.
+- `agent-workspace.sh` refuses dirty, divergent, or unpublished work instead of resetting it. Use another explicit `--dir` when the existing workspace must be preserved.
 - Never assume changes on the runner are durable. Push durable changes to the correct GitHub branch.
 - Do not commit RDC identity files, tokens, device state, secrets, or files from `~/.desktop-commander-device`.
+- Use `agent-github.sh` for optional fine-grained PAT operations. Its token is command-scoped and must never be copied into a job environment, checkpoint, cache, repository config, or URL.
 - Do not modify the stable Tailscale Exit Node repository from this Lab unless the user explicitly asks.
 - Preserve the RDC handoff/watchdog lifecycle unless the task specifically concerns it.
 
@@ -147,8 +157,8 @@ Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchain
 
 For changes to this Lab itself:
 
-1. Syntax-check changed shell scripts with `bash -n`.
-2. Run the relevant helper in a bounded smoke test.
+1. Through Remote Desktop Commander, syntax-check changed shell scripts with `bash -n`.
+2. Through Remote Desktop Commander, run the relevant helper in a bounded smoke test.
 3. Verify RDC remains healthy.
 4. Confirm prewarm status reaches `READY` or reports an actionable `FAILED` state.
 5. Confirm existing unrelated working-tree changes were not overwritten.

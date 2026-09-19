@@ -24,6 +24,7 @@ concurrency:
 env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
+  RDC_VERSION: 0.2.51
 
 jobs:
   runner-lab:
@@ -36,13 +37,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: true
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.14.0'
 
@@ -109,7 +110,7 @@ jobs:
 
       - name: Install Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
-        run: npm install --global @wonderwhy-er/desktop-commander@latest
+        run: npm install --global "@wonderwhy-er/desktop-commander@$RDC_VERSION"
 
       - name: One-time RDC account authorization
         if: steps.mode.outputs.bootstrap == 'true'
@@ -129,12 +130,19 @@ jobs:
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/health.sh
 
+      - name: Configure optional Agent GitHub access
+        if: steps.mode.outputs.ready == 'true'
+        env:
+          AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+        run: ./scripts/agent-github.sh install
+
       # Restore dependency/download caches only after RDC is already reachable.
       # Target-repository setup scripts own the cache contents; the Lab only
       # persists this generic, secret-free cache between ephemeral runners.
       - name: Restore Agent Project Cache
+        id: project-cache
         if: steps.mode.outputs.ready == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cache/agent-projects
@@ -142,6 +150,13 @@ jobs:
           key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
           restore-keys: |
             agent-lab-projects-${{ runner.os }}-node22-
+
+      - name: Restore latest encrypted Agent checkpoint
+        if: steps.mode.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/checkpoint-sync.sh restore
 
       # RDC is already healthy at this point. Keep the prewarm child in the
       # same long-lived step as keepalive so it cannot be reaped between steps.
@@ -173,24 +188,29 @@ jobs:
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         run: |
           set -uo pipefail
-          if bash .github/scripts/ensure-rdc-lab.sh; then
+          code=0
+          bash .github/scripts/ensure-rdc-lab.sh || code=$?
+          if [ "$code" -eq 0 ]; then
             echo "queued=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 20 ] || [ "$code" -eq 21 ]; then
+            echo "queued=true" >> "$GITHUB_OUTPUT"
+            echo "Handover intentionally suppressed by repository control (code $code)."
           else
             echo "queued=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Handover failed. The relaunch job/watchdog will retry."
+            echo "::warning::Handover was not confirmed (code $code). The relaunch job/watchdog will retry."
           fi
 
-      - name: Package Agent Checkpoint
+      - name: Save final Agent checkpoint
         if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
-        run: ./scripts/package-agent-checkpoints.sh
+        run: ./scripts/checkpoint-sync.sh save finalizer
 
       - name: Upload Agent Checkpoint
         if: ${{ always() && steps.mode.outputs.ready == 'true' }}
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: agent-checkpoint-${{ github.run_id }}
           path: .agent-artifacts/*.enc
@@ -209,6 +229,26 @@ jobs:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/persist-rdc-state.sh
 
+      - name: Prune retained Agent data
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        continue-on-error: true
+        run: ./scripts/agent-run.sh cache --apply --days 14
+
+      - name: Save Agent Project Cache
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/agent-projects
+            ~/.npm
+          key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
+
+      - name: Remove optional Agent GitHub token
+        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        continue-on-error: true
+        run: ./scripts/agent-github.sh remove
+
   # Same fallback role as Exit Node's relaunch job.
   relaunch:
     needs: [runner-lab]
@@ -222,7 +262,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Ensure a Successor Exists
         env:
@@ -232,4 +272,11 @@ jobs:
           SELF_RUN_ID: ${{ github.run_id }}
           REF: ${{ github.ref_name }}
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
-        run: bash .github/scripts/ensure-rdc-lab.sh
+        shell: bash
+        run: |
+          code=0
+          bash .github/scripts/ensure-rdc-lab.sh || code=$?
+          case "$code" in
+            0|20|21) exit 0 ;;
+            *) exit "$code" ;;
+          esac
