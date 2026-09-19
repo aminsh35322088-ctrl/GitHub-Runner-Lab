@@ -226,8 +226,8 @@ class LabTest(unittest.TestCase):
         self.assertIn('AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh restore',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh save finalizer',workflow)
-        self.assertIn('uses: actions/cache/restore@v4',workflow)
-        self.assertIn('uses: actions/cache/save@v4',workflow)
+        self.assertIn('uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830',workflow)
+        self.assertIn('uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830',workflow)
         self.assertIn('./scripts/agent-run.sh cache --apply --days 14',workflow)
         self.assertIn('./scripts/agent-github.sh remove',workflow)
         self.assertIn('20|21)',workflow)
@@ -235,6 +235,13 @@ class LabTest(unittest.TestCase):
         sync=(SCRIPTS/'checkpoint-sync.sh').read_text()
         self.assertIn('--force-with-lease=',sync)
         self.assertNotIn('fetch --quiet --depth=1 origin "$BRANCH"',sync)
+
+    def test_every_workflow_action_is_pinned_to_a_commit(self):
+        for path in (ROOT/'.github/workflows').glob('*.yml'):
+            for line in path.read_text().splitlines():
+                if 'uses:' in line:
+                    ref=line.split('@',1)[-1].split()[0]
+                    self.assertRegex(ref,r'^[0-9a-f]{40}$',f'unpinned action in {path}: {line}')
 
     def test_cache_cleanup_prunes_old_dependency_and_finished_job_reports(self):
         cache=self.base/'project-cache'; dependency=cache/'demo/node-deadbeef'
