@@ -10,6 +10,8 @@ REQUEST_FILE="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}/handoff.requ
 RESTARTS=0
 MAX_RESTARTS=3
 CHECKPOINT_DONE=false
+LAST_CHECKPOINT=0
+HEALTH_FAILURES=0
 SUCCESSOR_QUEUED=false
 
 if ! [[ "$MINUTES" =~ ^[0-9]+$ ]] || (( MINUTES < 1 || MINUTES > 330 )); then
@@ -47,7 +49,8 @@ queue_successor() {
 create_checkpoint() {
   if [[ "$CHECKPOINT_DONE" == "false" ]]; then
     echo "Creating agent checkpoint before runner handoff."
-    ./scripts/agent-checkpoint.sh auto-pre-handoff || echo "::warning::Agent checkpoint failed."
+    python3 scripts/lab_jobs.py drain --seconds "${AGENT_DRAIN_SECONDS:-900}" || echo "::warning::Job drain incomplete."
+    ./scripts/checkpoint-sync.sh save auto-pre-handoff || echo "::warning::Durable checkpoint failed; finalizer will retry."
     CHECKPOINT_DONE=true
   fi
 }
@@ -65,7 +68,12 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
   sleep 10
   minute=$(((tick + 5) / 6))
 
-  if [[ ! -f "$PID_FILE" ]] || ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  if ./scripts/health.sh >/dev/null 2>&1; then
+    HEALTH_FAILURES=0
+  else
+    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
+  fi
+  if (( HEALTH_FAILURES >= 3 )); then
     if [[ -s "$DEVICE_FILE" ]]; then
       ./scripts/persist-rdc-state.sh || true
       LAST_HASH="$(hash_state)"
@@ -77,7 +85,15 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
       echo "RDC exceeded the local restart limit; ending this runner so the watchdog can replace it."
       exit 1
     fi
+    ./scripts/stop-rdc.sh || true
     ./scripts/start-rdc.sh
+    HEALTH_FAILURES=0
+  fi
+
+  now="$(date +%s)"
+  if (( now - LAST_CHECKPOINT >= ${AGENT_CHECKPOINT_INTERVAL_SECONDS:-900} )); then
+    ./scripts/checkpoint-sync.sh save periodic || echo '::warning::Periodic durable checkpoint failed.'
+    LAST_CHECKPOINT=$now
   fi
 
   CURRENT_HASH="$(hash_state)"

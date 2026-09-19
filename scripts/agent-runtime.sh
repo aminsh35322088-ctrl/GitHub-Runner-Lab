@@ -21,7 +21,7 @@ write_start() {
   now="$(date +%s)"
   deadline=$((now + minutes * 60))
   restart_epoch=$((deadline - auto_handoff * 60))
-  rm -f "$REQUEST_FILE"
+  rm -f "$REQUEST_FILE" "$CACHE_DIR/draining"
   {
     echo "RUN_ID=${GITHUB_RUN_ID:-unknown}"
     echo "RUN_ATTEMPT=${GITHUB_RUN_ATTEMPT:-unknown}"

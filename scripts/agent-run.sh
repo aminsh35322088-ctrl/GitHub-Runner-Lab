@@ -8,6 +8,14 @@ if (($# > 0)); then
 fi
 
 case "$cmd" in
+  job) exec python3 "$SELF_DIR/lab_jobs.py" "$@" ;;
+  resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
+  decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
+  github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
+  ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
+  cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
+  selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
+
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
   prewarm) exec "$SELF_DIR/agent-prewarm.sh" "$@" ;;
   status) exec "$SELF_DIR/agent-status.sh" ;;

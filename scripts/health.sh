@@ -1,31 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-LOG_FILE="${RDC_LOG_FILE:-/tmp/rdc.log}"
-PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
-
-echo "=== Runner ==="
-echo "host=$(hostname)"
-echo "kernel=$(uname -sr)"
-echo "uptime=$(uptime -p)"
-
-echo "=== Resources ==="
-free -h || true
-df -h / || true
-
-echo "=== Remote Desktop Commander ==="
-if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  PID="$(cat "$PID_FILE")"
-  echo "status=running pid=$PID"
-  ps -p "$PID" -o pid,ppid,etime,%cpu,%mem,rss --no-headers || true
-  if grep -q 'Device ready' "$LOG_FILE" 2>/dev/null; then
-    echo "remote_status=ready"
-  else
-    echo "remote_status=starting-or-degraded"
-  fi
-else
-  echo "status=not-running"
-fi
-
-echo "=== Git ==="
-git status --short --branch 2>/dev/null || true
+set -Eeuo pipefail
+python3 - <<'PY'
+import json,os,time
+from pathlib import Path
+try:
+    pid=int(Path(os.getenv('RDC_PID_FILE','/tmp/rdc.pid')).read_text())
+    os.kill(pid,0)
+    state=json.loads(Path(os.getenv('RDC_HEALTH_FILE','/tmp/rdc-health.json')).read_text())
+    healthy=state['pid']==pid and state['healthy'] and 0 <= time.time()*1000-state['sampled_at'] < 20000
+    print('RDC_HEALTH=' + ('READY' if healthy else 'DEGRADED'))
+    raise SystemExit(0 if healthy else 1)
+except (OSError,ValueError,KeyError):
+    print('RDC_HEALTH=UNAVAILABLE')
+    raise SystemExit(1)
+PY
