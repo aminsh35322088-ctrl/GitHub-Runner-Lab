@@ -19,10 +19,10 @@ echo "Starting one-time RDC account authorization."
 echo "Open the verification URL/code printed below and authorize it with YOUR Desktop Commander account."
 echo "This step waits up to $((TIMEOUT_SECONDS / 60)) minutes."
 
-# Run the bootstrap connector in its own process group. `npx` spawns a child
-# Node process, so killing only the npx parent can leave an authenticated RDC
-# connector orphaned beside the normal long-running connector.
-setsid npx -y @wonderwhy-er/desktop-commander@latest remote \
+# The workflow installs a pinned release before this one-time authorization.
+# Keep it in its own process group so cleanup includes every child.
+command -v desktop-commander >/dev/null || { echo "Pinned RDC runtime is missing." >&2; exit 2; }
+setsid desktop-commander remote \
   > >(tee -a "$LOG_FILE") 2>&1 &
 RDC_PID=$!
 
