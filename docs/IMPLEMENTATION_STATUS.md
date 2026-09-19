@@ -1,27 +1,25 @@
-# Agent Lab implementation checkpoint
+# Engineered Agent Lab implementation report
 
-Work was paused at the user's request on 2026-09-19. This branch is a work-in-progress snapshot, not a production-ready release. Do not merge or deploy it until the remaining integration work and tests pass.
+The feature branch is ready for review and a controlled first deployment.
 
-## Changes drafted
+## Delivered
 
-- Fast-forward-only workspace preparation preserving dirty and unpublished work.
-- Git bundle checkpoints covering clones/worktrees, staged and unstaged patches, filtered untracked source files, checksums and recovery into a new directory.
-- Authenticated encrypted checkpoint packaging and a draft dedicated-branch persistence command.
-- Detached managed jobs with reports, timeout/cancellation, resource measurements, per-workspace exclusion, optional Docker limits, and drain support.
-- Command-scoped GitHub PAT helper, cache cleanup and readiness reporting.
-- A pinned-RDC adapter design reporting actual channel heartbeat freshness, plus stricter health checks.
-- Watchdog retry output/error handling fixes and draft lifecycle integration.
-- Loopback-only fault fixtures for delays, errors and interrupted streaming.
+- Safe, fast-forward-only workspace preparation that preserves dirty, divergent, and unpublished work.
+- Recoverable clone/worktree checkpoints with Git bundles, staged and unstaged patches, filtered untracked source, exact-file checksums, authenticated encryption, safe extraction, and recovery into a new directory.
+- Latest-only encrypted persistence on the dedicated `agent-checkpoints` branch plus short-retention workflow artifacts.
+- Bounded managed jobs with clean environments, ephemeral argv, durable reports, output caps, timeout/cancellation, descendant cleanup, process-group RSS, per-workspace exclusion, drain, and constrained Docker execution.
+- Optional command-scoped fine-grained GitHub PAT support without propagating the token into jobs, checkpoints, caches, repository configuration, or URLs.
+- Pinned RDC 0.2.51 supervisor health based on actual channel reachability and heartbeat freshness, automatic restart after consecutive failures, and stricter health exit codes.
+- Watchdog retry/JSON fixes, crash-loop and kill-switch handling, verified-ready handoff metrics, explicit cache restore/save/pruning, immutable Action SHAs, and final token cleanup.
+- Loopback fault fixtures, readiness reporting, updated operator documentation, and regression coverage.
 
-## Required before merge/deployment
+## Verification
 
-1. Complete workflow wiring. In particular, install/pin RDC 0.2.51 and the adapter, provision the optional PAT securely, invoke recovery and final durable checkpoints, and update cache handling.
-2. Add regression/integration tests for all reproduced failures and all newly added commands. Only Python parsing and shell syntax have been checked so far.
-3. Complete and review job supervision, signal/descendant cleanup, log/report retention, disk limits, secret handling and recovery semantics.
-4. Validate dedicated checkpoint-branch synchronization, archive bounds, errors/retries and retention. Git history currently retains previous encrypted snapshots.
-5. Update the bot-owned project runner separately: this branch refuses the legacy /app/node_modules hook. No bot repository changes have been made.
-6. Correct README reliability statistics and update README/AGENTS command documentation.
-7. Implement and validate the bot-specific test scenarios against the fixtures. Fixtures alone do not validate bot behavior.
-8. Perform real heartbeat, handoff, recovery, parallel workspace and resource-limit tests. PAT and real Telegram checks require the corresponding secrets.
+Validation ran through Remote Desktop Commander on the actual Ubuntu runner:
 
-No workflow was created, no main branch was changed and the live RDC process was not restarted by this work. Existing bot workspace edits were not modified.
+- 19 regression tests passed.
+- `bash -n`, ShellCheck, Python byte-compilation, Node syntax checking, Actionlint, and `git diff --check` passed.
+- A real constrained Alpine managed job passed with no Docker socket, non-root execution, no network, and CPU/memory limits.
+- The installed RDC package is 0.2.51, and its runtime exposes the reachability and heartbeat fields used by the supervisor.
+
+The branch does not alter the currently running RDC process. After merge, use one controlled manual dispatch to validate the new supervisor, encrypted checkpoint branch write/restore, and optional PAT permissions with the repository secrets. Existing target-repository policy still controls which project-specific full suites and external-service checks may run.

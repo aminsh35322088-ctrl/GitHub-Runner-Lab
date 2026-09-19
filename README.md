@@ -54,6 +54,8 @@ The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supe
 
 `RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broader, command-scoped GitHub access, an optional fine-grained PAT can be stored as the `AGENT_GITHUB_TOKEN` repository secret. Grant only the repositories and permissions the Agent actually needs. The token is installed after RDC becomes healthy, is never copied into managed job environments, caches, or checkpoints, and is removed during finalization. Normal checkout and lifecycle writes continue to use `GITHUB_TOKEN`.
 
+A practical fine-grained PAT baseline is **Contents: read/write** for the selected development repositories and **Pull requests: read/write** when the Agent should create or update PRs. Add **Actions: read/write** only when it must dispatch or rerun workflows, and add Issues or other permissions only for tasks that use them. Give the token an expiry and rotate the repository secret before it expires.
+
 ## Agent environment
 
 Read `AGENTS.md` before using the Lab. The target repository's own agent instructions remain authoritative.
