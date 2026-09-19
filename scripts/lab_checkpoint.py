@@ -23,7 +23,7 @@ SOURCE_SUFFIXES = {'.py', '.sh', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx',
 SOURCE_NAMES = {'Dockerfile', 'Containerfile', 'Makefile', 'Justfile', 'LICENSE'}
 SECRET = re.compile(rb'-----BEGIN .*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]+|\b\d{8,12}:[A-Za-z0-9_-]{30,}|\bsk-[A-Za-z0-9_-]{20,}')
 SAFE_JOB_FIELDS = {'id', 'cwd', 'created', 'state', 'timeout', 'sha', 'dirty', 'run_id',
-                   'image', 'memory', 'cpus', 'network', 'max_log_bytes',
+                   'command_name', 'image', 'memory', 'cpus', 'network', 'max_log_bytes',
                    'passed_environment', 'started', 'finished', 'peak_group_rss_bytes',
                    'exit_code', 'reason', 'log_truncated', 'versions', 'platform'}
 

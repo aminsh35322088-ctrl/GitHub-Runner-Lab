@@ -142,6 +142,8 @@ class LabTest(unittest.TestCase):
         self.assertEqual(waited.returncode,0,waited.stderr)
         report=json.loads(waited.stdout)
         self.assertEqual(report['state'],'success');self.assertEqual(report['exit_code'],0)
+        self.assertNotIn('command',report)
+        self.assertFalse((Path(self.env['AGENT_JOBS_DIR'])/job/'command.json').exists())
         self.assertEqual((Path(self.env['AGENT_JOBS_DIR'])/job/'output.log').read_text().strip(),'clean')
         self.assertIn('peak_group_rss_bytes',report)
 

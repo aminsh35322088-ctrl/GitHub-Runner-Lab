@@ -68,12 +68,13 @@ def start(args):
             raise ValueError('This workspace already has an active managed job')
         job = time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8]
         d = directory(job); d.mkdir(mode=0o700)
-        info = {'id': job, 'cwd': str(cwd), 'command': command, 'created': time.time(),
+        info = {'id': job, 'cwd': str(cwd), 'command_name': Path(command[0]).name, 'created': time.time(),
                 'state': 'queued', 'timeout': args.timeout, 'sha': git(cwd, 'rev-parse', 'HEAD', check=False),
                 'dirty': bool(git(cwd, 'status', '--porcelain', check=False)), 'run_id': os.getenv('GITHUB_RUN_ID'),
                 'image': args.image, 'memory': args.memory, 'cpus': args.cpus,
                 'max_log_bytes': args.max_log_mb * 1024 * 1024,
                 'passed_environment': sorted(set(args.pass_env)), 'network': args.network}
+        atomic(d / 'command.json', {'argv': command})
         atomic(d / 'result.json', info)
         env = clean_environment()
         for k in ('AGENT_JOBS_DIR', 'AGENT_KIT_CACHE_DIR'):
@@ -118,7 +119,8 @@ def worker(job):
                AGENT_JOB_OUTPUT_DIR=str(d), RUNNER_TRACKING_ID='agent-lab-job-' + job)
     for name in info.get('passed_environment', []):
         if name in os.environ: env[name] = os.environ[name]
-    command = info['command']
+    command_file = d / 'command.json'
+    command = json.loads(command_file.read_text())['argv']
     container = 'agent-lab-' + job
     if info['image']:
         # No host credentials, Docker socket, published ports or privileged mode.
@@ -177,6 +179,7 @@ def worker(job):
         if info['image']:
             subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         info.update(finished=time.time(), peak_group_rss_bytes=peak)
+        command_file.unlink(missing_ok=True)
         atomic(d / 'result.json', info)
 
 
