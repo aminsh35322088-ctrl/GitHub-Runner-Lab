@@ -10,21 +10,21 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Last checked | 2026-09-19 11:34:09 UTC |
-| Runner/job started | 2026-09-19 11:20:33 UTC |
-| Keepalive started | 2026-09-19 11:21:08 UTC |
-| Runner age | 13 min |
-| Runner lifecycle remaining | 316 min |
+| Last checked | 2026-09-19 17:29:47 UTC |
+| Runner/job started | 2026-09-19 16:30:58 UTC |
+| Keepalive started | 2026-09-19 16:31:36 UTC |
+| Runner age | 58 min |
+| Runner lifecycle remaining | 271 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-09-19 16:50:33 UTC |
-| Hard job timeout | 2026-09-19 17:10:33 UTC |
+| Nominal handoff | 2026-09-19 22:00:58 UTC |
+| Hard job timeout | 2026-09-19 22:20:58 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 100% (7 samples) |
 | Keepalive completion | 57% (7 samples) |
 | Handoff ≤15 min | 100% (12 samples) |
 | Median handoff gap | 0.0 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35439822385) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35453510677) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
