@@ -65,6 +65,8 @@ class LabTest(unittest.TestCase):
         dest = self.base / 'workspaces' / 'demo'
         args = [SCRIPTS/'agent-workspace.sh', '--repo', remote, '--dir', dest]
         self.assertEqual(command(args, env=self.env).returncode, 0)
+        git(dest, 'config', 'user.name', 'Lab Test')
+        git(dest, 'config', 'user.email', 'lab@example.invalid')
         (dest/'tracked.txt').write_text('local\n'); git(dest,'add','.'); git(dest,'commit','-m','local')
         head = git(dest, 'rev-parse', 'HEAD').stdout.strip()
         result = command(args, env=self.env)
@@ -115,6 +117,20 @@ class LabTest(unittest.TestCase):
         (source/'repo/untracked/injected.ts').parent.mkdir(parents=True,exist_ok=True)
         (source/'repo/untracked/injected.ts').write_text('injected')
         with self.assertRaises(RuntimeError): lab_checkpoint.verify(source)
+
+    def test_checkpoint_job_report_omits_commands_and_output(self):
+        repo=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(repo)
+        job=Path(self.env['AGENT_JOBS_DIR'])/'job-1';job.mkdir(parents=True)
+        secret='github_pat_'+'Z'*40
+        (job/'result.json').write_text(json.dumps({'id':'job-1','state':'success','exit_code':0,
+                                                   'command':['echo',secret],'error':secret}))
+        (job/'output.log').write_text(secret)
+        self.assertEqual(command([SCRIPTS/'agent-checkpoint.sh','test'],env=self.env).returncode,0)
+        source=(Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').resolve()
+        report=json.loads((source/'_jobs/job-1/result.json').read_text())
+        self.assertEqual(report,{'id':'job-1','state':'success','exit_code':0})
+        content=b''.join(p.read_bytes() for p in source.rglob('*') if p.is_file()).decode(errors='ignore')
+        self.assertNotIn(secret,content)
 
     def test_managed_job_reports_success_and_strips_secrets(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
@@ -212,7 +228,25 @@ class LabTest(unittest.TestCase):
         self.assertIn('./scripts/checkpoint-sync.sh save finalizer',workflow)
         self.assertIn('uses: actions/cache/restore@v4',workflow)
         self.assertIn('uses: actions/cache/save@v4',workflow)
+        self.assertIn('./scripts/agent-run.sh cache --apply --days 14',workflow)
+        self.assertIn('./scripts/agent-github.sh remove',workflow)
+        self.assertIn('20|21)',workflow)
         self.assertNotIn('@latest remote',(ROOT/'scripts/bootstrap-rdc.sh').read_text())
+        sync=(SCRIPTS/'checkpoint-sync.sh').read_text()
+        self.assertIn('--force-with-lease=',sync)
+        self.assertNotIn('fetch --quiet --depth=1 origin "$BRANCH"',sync)
+
+    def test_cache_cleanup_prunes_old_dependency_and_finished_job_reports(self):
+        cache=self.base/'project-cache'; dependency=cache/'demo/node-deadbeef'
+        dependency.mkdir(parents=True); marker=dependency/'.agent-lab-ready';marker.touch()
+        jobs=Path(self.env['AGENT_JOBS_DIR']); finished=jobs/'old-job';finished.mkdir(parents=True)
+        (finished/'result.json').write_text(json.dumps({'id':'old-job','state':'success','created':1,'finished':1}))
+        old=time.time()-20*86400
+        os.utime(marker,(old,old));os.utime(finished/'result.json',(old,old))
+        env={**self.env,'AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([sys.executable,SCRIPTS/'lab_cache.py','--apply','--days','14'],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse(dependency.exists());self.assertFalse(finished.exists())
 
     def test_legacy_project_hook_is_serialized_instead_of_rejected(self):
         script=(SCRIPTS/'agent-project.sh').read_text()

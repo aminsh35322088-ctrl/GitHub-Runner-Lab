@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Prune old dependency environments only while no managed jobs are active."""
+"""Prune old dependency environments and completed job reports while idle."""
 import argparse
+import json
 from pathlib import Path
 import shutil
 import time
@@ -19,3 +20,12 @@ with lock(kit()/'jobs.lock'):
         if marker.exists() and time.time()-marker.stat().st_mtime>a.days*86400:
             print(('DELETE ' if a.apply else 'WOULD_DELETE ')+str(directory))
             if a.apply:shutil.rmtree(directory)
+    cutoff=time.time()-a.days*86400
+    for result in path_env('AGENT_JOBS_DIR',Path.home()/'agent-jobs').glob('*/result.json'):
+        try:
+            metadata=json.loads(result.read_text())
+        except (OSError,ValueError):
+            continue
+        if metadata.get('state') not in ('queued','running') and result.stat().st_mtime < cutoff:
+            print(('DELETE ' if a.apply else 'WOULD_DELETE ')+str(result.parent))
+            if a.apply:shutil.rmtree(result.parent)

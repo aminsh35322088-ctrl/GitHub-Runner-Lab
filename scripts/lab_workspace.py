@@ -6,7 +6,11 @@ from pathlib import Path
 import os
 import re
 import sys
-from lab_common import git, lock, run, runtime, workspace_root
+from lab_common import SCRIPTS, git, lock, run, runtime, workspace_root
+
+
+def remote_git(*args, check=True):
+    return run([SCRIPTS / 'agent-github.sh', 'git-auto', *args], check=check)
 
 
 def main():
@@ -14,7 +18,6 @@ def main():
     p.add_argument('--repo', default='https://github.com/aminsh35322088-ctrl/opencode-telegram-bot.git')
     p.add_argument('--ref', default='main'); p.add_argument('--pr', type=int)
     p.add_argument('--dir'); p.add_argument('--deps', action='store_true')
-    p.add_argument('--force', action='store_true', help='Deprecated; never discards work')
     a = p.parse_args()
     if runtime()['state'] not in ('SAFE', 'UNKNOWN'):
         raise RuntimeError('Workspace preparation refused during handoff')
@@ -29,20 +32,20 @@ def main():
     with lock(root / '.locks' / (hashlib.sha256(str(dest).encode()).hexdigest() + '.lock')):
         if not (dest / '.git').exists():
             if dest.exists(): raise RuntimeError('Destination exists and is not a Git workspace')
-            run(['git', 'clone', '--no-tags', '--', a.repo, dest])
+            remote_git('clone', '--no-tags', '--', a.repo, dest)
         if git(dest, 'remote', 'get-url', 'origin') != a.repo:
             raise RuntimeError('Workspace belongs to a different remote')
         if git(dest, 'status', '--porcelain'):
             raise RuntimeError('Dirty workspace preserved; commit/checkpoint or use another --dir')
-        git(dest, 'fetch', '--prune', 'origin')
+        remote_git('-C', dest, 'fetch', '--prune', 'origin')
         if a.pr:
             target = f'refs/remotes/origin/pr/{a.pr}'
-            git(dest, 'fetch', 'origin', f'+refs/pull/{a.pr}/head:{target}')
+            remote_git('-C', dest, 'fetch', 'origin', f'+refs/pull/{a.pr}/head:{target}')
             branch = f'pr-{a.pr}'
         else:
             target = f'refs/remotes/origin/{a.ref}'; branch = a.ref
             if run(['git', '-C', dest, 'show-ref', '--verify', target], check=False).returncode:
-                git(dest, 'fetch', 'origin', a.ref); target = 'FETCH_HEAD'; branch = None
+                remote_git('-C', dest, 'fetch', 'origin', a.ref); target = 'FETCH_HEAD'; branch = None
         # A clean tree can still contain valuable unpublished commits.
         if run(['git', '-C', dest, 'merge-base', '--is-ancestor', 'HEAD', target], check=False).returncode:
             raise RuntimeError('Local/divergent commits preserved; create a separate workspace')

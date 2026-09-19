@@ -20,8 +20,15 @@ case "${1:-status}" in
       echo 'AGENT_GITHUB=NOT_CONFIGURED'
     fi
     ;;
-  gh|git)
+  remove)
+    sudo rm -f "$TOKEN_FILE"
+    echo 'AGENT_GITHUB=REMOVED'
+    ;;
+  gh|git|git-auto)
     command="$1"; shift
+    if [[ "$command" == git-auto ]] && ! sudo test -s "$TOKEN_FILE"; then
+      exec git "$@"
+    fi
     export GH_TOKEN
     GH_TOKEN="$(sudo cat "$TOKEN_FILE")"
     [[ -n "$GH_TOKEN" ]] || { echo 'AGENT_GITHUB_TOKEN is unavailable' >&2; exit 4; }
@@ -33,5 +40,5 @@ case "${1:-status}" in
     exec git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
       -c http.https://github.com/.extraheader= "$@"
     ;;
-  *) echo 'Usage: agent-github.sh {install|status|gh ARGS...|git ARGS...}' >&2; exit 2 ;;
+  *) echo 'Usage: agent-github.sh {install|status|remove|gh ARGS...|git ARGS...|git-auto ARGS...}' >&2; exit 2 ;;
 esac

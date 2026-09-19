@@ -34,7 +34,6 @@ case "$cmd" in
       case "$1" in
         --core|--build|--media|--full) profile="$1"; shift ;;
         --repo|--ref|--pr|--dir) workspace_args+=("$1" "$2"); shift 2 ;;
-        --force) workspace_args+=("$1"); shift ;;
         --test) tests+=("$2"); shift 2 ;;
         --check) run_check=true; shift ;;
         -h|--help)
@@ -84,7 +83,7 @@ case "$cmd" in
       case "$1" in
         --core|--build|--media|--full) profile="$1"; shift ;;
         --repo|--ref|--pr|--dir) workspace_args+=("$1" "$2"); shift 2 ;;
-        --deps|--force) workspace_args+=("$1"); shift ;;
+        --deps) workspace_args+=("$1"); shift ;;
         -h|--help)
           echo "Usage: agent-run.sh prepare [--core|--build|--media|--full] [workspace options]"
           exit 0
@@ -108,7 +107,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor} [args...]" >&2
+    echo "Usage: agent-run.sh {work|prepare|job|resume|decrypt|github|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

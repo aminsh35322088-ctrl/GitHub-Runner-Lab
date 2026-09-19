@@ -63,9 +63,14 @@ def decrypt(archive, destination):
     with tempfile.TemporaryDirectory() as tmp:
         cipher, plain = Path(tmp)/'cipher', Path(tmp)/'snapshot.tar.gz'
         cipher.write_bytes(payload[len(MAGIC)+16:]); crypt(cipher, plain, True)
-        dest.mkdir(parents=True, mode=0o700)
-        unpack(plain, dest)
-        verify(dest/'snapshot')
+        try:
+            dest.mkdir(parents=True, mode=0o700)
+            unpack(plain, dest)
+            verify(dest/'snapshot')
+        except Exception:
+            if dest.exists():
+                __import__('shutil').rmtree(dest)
+            raise
     print(f'CHECKPOINT_SOURCE={dest / "snapshot"}')
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated encrypted branch; ordinary fast-forward pushes preserve history.
+# Dedicated encrypted branch retaining exactly the latest authenticated archive.
 set -Eeuo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAB_ROOT="$(cd "$SELF_DIR/.." && pwd)"
@@ -34,15 +34,15 @@ git -C "$tmp/repo" remote add origin "$remote"
 # Reuse checkout credentials without putting them in a URL or on stdout.
 header="$(git -C "$LAB_ROOT" config --get http.https://github.com/.extraheader || true)"
 if [[ -n "$header" ]]; then git -C "$tmp/repo" config http.https://github.com/.extraheader "$header"; fi
-if git -C "$tmp/repo" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
-  git -C "$tmp/repo" fetch --quiet --depth=1 origin "$BRANCH"
-  git -C "$tmp/repo" checkout --quiet -b "$BRANCH" FETCH_HEAD
-else
-  git -C "$tmp/repo" checkout --quiet --orphan "$BRANCH"
-fi
+old="$(git -C "$tmp/repo" ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
+git -C "$tmp/repo" checkout --quiet --orphan "$BRANCH"
 cp "$archive" "$tmp/repo/latest.enc"
 git -C "$tmp/repo" add latest.enc
 git -C "$tmp/repo" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --quiet -m 'Save encrypted agent checkpoint'
-git -C "$tmp/repo" push --quiet origin "HEAD:refs/heads/$BRANCH"
+if [[ -n "$old" ]]; then
+  git -C "$tmp/repo" push --quiet --force-with-lease="refs/heads/$BRANCH:$old" origin "HEAD:refs/heads/$BRANCH"
+else
+  git -C "$tmp/repo" push --quiet origin "HEAD:refs/heads/$BRANCH"
+fi
 date -u +%FT%TZ > "$CACHE/checkpoint-persisted-at"
 echo 'CHECKPOINT_DURABLE=true'

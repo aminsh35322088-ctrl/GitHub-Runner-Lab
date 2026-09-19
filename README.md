@@ -50,7 +50,9 @@ The only required persistence secret is `RDC_STATE_KEY` (at least 32 random char
 
 For first setup or recovery, manually dispatch `rdc-lab.yml` with `bootstrap=true` and complete the RDC browser authorization. Normal successor runs restore state unattended.
 
-The workflow installs the current Desktop Commander package on each fresh runner. The repository does not carry a version-specific runtime patch.
+The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
+
+`RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broader, command-scoped GitHub access, an optional fine-grained PAT can be stored as the `AGENT_GITHUB_TOKEN` repository secret. Grant only the repositories and permissions the Agent actually needs. The token is installed after RDC becomes healthy, is never copied into managed job environments, caches, or checkpoints, and is removed during finalization. Normal checkout and lifecycle writes continue to use `GITHUB_TOKEN`.
 
 ## Agent environment
 
@@ -70,6 +72,15 @@ A typical project-aware workspace preparation is:
 
 Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
+Use managed jobs for bounded builds and tests:
+
+```bash
+job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)"
+./scripts/agent-run.sh job wait "$job"
+```
+
+Each job gets a clean environment, durable JSON result, capped combined output, timeout/cancellation, approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`. Container jobs add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
+
 For this project's default OpenCode Telegram bot repository:
 
 ```bash
@@ -87,13 +98,18 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-prewarm.sh` — self-contained foreground/background full prewarm with locking and canonical state/log files.
 - `scripts/agent-status.sh` — compact toolchain + exact local runner countdown report.
 - `scripts/agent-runtime.sh` — initializes and reports the local 330-minute handoff timer.
-- `scripts/agent-checkpoint.sh` — snapshots tracked changes and unpushed commits without copying untracked file contents.
-- `scripts/package-agent-checkpoints.sh` — encrypts the latest snapshot before artifact upload.
-- `scripts/agent-workspace.sh` — safe branch/PR checkout under `~/agent-workspaces`.
+- `scripts/agent-checkpoint.sh` — creates verified Git bundles, staged/unstaged patches, and filtered untracked source snapshots for clones and linked worktrees.
+- `scripts/package-agent-checkpoints.sh` — authenticates and encrypts the latest snapshot before persistence.
+- `scripts/checkpoint-sync.sh` — restores or saves the encrypted snapshot through the dedicated `agent-checkpoints` branch.
+- `scripts/agent-workspace.sh` — prepares branch/PR workspaces under `~/agent-workspaces` and refuses dirty, divergent, or unpublished state instead of resetting it.
 - `scripts/agent-project.sh` — invokes the target branch's project-specific Agent Lab runner using an external persistent cache.
+- `scripts/lab_jobs.py` — starts, observes, stops, drains, and reports bounded detached jobs.
+- `scripts/lab_ready.py` — emits a read-only JSON readiness report.
+- `scripts/agent-github.sh` — exposes the optional PAT only to an explicit `gh`, `git`, or authenticated workspace operation.
+- `scripts/lab_fault_server.py` — provides loopback-only delay, error, streaming, and disconnect fixtures.
 - `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
-- `scripts/agent-run.sh` — one-call entry point for status, prepare, workspace and bootstrap.
+- `scripts/agent-run.sh` — one-call entry point for workspace, jobs, checkpoints, GitHub access, readiness, cache cleanup, and toolchain operations.
 - RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
 
 Canonical prewarm files:
@@ -107,7 +123,7 @@ A failed prewarm does not take RDC offline. READY state is versioned and revalid
 
 ## Test policy
 
-This Lab can run heavy local builds and tests when the target repository permits it. For `opencode-telegram-bot`, its own `AGENTS.md` requires the full suite to run in GitHub Actions CI because Railway production is resource-constrained; that repository policy takes precedence.
+This Lab can run heavy local builds and tests when the target repository permits it. In this project, validation is launched through Remote Desktop Commander so the test process runs inside the same engineered runner environment users receive. A target repository's own policy still takes precedence; for example, `opencode-telegram-bot` reserves its full suite for GitHub Actions CI and permits only targeted local validation unless that policy changes.
 
 ## Isolation
 

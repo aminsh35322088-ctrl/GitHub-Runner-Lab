@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import selectors
 import subprocess
 import sys
 import time
@@ -52,6 +53,11 @@ def start(args):
     command = args.command
     if command and command[0] == '--': command = command[1:]
     if not command: raise ValueError('A command after -- is required')
+    for name in args.pass_env:
+        if not re.fullmatch(r'[A-Z][A-Z0-9_]*', name) or name not in os.environ:
+            raise ValueError(f'Explicit environment variable is unavailable or invalid: {name}')
+    if args.image and (args.image.startswith('-') or not re.fullmatch(r'[A-Za-z0-9._/:@-]+', args.image)):
+        raise ValueError('Invalid container image')
     cwd = Path(args.cwd).resolve()
     if not cwd.is_dir(): raise ValueError('Invalid working directory')
     with lock(kit() / 'jobs.lock'):
@@ -65,11 +71,15 @@ def start(args):
         info = {'id': job, 'cwd': str(cwd), 'command': command, 'created': time.time(),
                 'state': 'queued', 'timeout': args.timeout, 'sha': git(cwd, 'rev-parse', 'HEAD', check=False),
                 'dirty': bool(git(cwd, 'status', '--porcelain', check=False)), 'run_id': os.getenv('GITHUB_RUN_ID'),
-                'image': args.image, 'memory': args.memory, 'cpus': args.cpus}
+                'image': args.image, 'memory': args.memory, 'cpus': args.cpus,
+                'max_log_bytes': args.max_log_mb * 1024 * 1024,
+                'passed_environment': sorted(set(args.pass_env)), 'network': args.network}
         atomic(d / 'result.json', info)
         env = clean_environment()
         for k in ('AGENT_JOBS_DIR', 'AGENT_KIT_CACHE_DIR'):
             if k in os.environ: env[k] = os.environ[k]
+        for k in info['passed_environment']:
+            env[k] = os.environ[k]
         env['RUNNER_TRACKING_ID'] = 'agent-lab-job-' + job
         with (d / 'supervisor.log').open('w') as log:
             process = subprocess.Popen([sys.executable, __file__, '_worker', job], env=env,
@@ -106,16 +116,20 @@ def worker(job):
     (d / 'home').mkdir(exist_ok=True); (d / 'tmp').mkdir(exist_ok=True)
     env.update(HOME=str(d / 'home'), TMPDIR=str(d / 'tmp'), AGENT_JOB_ID=job,
                AGENT_JOB_OUTPUT_DIR=str(d), RUNNER_TRACKING_ID='agent-lab-job-' + job)
+    for name in info.get('passed_environment', []):
+        if name in os.environ: env[name] = os.environ[name]
     command = info['command']
     container = 'agent-lab-' + job
     if info['image']:
         # No host credentials, Docker socket, published ports or privileged mode.
-        command = ['docker', 'run', '--name', container, '--network=none', '--cap-drop=ALL',
+        command = ['docker', 'run', '--name', container, '--network=' + info['network'], '--cap-drop=ALL',
                    '--security-opt=no-new-privileges', '--pids-limit=256',
                    '--memory=' + info['memory'], '--memory-swap=' + info['memory'],
                    '--cpus=' + str(info['cpus']), '--user', f'{os.getuid()}:{os.getgid()}',
                    '--mount', f'type=bind,src={info["cwd"]},dst=/workspace',
-                   '--workdir=/workspace', '--env=HOME=/tmp', info['image'], *command]
+                   '--workdir=/workspace', '--env=HOME=/tmp',
+                   *[item for name in info.get('passed_environment', []) for item in ('--env', name)],
+                   info['image'], *command]
     versions = {}
     for tool, flags in [('node', ['--version']), ('npm', ['--version']), ('python3', ['--version']), ('git', ['--version'])]:
         try:
@@ -124,14 +138,23 @@ def worker(job):
     info.update(state='running', started=time.time(), versions=versions, platform=os.uname().release)
     peak = 0; reason = 'completed'; stopping = None
     try:
-        with (d / 'output.log').open('w') as log:
-            # GNU time gives CPU/max RSS/I/O; /proc adds process-group peak samples.
-            measured = ['/usr/bin/time', '-v', '-o', str(d / 'resources.txt'), '--', *command]
-            p = subprocess.Popen(measured, cwd=info['cwd'], env=env, stdin=subprocess.DEVNULL,
-                                 stdout=log, stderr=log, start_new_session=True)
+        with (d / 'output.log').open('wb') as log:
+            # Keep this dependency-free: fresh runner images do not guarantee GNU time.
+            p = subprocess.Popen(command, cwd=info['cwd'], env=env, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             info.update(command_pid=p.pid, command_start=identity(p.pid))
             atomic(d / 'result.json', info)
-            while p.poll() is None:
+            poller = selectors.DefaultSelector(); poller.register(p.stdout, selectors.EVENT_READ)
+            written = 0; truncated = False
+            while p.poll() is None or poller.get_map():
+                for key, _ in poller.select(0.2):
+                    chunk = os.read(key.fd, 65536)
+                    if not chunk:
+                        poller.unregister(key.fileobj); continue
+                    room = max(0, info['max_log_bytes'] - written)
+                    if room:
+                        log.write(chunk[:room]); written += min(room, len(chunk))
+                    if len(chunk) > room: truncated = True
                 peak = max(peak, process_rss(p.pid))
                 if stopping is None and ((d / 'cancel').exists() or time.time()-info['started'] >= info['timeout']):
                     reason = 'cancelled' if (d / 'cancel').exists() else 'timeout'
@@ -141,14 +164,13 @@ def worker(job):
                 if stopping and time.time()-stopping > 5:
                     try: os.killpg(p.pid, signal.SIGKILL)
                     except ProcessLookupError: pass
-                time.sleep(0.2)
             code = p.wait()
             terminate_group(p.pid)  # Do not leave daemonized descendants in this group.
         if info['image']:
             inspect = subprocess.run(['docker', 'inspect', '--format', '{{json .State}}', container], capture_output=True, text=True)
             if inspect.returncode == 0: info['container_state'] = json.loads(inspect.stdout)
         info.update(state='success' if code == 0 and reason == 'completed' else 'failed',
-                    reason=reason, exit_code=code)
+                    reason=reason, exit_code=code, log_truncated=truncated)
     except Exception as e:
         info.update(state='failed', reason='launch-error', error=str(e), exit_code=None)
     finally:
@@ -180,6 +202,9 @@ def main():
     s = p.add_subparsers(dest='action', required=True)
     a = s.add_parser('start'); a.add_argument('--cwd', default=os.getcwd())
     a.add_argument('--timeout', type=int, default=1800); a.add_argument('--allow-unknown-runtime', action='store_true')
+    a.add_argument('--max-log-mb', type=int, default=20)
+    a.add_argument('--pass-env', action='append', default=[])
+    a.add_argument('--network', choices=('none','bridge'), default='none')
     a.add_argument('--image'); a.add_argument('--memory', default='512m'); a.add_argument('--cpus', type=float, default=1)
     a.add_argument('command', nargs=argparse.REMAINDER)
     s.add_parser('list')
@@ -188,7 +213,7 @@ def main():
     a = s.add_parser('drain'); a.add_argument('--seconds', type=int, default=900)
     args = p.parse_args()
     if args.action == 'start':
-        if args.timeout < 1: raise ValueError('timeout must be positive')
+        if args.timeout < 1 or args.max_log_mb < 1: raise ValueError('timeout and max-log-mb must be positive')
         start(args)
     elif args.action == '_worker': worker(args.id)
     elif args.action == 'list': print(json.dumps(all_jobs(), indent=2))

@@ -36,11 +36,6 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 4
 fi
 
-# Legacy hooks that mutate the host-wide dependency path cannot run concurrently.
-if grep -q '/app/node_modules' "$CONFIG"; then
-  echo 'Project runner must use workspace-local dependencies (Agent Lab protocol 2).' >&2
-  exit 4
-fi
 if [[ -z "${AGENT_JOB_ID:-}" ]]; then
   SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   job="$(python3 "$SELF_DIR/lab_jobs.py" start --cwd "$TARGET" --timeout "${AGENT_JOB_TIMEOUT:-1800}" -- bash "$SELF_DIR/agent-project.sh" "$ACTION" "$TARGET" "$@")"
@@ -48,4 +43,10 @@ if [[ -z "${AGENT_JOB_ID:-}" ]]; then
   exec python3 "$SELF_DIR/lab_jobs.py" wait "$job"
 fi
 export AGENT_PROJECT_ROOT="$TARGET"
+if grep -q '/app/node_modules' "$CONFIG"; then
+  # Compatibility for older project hooks. The global path is serialized until
+  # that project moves to workspace-local dependency links.
+  exec 7>"$CACHE_ROOT/legacy-app-node-modules.lock"
+  flock -w "${AGENT_LEGACY_LOCK_WAIT:-900}" 7
+fi
 exec bash "$CONFIG" "$ACTION" "$@"

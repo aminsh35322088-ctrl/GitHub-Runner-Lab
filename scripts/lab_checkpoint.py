@@ -20,7 +20,12 @@ MAX_FILE = 2 * 1024 * 1024
 SOURCE_SUFFIXES = {'.py', '.sh', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx',
                    '.rs', '.go', '.c', '.h', '.cpp', '.css', '.html', '.md', '.txt',
                    '.json', '.yml', '.yaml', '.toml', '.sql', '.xml'}
+SOURCE_NAMES = {'Dockerfile', 'Containerfile', 'Makefile', 'Justfile', 'LICENSE'}
 SECRET = re.compile(rb'-----BEGIN .*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]+|\b\d{8,12}:[A-Za-z0-9_-]{30,}|\bsk-[A-Za-z0-9_-]{20,}')
+SAFE_JOB_FIELDS = {'id', 'cwd', 'created', 'state', 'timeout', 'sha', 'dirty', 'run_id',
+                   'image', 'memory', 'cpus', 'network', 'max_log_bytes',
+                   'passed_environment', 'started', 'finished', 'peak_group_rss_bytes',
+                   'exit_code', 'reason', 'log_truncated', 'versions', 'platform'}
 
 
 def checkpoint_root():
@@ -46,7 +51,7 @@ def safe_untracked(repo, name):
         return False
     if any(re.search(r'(secret|credential|token|password|device\.json|id_rsa)', x, re.I) for x in relative.parts):
         return False
-    if file.stat().st_size > MAX_FILE or file.suffix not in SOURCE_SUFFIXES:
+    if file.stat().st_size > MAX_FILE or (file.suffix not in SOURCE_SUFFIXES and file.name not in SOURCE_NAMES):
         return False
     data = file.read_bytes()
     return b'\0' not in data and not SECRET.search(data)
@@ -97,7 +102,14 @@ def snapshot(reason):
                     'included_untracked': included, 'excluded_untracked': excluded})
             jobs = path_env('AGENT_JOBS_DIR', Path.home() / 'agent-jobs')
             if jobs.exists():
-                shutil.copytree(jobs, out / '_jobs', ignore=shutil.ignore_patterns('home', 'tmp', '*.lock'))
+                for result in jobs.glob('*/result.json'):
+                    try:
+                        raw = json.loads(result.read_text())
+                        report = {key: raw[key] for key in SAFE_JOB_FIELDS if key in raw}
+                        target = out / '_jobs' / result.parent.name / 'result.json'
+                        atomic(target, report)
+                    except (OSError, ValueError, TypeError):
+                        continue
             atomic(out / 'manifest.json', manifest)
             hashes = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in out.rglob('*') if p.is_file()}
@@ -115,7 +127,11 @@ def snapshot(reason):
 
 
 def verify(source):
-    for name, digest in json.loads((source / 'sha256.json').read_text()).items():
+    hashes = json.loads((source / 'sha256.json').read_text())
+    actual = {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file() and p.name != 'sha256.json'}
+    if actual != set(hashes):
+        raise RuntimeError('Checkpoint file set does not match its signed manifest')
+    for name, digest in hashes.items():
         p = source / name
         if not p.resolve().is_relative_to(source.resolve()) or not p.is_file():
             raise RuntimeError('Invalid snapshot path')

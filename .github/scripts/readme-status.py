@@ -22,6 +22,7 @@ WORKFLOW = "rdc-lab.yml"
 JOB_NAME = "runner-lab"
 KEEP_STEPS = ("Prewarm Agent Toolchain and Keep RDC Lab Alive", "Keep RDC Lab Alive")
 VERIFY_STEP = "Verify connection"
+STOP_STEP = "Gracefully Stop RDC"
 SAMPLE_RUNS = 12
 HANDOFF_TARGET_MINUTES = 15
 
@@ -61,7 +62,7 @@ def step_by_names(steps, names):
 
 def reliability(repo, runs):
     completed = [r for r in runs if r.get("status") == "completed"][:SAMPLE_RUNS]
-    verify_outcomes, keepalive_outcomes = [], []
+    verify_outcomes, keepalive_outcomes, sessions = [], [], []
     for run in completed:
         try:
             jobs = api(f'/repos/{repo}/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100')["jobs"]
@@ -77,19 +78,20 @@ def reliability(repo, runs):
             verify_outcomes.append(verify.get("conclusion") == "success")
         if keep.get("status") == "completed" and keep.get("started_at"):
             keepalive_outcomes.append(keep.get("conclusion") == "success")
+        stop = steps.get(STOP_STEP, {})
+        ready_at = timestamp(verify.get("completed_at")) if verify.get("conclusion") == "success" else None
+        stopped_at = timestamp(stop.get("completed_at") or stop.get("started_at"))
+        if ready_at:
+            sessions.append({"ready": ready_at, "stopped": stopped_at})
 
     verify_rate = round(100 * sum(verify_outcomes) / len(verify_outcomes)) if verify_outcomes else None
     keepalive_rate = round(100 * sum(keepalive_outcomes) / len(keepalive_outcomes)) if keepalive_outcomes else None
 
-    chronological = sorted([r for r in runs if r.get("run_started_at")], key=lambda r: r["run_started_at"])
+    chronological = sorted(sessions, key=lambda session: session["ready"])
     gaps = []
     for previous, current in zip(chronological, chronological[1:]):
-        if previous.get("status") != "completed":
-            continue
-        prev_end = timestamp(previous.get("updated_at"))
-        next_start = timestamp(current.get("run_started_at"))
-        if prev_end and next_start:
-            gaps.append(max(0.0, (next_start - prev_end).total_seconds() / 60))
+        if previous["stopped"]:
+            gaps.append(max(0.0, (current["ready"] - previous["stopped"]).total_seconds() / 60))
     gaps = gaps[-SAMPLE_RUNS:]
     handoff_rate = round(100 * sum(g <= HANDOFF_TARGET_MINUTES for g in gaps) / len(gaps)) if gaps else None
     return {
