@@ -414,4 +414,44 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertEqual(json.loads(waited.stdout)['grace_seconds'],17)
 
 
+    def test_toolset_manifest_drives_commands_and_profiles(self):
+        manifest=ROOT/'config/runner-toolset.json'
+        self.assertTrue(manifest.is_file())
+        data=json.loads(manifest.read_text())
+        self.assertEqual(data['schema_version'],1)
+        result=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        commands=set(result.stdout.split())
+        for name in ('git','gh','node','npm','python3','cmake','ninja','clang','ffmpeg','convert','shellcheck'):
+            self.assertIn(name,commands)
+        packages=command([sys.executable,SCRIPTS/'lab_toolset.py','packages','full'])
+        self.assertEqual(packages.returncode,0,packages.stderr)
+        self.assertIn('build-essential',packages.stdout.split())
+        self.assertIn('ffmpeg',packages.stdout.split())
+
+    def test_toolset_manifest_pins_goss_with_checksums(self):
+        result=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','x86_64'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        meta=json.loads(result.stdout)
+        self.assertEqual(meta['version'],'0.4.10')
+        self.assertEqual(meta['sha256'],'26e365428946294bcec0c61d867bb3c8349f39feb3d0e6f59084e98632785cc7')
+        arm=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','aarch64'])
+        self.assertEqual(arm.returncode,0,arm.stderr)
+        self.assertEqual(json.loads(arm.stdout)['sha256'],'90a59612b4d67d9f1a9038634c000790136bb82526a69de1e81ac075c2f6d2c6')
+        bad=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','mips'])
+        self.assertNotEqual(bad.returncode,0)
+
+    def test_agent_lib_reads_commands_from_toolset_manifest(self):
+        content=(SCRIPTS/'agent-lib.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertNotIn('git gh node npm python3 rg fd jq',content)
+
+    def test_bootstrap_reads_packages_from_toolset_manifest(self):
+        content=(SCRIPTS/'agent-bootstrap.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertNotIn('CORE_PACKAGES=(',content)
+        self.assertNotIn('BUILD_PACKAGES=(',content)
+        self.assertNotIn('MEDIA_PACKAGES=(',content)
+
+
 if __name__=='__main__': unittest.main()

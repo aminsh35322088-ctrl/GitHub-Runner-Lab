@@ -2,21 +2,9 @@
 set -Eeuo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
-
-CORE_PACKAGES=(
-  ca-certificates curl wget git gh jq yq unzip zip rsync
-  ripgrep fd-find fzf tree file lsof strace procps net-tools
-  netcat-openbsd dnsutils sqlite3 shellcheck python3 python3-pip
-)
-BUILD_PACKAGES=(
-  build-essential cmake ninja-build pkg-config
-  python3-venv python3-dev python3-setuptools python3-wheel
-  git-lfs clang gdb
-  libssl-dev libsqlite3-dev zlib1g-dev libffi-dev
-)
-MEDIA_PACKAGES=(ffmpeg imagemagick)
 
 PROFILE="core"
 case "${1:-}" in
@@ -31,12 +19,7 @@ case "${1:-}" in
   *) echo "Unknown bootstrap option: $1" >&2; exit 2 ;;
 esac
 
-PACKAGES=("${CORE_PACKAGES[@]}")
-case "$PROFILE" in
-  build) PACKAGES+=("${BUILD_PACKAGES[@]}") ;;
-  media) PACKAGES+=("${MEDIA_PACKAGES[@]}") ;;
-  full) PACKAGES+=("${BUILD_PACKAGES[@]}" "${MEDIA_PACKAGES[@]}") ;;
-esac
+mapfile -t PACKAGES < <(python3 "$SELF_DIR/lab_toolset.py" packages "$PROFILE")
 
 missing=()
 for pkg in "${PACKAGES[@]}"; do
