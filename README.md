@@ -10,21 +10,21 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Last checked | 2026-09-20 07:06:12 UTC |
-| Runner/job started | 2026-09-20 04:46:17 UTC |
-| Keepalive started | 2026-09-20 04:46:59 UTC |
-| Runner age | 139 min |
-| Runner lifecycle remaining | 190 min |
+| Last checked | 2026-09-20 09:58:21 UTC |
+| Runner/job started | 2026-09-20 09:57:37 UTC |
+| Keepalive started | 2026-09-20 09:58:22 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-09-20 10:16:17 UTC |
-| Hard job timeout | 2026-09-20 10:36:17 UTC |
+| Nominal handoff | 2026-09-20 15:27:37 UTC |
+| Hard job timeout | 2026-09-20 15:47:37 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
-| RDC verification success | 100% (8 samples) |
-| Keepalive completion | 88% (8 samples) |
-| Handoff ≤15 min | 100% (7 samples) |
+| Successor already queued | — |
+| RDC verification success | 100% (9 samples) |
+| Keepalive completion | 89% (9 samples) |
+| Handoff ≤15 min | 100% (8 samples) |
 | Median handoff gap | 0.7 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35489959775) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/35491041766) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
