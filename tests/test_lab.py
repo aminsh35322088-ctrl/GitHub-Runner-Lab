@@ -586,4 +586,49 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
             self.assertEqual(lines,expected,args)
 
 
+    def test_prewarm_ready_is_gated_by_quick_runner_validation(self):
+        bindir=self.base/'prewarm';bindir.mkdir()
+        cache=self.base/'prewarm-cache';cache.mkdir()
+        prewarm=bindir/'agent-prewarm.sh'
+        prewarm.write_text((SCRIPTS/'agent-prewarm.sh').read_text());prewarm.chmod(0o755)
+        (bindir/'agent-lib.sh').write_text(f"""#!/bin/bash
+agent_cache_dir() {{ echo '{cache}'; }}
+agent_status_file() {{ echo '{cache}/prewarm.env'; }}
+agent_log_file() {{ echo '{cache}/prewarm.log'; }}
+agent_toolchain_version() {{ echo test-v1; }}
+agent_status_value() {{ :; }}
+agent_full_toolchain_ready() {{ return 0; }}
+agent_missing_full_commands() {{ :; }}
+""")
+        bootstrap=bindir/'agent-bootstrap.sh';bootstrap.write_text('#!/bin/sh\nexit 0\n');bootstrap.chmod(0o755)
+        validator=bindir/'lab_runner_validate.py'
+        validator.write_text(
+            "import os,pathlib,sys\n"
+            "pathlib.Path(os.environ['VALIDATE_RECORD']).write_text(' '.join(sys.argv[1:]))\n"
+            "raise SystemExit(int(os.environ.get('VALIDATE_EXIT','0')))\n"
+        )
+        record=self.base/'validate-args'
+        failed=command([prewarm,'--foreground'],
+                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'})
+        self.assertEqual(failed.returncode,23,failed.stderr)
+        state=(cache/'prewarm.env').read_text()
+        self.assertIn('STATUS=FAILED',state)
+        self.assertEqual(record.read_text().split()[0],'quick')
+        passed=command([prewarm,'--foreground'],
+                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'0'})
+        self.assertEqual(passed.returncode,0,passed.stderr)
+        self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
+
+    def test_doctor_uses_manifest_as_toolchain_source_of_truth(self):
+        content=(SCRIPTS/'agent-doctor.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertIn('agent_required_full_commands',content)
+        self.assertNotIn('tools: git=%s node=%s npm=%s',content)
+        result=command([SCRIPTS/'agent-doctor.sh',self.base],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('toolset=VALID',result.stdout)
+        self.assertIn('toolchain_version=2026-09-20.1',result.stdout)
+        self.assertIn('tool.git=',result.stdout)
+
+
 if __name__=='__main__': unittest.main()

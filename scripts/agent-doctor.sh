@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SELF_DIR/agent-lib.sh"
+
 TARGET="${1:-$PWD}"
 OS_NAME="unknown"
 if [[ -r /etc/os-release ]]; then
@@ -12,7 +16,19 @@ printf 'host=%s\n' "$(hostname)"
 printf 'os=%s\n' "${OS_NAME:-unknown}"
 printf 'cwd=%s\n' "$TARGET"
 printf 'disk=%s\n' "$(df -h "$HOME" | awk 'NR==2 {print $3 "/" $2 " used=" $5}')"
-printf 'tools: git=%s node=%s npm=%s python=%s rg=%s jq=%s\n'   "$(git --version 2>/dev/null | awk '{print $3}' || echo missing)"   "$(node --version 2>/dev/null || echo missing)"   "$(npm --version 2>/dev/null || echo missing)"   "$(python3 --version 2>/dev/null | awk '{print $2}' || echo missing)"   "$(rg --version 2>/dev/null | awk 'NR==1 {print $2}' || echo missing)"   "$(jq --version 2>/dev/null || echo missing)"
+toolset_status="$(python3 "$SELF_DIR/lab_toolset.py" validate)"
+printf 'toolset=%s\n' "${toolset_status#TOOLSET=}"
+printf 'toolchain_version=%s\n' "$(agent_toolchain_version)"
+if agent_full_toolchain_ready; then
+  echo "toolchain_ready=yes"
+else
+  echo "toolchain_ready=no"
+  printf 'toolchain_missing=%s\n' "$(agent_missing_full_commands | paste -sd, -)"
+fi
+while IFS= read -r cmd; do
+  path="$(command -v "$cmd" 2>/dev/null || true)"
+  printf 'tool.%s=%s\n' "$cmd" "${path:-missing}"
+done < <(agent_required_full_commands)
 
 if [[ -d "$TARGET/.git" ]] || git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   echo "--- git ---"
