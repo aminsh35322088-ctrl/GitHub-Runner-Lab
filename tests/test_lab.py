@@ -454,4 +454,72 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertNotIn('MEDIA_PACKAGES=(',content)
 
 
+    def test_runner_validation_builds_hard_and_advisory_goss_specs(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        hard,advisory=module.build_specs(toolset,home=self.base,cache=self.base/'cache',require_rdc=False)
+        self.assertIn('github.com',hard['dns'])
+        self.assertIn('https://api.github.com',hard['http'])
+        self.assertIn('https://registry.npmjs.org',advisory['http'])
+        rendered=json.dumps(hard)
+        self.assertIn('disk_free_gb',rendered)
+        self.assertIn('inode_free_percent',rendered)
+        self.assertIn('command -v git',rendered)
+        self.assertIn('node --version',rendered)
+
+    def test_runner_validation_reports_degraded_advisory_without_failing(self):
+        fake=self.base/'fake-goss'
+        fake.write_text("#!/usr/bin/env python3\nimport pathlib,sys\npath=pathlib.Path(sys.argv[sys.argv.index('-g')+1])\nraise SystemExit(1 if 'registry.npmjs.org' in path.read_text() else 0)\n")
+        fake.chmod(0o755)
+        out=self.base/'runner-report'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'degraded')
+        self.assertEqual(summary['stages']['host']['status'],'passed')
+        self.assertEqual(summary['stages']['network_advisory']['status'],'degraded')
+        self.assertTrue((out/'summary.md').exists())
+        self.assertTrue((out/'junit.xml').exists())
+
+    def test_runner_validation_fails_on_hard_goss_failure(self):
+        fake=self.base/'fake-goss'
+        fake.write_text("#!/bin/sh\nexit 1\n");fake.chmod(0o755)
+        out=self.base/'runner-report-fail'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['host']['status'],'failed')
+
+    def test_goss_installer_rejects_unsupported_architecture_before_download(self):
+        result=command([SCRIPTS/'install-goss.sh'],env={**self.env,'GOSS_ARCH':'mips'})
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('unsupported goss architecture',result.stderr)
+        self.assertNotIn('latest',(SCRIPTS/'install-goss.sh').read_text())
+
+
+    def test_goss_v0410_dns_spec_uses_supported_attributes_only(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_compat',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        dns=hard['dns']['github.com']
+        self.assertEqual(set(dns),{'resolvable','timeout'})
+        self.assertNotIn('retry_count',dns)
+        self.assertNotIn('retry_delay',dns)
+
+    def test_generated_resource_commands_are_shell_safe(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_shell',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['thresholds']={'disk_free_gb':0,'inode_free_percent':0}
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        for name in ('disk_free_gb','inode_free_percent'):
+            result=subprocess.run(hard['command'][name]['exec'],shell=True,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,f"{name}: {result.stderr}")
+
+
 if __name__=='__main__': unittest.main()
