@@ -2,6 +2,7 @@ import datetime as dt
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -331,6 +332,86 @@ esac
         state=module.unknown_state(dt.datetime(2026,9,19,tzinfo=dt.timezone.utc))
         state['stale']=True
         self.assertIn('Status freshness',module.render(state,'x/y'))
+
+
+    def test_validate_sigterm_runs_cleanup_and_writes_interrupted_summary(self):
+        workspace=self.base/'workspaces'/'interrupt';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+case "$1" in
+  prepare) sleep 30 ;;
+  clean-materialized) touch "$AGENT_PROJECT_ROOT/cleanup-ran" ;;
+esac
+''');hook.chmod(0o755)
+        output=self.base/'interrupted-validation'
+        env={**self.env,'AGENT_PROJECT_ROOT':workspace}
+        process=subprocess.Popen([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],
+                                 cwd=ROOT,env={**os.environ,**{k:str(v) for k,v in env.items()}},
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        time.sleep(0.4);process.send_signal(signal.SIGTERM)
+        process.communicate(timeout=8)
+        self.assertEqual(process.returncode,128+signal.SIGTERM)
+        self.assertTrue((workspace/'cleanup-ran').exists())
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'interrupted')
+        self.assertEqual(summary['interrupted_by'],'SIGTERM')
+        self.assertEqual(summary['cleanup']['exit_code'],0)
+
+    def test_validate_caps_stage_logs_and_reports_truncation(self):
+        workspace=self.base/'workspaces'/'logs';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+if [ "$1" = prepare ]; then python3 -c 'print("x"*200000)'; fi
+''');hook.chmod(0o755)
+        output=self.base/'bounded-validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output,
+                        '--log-max-mb','0.01'],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((output/'summary.json').read_text())
+        prepare=summary['stages'][0]
+        self.assertTrue(prepare['log_truncated'])
+        self.assertLessEqual((output/'prepare.log').stat().st_size,summary['log_max_bytes'])
+        self.assertIn('clean-materialized',(output/'summary.md').read_text())
+
+    def test_validate_holds_legacy_dependency_lock_for_entire_contract(self):
+        workspace=self.base/'workspaces'/'legacy';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+# compatibility marker: /app/node_modules
+(
+  exec 9>"$AGENT_PROJECT_CACHE_ROOT/legacy-app-node-modules.lock"
+  if flock -n 9; then exit 41; else exit 0; fi
+)
+''');hook.chmod(0o755)
+        cache=self.base/'project-cache';cache.mkdir()
+        env={**self.env,'AGENT_JOB_ID':'direct','AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([SCRIPTS/'agent-project.sh','validate',workspace],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_project_job_preserves_persistent_cache_root_across_clean_boundary(self):
+        workspace=self.base/'workspaces'/'cache-root';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
+''');hook.chmod(0o755)
+        cache=self.base/'persistent-project-cache';cache.mkdir()
+        env={**self.env,'AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([SCRIPTS/'agent-project.sh','prepare',workspace],env=env,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((workspace/'cache-root.txt').read_text(),str(cache))
+
+    def test_managed_job_records_configurable_grace_window(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'grace';init_repo(workspace)
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',
+                        '--grace-seconds','17','--','true'],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr);job=result.stdout.strip()
+        waited=command([sys.executable,SCRIPTS/'lab_jobs.py','wait',job],env=self.env)
+        self.assertEqual(waited.returncode,0,waited.stderr)
+        self.assertEqual(json.loads(waited.stdout)['grace_seconds'],17)
 
 
 if __name__=='__main__': unittest.main()
