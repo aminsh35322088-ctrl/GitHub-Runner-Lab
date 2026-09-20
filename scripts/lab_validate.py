@@ -14,16 +14,45 @@ _ACTIVE_PROCESS = None
 _RECEIVED_SIGNAL = None
 _CLEANUP_RUNNING = False
 
+def descendants(root_pid):
+    """Return Linux /proc descendants deepest-first without external tools."""
+    children = {}
+    for path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            pid = int(path.parent.name)
+            fields = path.read_text().rsplit(")", 1)[1].split()
+            parent = int(fields[1])
+            children.setdefault(parent, []).append(pid)
+        except (OSError, ValueError, IndexError):
+            pass
+    ordered = []
+    stack = list(children.get(root_pid, ()))
+    while stack:
+        pid = stack.pop()
+        ordered.append(pid)
+        stack.extend(children.get(pid, ()))
+    return reversed(ordered)
+
+
+def signal_tree(process, signum):
+    for pid in descendants(process.pid):
+        try:
+            os.kill(pid, signum)
+        except ProcessLookupError:
+            pass
+    try:
+        process.send_signal(signum)
+    except ProcessLookupError:
+        pass
+
+
 def handle_signal(signum, _frame):
     global _RECEIVED_SIGNAL
     if _RECEIVED_SIGNAL is None:
         _RECEIVED_SIGNAL = signum
     process = _ACTIVE_PROCESS
     if not _CLEANUP_RUNNING and process is not None and process.poll() is None:
-        try:
-            process.send_signal(signum)
-        except ProcessLookupError:
-            pass
+        signal_tree(process, signum)
 
 def run_stage(hook, workspace, name, output, args=(), max_log_bytes=10 * 1024 * 1024):
     global _ACTIVE_PROCESS
