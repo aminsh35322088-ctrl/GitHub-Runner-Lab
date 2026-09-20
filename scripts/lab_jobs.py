@@ -72,6 +72,7 @@ def start(args):
                 'state': 'queued', 'timeout': args.timeout, 'sha': git(cwd, 'rev-parse', 'HEAD', check=False),
                 'dirty': bool(git(cwd, 'status', '--porcelain', check=False)), 'run_id': os.getenv('GITHUB_RUN_ID'),
                 'image': args.image, 'memory': args.memory, 'cpus': args.cpus,
+                'grace_seconds': args.grace_seconds,
                 'max_log_bytes': args.max_log_mb * 1024 * 1024,
                 'passed_environment': sorted(set(args.pass_env)), 'network': args.network}
         atomic(d / 'command.json', {'argv': command})
@@ -163,7 +164,7 @@ def worker(job):
                     stopping = time.time(); terminate_group(p.pid)
                     if info['image']:
                         subprocess.run(['docker', 'stop', '-t', '5', container], capture_output=True, timeout=15)
-                if stopping and time.time()-stopping > 5:
+                if stopping and time.time()-stopping > info.get('grace_seconds', 10):
                     try: os.killpg(p.pid, signal.SIGKILL)
                     except ProcessLookupError: pass
             code = p.wait()
@@ -207,6 +208,7 @@ def main():
     s = p.add_subparsers(dest='action', required=True)
     a = s.add_parser('start'); a.add_argument('--cwd', default=os.getcwd())
     a.add_argument('--timeout', type=int, default=1800); a.add_argument('--allow-unknown-runtime', action='store_true')
+    a.add_argument('--grace-seconds', type=int, default=10)
     a.add_argument('--max-log-mb', type=int, default=20)
     a.add_argument('--pass-env', action='append', default=[])
     a.add_argument('--network', choices=('none','bridge'), default='none')
@@ -218,7 +220,8 @@ def main():
     a = s.add_parser('drain'); a.add_argument('--seconds', type=int, default=900)
     args = p.parse_args()
     if args.action == 'start':
-        if args.timeout < 1 or args.max_log_mb < 1: raise ValueError('timeout and max-log-mb must be positive')
+        if args.timeout < 1 or args.max_log_mb < 1 or not 1 <= args.grace_seconds <= 60:
+            raise ValueError('timeout/max-log-mb must be positive and grace-seconds must be 1..60')
         start(args)
     elif args.action == '_worker': worker(args.id)
     elif args.action == 'list': print(json.dumps(all_jobs(), indent=2))
