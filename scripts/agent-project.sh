@@ -38,19 +38,23 @@ fi
 
 if [[ -z "${AGENT_JOB_ID:-}" ]]; then
   SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  job="$(python3 "$SELF_DIR/lab_jobs.py" start --cwd "$TARGET" --timeout "${AGENT_JOB_TIMEOUT:-1800}" -- bash "$SELF_DIR/agent-project.sh" "$ACTION" "$TARGET" "$@")"
+  job_args=(start --cwd "$TARGET" --timeout "${AGENT_JOB_TIMEOUT:-1800}" --grace-seconds "${AGENT_JOB_GRACE_SECONDS:-10}" --pass-env AGENT_PROJECT_CACHE_ROOT)
+  [[ -n "${AGENT_PROJECT_RUNNER:-}" ]] && job_args+=(--pass-env AGENT_PROJECT_RUNNER)
+  [[ -n "${AGENT_LEGACY_LOCK_WAIT:-}" ]] && job_args+=(--pass-env AGENT_LEGACY_LOCK_WAIT)
+  [[ -n "${AGENT_VALIDATION_LOG_MAX_MB:-}" ]] && job_args+=(--pass-env AGENT_VALIDATION_LOG_MAX_MB)
+  job="$(python3 "$SELF_DIR/lab_jobs.py" "${job_args[@]}" -- bash "$SELF_DIR/agent-project.sh" "$ACTION" "$TARGET" "$@")"
   echo "AGENT_JOB_ID=$job"
   exec python3 "$SELF_DIR/lab_jobs.py" wait "$job"
 fi
 export AGENT_PROJECT_ROOT="$TARGET"
-if [[ "$ACTION" == "validate" ]]; then
-  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  exec python3 "$SELF_DIR/lab_validate.py" "$TARGET" "$@"
-fi
 if grep -q '/app/node_modules' "$CONFIG"; then
   # Compatibility for older project hooks. The global path is serialized until
   # that project moves to workspace-local dependency links.
   exec 7>"$CACHE_ROOT/legacy-app-node-modules.lock"
   flock -w "${AGENT_LEGACY_LOCK_WAIT:-900}" 7
+fi
+if [[ "$ACTION" == "validate" ]]; then
+  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$SELF_DIR/lab_validate.py" "$TARGET" "$@"
 fi
 exec bash "$CONFIG" "$ACTION" "$@"
