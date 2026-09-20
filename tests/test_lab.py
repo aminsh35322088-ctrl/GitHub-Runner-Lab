@@ -1,6 +1,8 @@
+import datetime as dt
 import io
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -264,6 +266,464 @@ class LabTest(unittest.TestCase):
 
     def test_workspace_routes_remote_git_through_optional_auth_helper(self):
         self.assertIn("'git-auto'",(SCRIPTS/'lab_workspace.py').read_text())
+
+
+    def test_validate_contract_runs_full_diagnoses_flake_and_cleans(self):
+        workspace=self.base/'workspaces'/'demo';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        calls=self.base/'calls'
+        hook.write_text(f'''#!/usr/bin/env bash
+set -eu
+echo "$1 $*" >> "{calls}"
+case "$1" in
+  full) echo tests/example.test.ts > "$AGENT_JOB_OUTPUT_DIR/failed-tests.txt"; exit 1 ;;
+  test) exit 0 ;;
+esac
+''')
+        hook.chmod(0o755)
+        output=self.base/'validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'flaky')
+        self.assertIn('full full',calls.read_text())
+        self.assertIn('test test tests/example.test.ts',calls.read_text())
+        self.assertIn('clean-materialized clean-materialized',calls.read_text())
+        self.assertTrue((output/'summary.md').exists())
+
+    def test_validate_contract_writes_success_summary(self):
+        workspace=self.base/'workspaces'/'demo';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text(f'#!/usr/bin/env bash\nset -eu\ntest "$PWD" = "{workspace}"\nexit 0\n');hook.chmod(0o755)
+        output=self.base/'validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'passed')
+        self.assertEqual([stage['name'] for stage in summary['stages']],['prepare','check','full'])
+
+    def test_agent_run_exposes_managed_validation_and_guard_help(self):
+        script=(SCRIPTS/'agent-run.sh').read_text()
+        self.assertIn('validate)',script)
+        self.assertIn('lab_runner_validate.py',script)
+        self.assertIn('shell-help)',script)
+        self.assertIn('Use agent-run.sh github',script)
+
+    def test_reliability_excludes_cancelled_keepalive_from_completion_rate(self):
+        spec=importlib.util.spec_from_file_location('readme_status_keepalive',ROOT/'.github/scripts/readme-status.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        jobs={
+            1:{'jobs':[{'name':'runner-lab','steps':[
+                {'name':'Verify connection','status':'completed','conclusion':'success','completed_at':'2026-09-19T00:01:00Z'},
+                {'name':'Prewarm Agent Toolchain and Keep RDC Lab Alive','status':'completed','conclusion':'cancelled','started_at':'2026-09-19T00:01:00Z'}]}]},
+            2:{'jobs':[{'name':'runner-lab','steps':[
+                {'name':'Verify connection','status':'completed','conclusion':'success','completed_at':'2026-09-19T05:01:00Z'},
+                {'name':'Prewarm Agent Toolchain and Keep RDC Lab Alive','status':'completed','conclusion':'success','started_at':'2026-09-19T05:01:00Z'}]}]},
+        }
+        module.api=lambda path: jobs[int(path.split('/')[6])]
+        runs=[{'id':1,'status':'completed','conclusion':'cancelled','created_at':'2026-09-19T00:00:00Z'},
+              {'id':2,'status':'completed','conclusion':'success','created_at':'2026-09-19T05:00:00Z'}]
+        stats=module.reliability('x/y',runs)
+        self.assertEqual(stats['keepalive_rate'],100)
+        self.assertEqual(stats['keepalive_sample'],1)
+
+    def test_readme_status_marks_stale_snapshots(self):
+        spec=importlib.util.spec_from_file_location('readme_status_stale',ROOT/'.github/scripts/readme-status.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        state=module.unknown_state(dt.datetime(2026,9,19,tzinfo=dt.timezone.utc))
+        state['stale']=True
+        self.assertIn('Status freshness',module.render(state,'x/y'))
+
+
+    def test_validate_sigterm_runs_cleanup_and_writes_interrupted_summary(self):
+        workspace=self.base/'workspaces'/'interrupt';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+case "$1" in
+  prepare) sleep 30 ;;
+  clean-materialized) touch "$AGENT_PROJECT_ROOT/cleanup-ran" ;;
+esac
+''');hook.chmod(0o755)
+        output=self.base/'interrupted-validation'
+        env={**self.env,'AGENT_PROJECT_ROOT':workspace}
+        process=subprocess.Popen([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],
+                                 cwd=ROOT,env={**os.environ,**{k:str(v) for k,v in env.items()}},
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        time.sleep(0.4);process.send_signal(signal.SIGTERM)
+        process.communicate(timeout=8)
+        self.assertEqual(process.returncode,128+signal.SIGTERM)
+        self.assertTrue((workspace/'cleanup-ran').exists())
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'interrupted')
+        self.assertEqual(summary['interrupted_by'],'SIGTERM')
+        self.assertEqual(summary['cleanup']['exit_code'],0)
+
+    def test_validate_caps_stage_logs_and_reports_truncation(self):
+        workspace=self.base/'workspaces'/'logs';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+if [ "$1" = prepare ]; then python3 -c 'print("x"*200000)'; fi
+''');hook.chmod(0o755)
+        output=self.base/'bounded-validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output,
+                        '--log-max-mb','0.01'],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((output/'summary.json').read_text())
+        prepare=summary['stages'][0]
+        self.assertTrue(prepare['log_truncated'])
+        self.assertLessEqual((output/'prepare.log').stat().st_size,summary['log_max_bytes'])
+        self.assertIn('clean-materialized',(output/'summary.md').read_text())
+
+    def test_validate_holds_legacy_dependency_lock_for_entire_contract(self):
+        workspace=self.base/'workspaces'/'legacy';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+# compatibility marker: /app/node_modules
+(
+  exec 9>"$AGENT_PROJECT_CACHE_ROOT/legacy-app-node-modules.lock"
+  if flock -n 9; then exit 41; else exit 0; fi
+)
+''');hook.chmod(0o755)
+        cache=self.base/'project-cache';cache.mkdir()
+        env={**self.env,'AGENT_JOB_ID':'direct','AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([SCRIPTS/'agent-project.sh','validate',workspace],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_project_job_preserves_persistent_cache_root_across_clean_boundary(self):
+        workspace=self.base/'workspaces'/'cache-root';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
+''');hook.chmod(0o755)
+        cache=self.base/'persistent-project-cache';cache.mkdir()
+        env={**self.env,'AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([SCRIPTS/'agent-project.sh','prepare',workspace],env=env,timeout=15)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((workspace/'cache-root.txt').read_text(),str(cache))
+
+    def test_managed_job_records_configurable_grace_window(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'grace';init_repo(workspace)
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',
+                        '--grace-seconds','17','--','true'],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr);job=result.stdout.strip()
+        waited=command([sys.executable,SCRIPTS/'lab_jobs.py','wait',job],env=self.env)
+        self.assertEqual(waited.returncode,0,waited.stderr)
+        self.assertEqual(json.loads(waited.stdout)['grace_seconds'],17)
+
+
+    def test_toolset_manifest_drives_commands_and_profiles(self):
+        manifest=ROOT/'config/runner-toolset.json'
+        self.assertTrue(manifest.is_file())
+        data=json.loads(manifest.read_text())
+        self.assertEqual(data['schema_version'],1)
+        result=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        commands=set(result.stdout.split())
+        for name in ('git','gh','node','npm','python3','cmake','ninja','clang','ffmpeg','convert','shellcheck'):
+            self.assertIn(name,commands)
+        packages=command([sys.executable,SCRIPTS/'lab_toolset.py','packages','full'])
+        self.assertEqual(packages.returncode,0,packages.stderr)
+        self.assertIn('build-essential',packages.stdout.split())
+        self.assertIn('ffmpeg',packages.stdout.split())
+
+    def test_toolset_manifest_pins_goss_with_checksums(self):
+        result=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','x86_64'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        meta=json.loads(result.stdout)
+        self.assertEqual(meta['version'],'0.4.10')
+        self.assertEqual(meta['sha256'],'26e365428946294bcec0c61d867bb3c8349f39feb3d0e6f59084e98632785cc7')
+        arm=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','aarch64'])
+        self.assertEqual(arm.returncode,0,arm.stderr)
+        self.assertEqual(json.loads(arm.stdout)['sha256'],'90a59612b4d67d9f1a9038634c000790136bb82526a69de1e81ac075c2f6d2c6')
+        bad=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','mips'])
+        self.assertNotEqual(bad.returncode,0)
+
+    def test_agent_lib_reads_commands_from_toolset_manifest(self):
+        content=(SCRIPTS/'agent-lib.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertNotIn('git gh node npm python3 rg fd jq',content)
+
+    def test_bootstrap_reads_packages_from_toolset_manifest(self):
+        content=(SCRIPTS/'agent-bootstrap.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertNotIn('CORE_PACKAGES=(',content)
+        self.assertNotIn('BUILD_PACKAGES=(',content)
+        self.assertNotIn('MEDIA_PACKAGES=(',content)
+
+
+    def test_runner_validation_builds_hard_and_advisory_goss_specs(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        hard,advisory=module.build_specs(toolset,home=self.base,cache=self.base/'cache',require_rdc=False)
+        self.assertIn('github.com',hard['dns'])
+        self.assertIn('https://api.github.com',hard['http'])
+        self.assertIn('https://registry.npmjs.org',advisory['http'])
+        rendered=json.dumps(hard)
+        self.assertIn('disk_free_gb',rendered)
+        self.assertIn('inode_free_percent',rendered)
+        self.assertIn('command -v git',rendered)
+        self.assertIn('node --version',rendered)
+
+    def test_runner_validation_reports_degraded_advisory_without_failing(self):
+        fake=self.base/'fake-goss'
+        fake.write_text("#!/usr/bin/env python3\nimport pathlib,sys\npath=pathlib.Path(sys.argv[sys.argv.index('-g')+1])\nraise SystemExit(1 if 'registry.npmjs.org' in path.read_text() else 0)\n")
+        fake.chmod(0o755)
+        out=self.base/'runner-report'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'degraded')
+        self.assertEqual(summary['stages']['host']['status'],'passed')
+        self.assertEqual(summary['stages']['network_advisory']['status'],'degraded')
+        self.assertTrue((out/'summary.md').exists())
+        self.assertTrue((out/'junit.xml').exists())
+
+    def test_runner_validation_fails_on_hard_goss_failure(self):
+        fake=self.base/'fake-goss'
+        fake.write_text("#!/bin/sh\nexit 1\n");fake.chmod(0o755)
+        out=self.base/'runner-report-fail'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['host']['status'],'failed')
+
+    def test_goss_installer_rejects_unsupported_architecture_before_download(self):
+        result=command([SCRIPTS/'install-goss.sh'],env={**self.env,'GOSS_ARCH':'mips'})
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('unsupported goss architecture',result.stderr)
+        self.assertNotIn('latest',(SCRIPTS/'install-goss.sh').read_text())
+
+
+    def test_goss_v0410_dns_spec_uses_supported_attributes_only(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_compat',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        dns=hard['dns']['github.com']
+        self.assertEqual(set(dns),{'resolvable','timeout'})
+        self.assertNotIn('retry_count',dns)
+        self.assertNotIn('retry_delay',dns)
+
+    def test_generated_resource_commands_are_shell_safe(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_shell',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['thresholds']={'disk_free_gb':0,'inode_free_percent':0}
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        for name in ('disk_free_gb','inode_free_percent'):
+            result=subprocess.run(hard['command'][name]['exec'],shell=True,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,f"{name}: {result.stderr}")
+
+
+    def test_smoke_profiles_are_bounded_and_manifest_complete(self):
+        spec=importlib.util.spec_from_file_location('lab_smoke',SCRIPTS/'lab_smoke.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        self.assertEqual(module.stage_names('quick'),['native','cmake_ninja','node','python','git'])
+        self.assertEqual(module.stage_names('full'),
+                         ['native','cmake_ninja','node','python','git','docker','media'])
+        commands=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
+        self.assertEqual(commands.returncode,0,commands.stderr)
+        self.assertIn('ffprobe',commands.stdout.split())
+        self.assertIn('identify',commands.stdout.split())
+
+    def test_smoke_failure_is_reported_and_scratch_is_cleaned(self):
+        out=self.base/'smoke-failure'
+        result=command([sys.executable,SCRIPTS/'lab_smoke.py','quick','--only','node',
+                        '--output-dir',out],env={**self.env,'PATH':'/nonexistent'})
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['node']['status'],'failed')
+        self.assertFalse(any(p.name.startswith('work-') for p in out.iterdir()))
+
+    def test_runner_validation_propagates_smoke_failure(self):
+        fake_goss=self.base/'fake-goss'
+        fake_goss.write_text('#!/bin/sh\nexit 0\n');fake_goss.chmod(0o755)
+        fake_smoke=self.base/'fake-smoke.py'
+        fake_smoke.write_text(
+            "import json,pathlib,sys\n"
+            "out=pathlib.Path(sys.argv[sys.argv.index('--output-dir')+1]);out.mkdir(parents=True,exist_ok=True)\n"
+            "(out/'summary.json').write_text(json.dumps({'classification':'failed','stages':{'native':{'status':'failed'}}}))\n"
+            "raise SystemExit(1)\n"
+        )
+        out=self.base/'runner-smoke-failure'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick',
+                        '--goss-bin',fake_goss,'--smoke-script',fake_smoke,'--output-dir',out],
+                       env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['smoke']['status'],'failed')
+        self.assertEqual(summary['stages']['smoke']['details']['native']['status'],'failed')
+
+
+    def test_validate_router_preserves_legacy_and_adds_runner_project_full_modes(self):
+        bindir=self.base/'router';bindir.mkdir()
+        runner=bindir/'agent-run.sh';runner.write_text((SCRIPTS/'agent-run.sh').read_text());runner.chmod(0o755)
+        project=bindir/'agent-project.sh'
+        project.write_text('#!/bin/sh\nprintf "PROJECT:%s\n" "$*"\n');project.chmod(0o755)
+        validator=bindir/'lab_runner_validate.py'
+        validator.write_text('import sys\nprint("RUNNER:"+" ".join(sys.argv[1:]))\n')
+        cases=[
+            (['validate','/tmp/demo'],['PROJECT:validate /tmp/demo']),
+            (['validate','project','/tmp/demo'],['PROJECT:validate /tmp/demo']),
+            (['validate','runner','quick','--skip-smoke'],['RUNNER:quick --skip-smoke']),
+            (['validate','runner','full'],['RUNNER:full']),
+            (['validate','full','/tmp/demo'],['RUNNER:full','PROJECT:validate /tmp/demo']),
+        ]
+        for args,expected in cases:
+            result=command([runner,*args],cwd=bindir)
+            self.assertEqual(result.returncode,0,(args,result.stderr))
+            lines=[line for line in result.stdout.splitlines() if line]
+            self.assertEqual(lines,expected,args)
+
+
+    def test_prewarm_ready_is_gated_by_quick_runner_validation(self):
+        bindir=self.base/'prewarm';bindir.mkdir()
+        cache=self.base/'prewarm-cache';cache.mkdir()
+        prewarm=bindir/'agent-prewarm.sh'
+        prewarm.write_text((SCRIPTS/'agent-prewarm.sh').read_text());prewarm.chmod(0o755)
+        (bindir/'agent-lib.sh').write_text(f"""#!/bin/bash
+agent_cache_dir() {{ echo '{cache}'; }}
+agent_status_file() {{ echo '{cache}/prewarm.env'; }}
+agent_log_file() {{ echo '{cache}/prewarm.log'; }}
+agent_toolchain_version() {{ echo test-v1; }}
+agent_status_value() {{ :; }}
+agent_full_toolchain_ready() {{ return 0; }}
+agent_missing_full_commands() {{ :; }}
+""")
+        bootstrap=bindir/'agent-bootstrap.sh';bootstrap.write_text('#!/bin/sh\nexit 0\n');bootstrap.chmod(0o755)
+        validator=bindir/'lab_runner_validate.py'
+        validator.write_text(
+            "import os,pathlib,sys\n"
+            "pathlib.Path(os.environ['VALIDATE_RECORD']).write_text(' '.join(sys.argv[1:]))\n"
+            "raise SystemExit(int(os.environ.get('VALIDATE_EXIT','0')))\n"
+        )
+        record=self.base/'validate-args'
+        failed=command([prewarm,'--foreground'],
+                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'})
+        self.assertEqual(failed.returncode,23,failed.stderr)
+        state=(cache/'prewarm.env').read_text()
+        self.assertIn('STATUS=FAILED',state)
+        self.assertEqual(record.read_text().split()[0],'quick')
+        passed=command([prewarm,'--foreground'],
+                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'0'})
+        self.assertEqual(passed.returncode,0,passed.stderr)
+        self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
+
+    def test_doctor_uses_manifest_as_toolchain_source_of_truth(self):
+        content=(SCRIPTS/'agent-doctor.sh').read_text()
+        self.assertIn('lab_toolset.py',content)
+        self.assertIn('agent_required_full_commands',content)
+        self.assertNotIn('tools: git=%s node=%s npm=%s',content)
+        result=command([SCRIPTS/'agent-doctor.sh',self.base],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('toolset=VALID',result.stdout)
+        self.assertIn('toolchain_version=2026-09-20.1',result.stdout)
+        self.assertIn('tool.git=',result.stdout)
+
+
+    def test_runner_reports_stable_toolchain_failure_category(self):
+        fake=self.base/'categorizing-goss'
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport json,sys\n"
+            "print(json.dumps({'results':[{'resource-id':'tool_git','resource-type':'Command','successful':False}]}))\n"
+            "raise SystemExit(1)\n"
+        );fake.chmod(0o755)
+        out=self.base/'categorized-runner'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['stages']['host']['failure_categories'],['TOOLCHAIN'])
+        self.assertEqual(summary['failure_categories'],['TOOLCHAIN'])
+
+    def test_smoke_stages_have_stable_failure_categories(self):
+        spec=importlib.util.spec_from_file_location('lab_smoke_categories',SCRIPTS/'lab_smoke.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        expected={
+            'native':'TOOLCHAIN','cmake_ninja':'TOOLCHAIN','node':'TOOLCHAIN',
+            'python':'TOOLCHAIN','git':'TOOLCHAIN','docker':'DOCKER','media':'MEDIA',
+        }
+        for stage,category in expected.items():
+            self.assertEqual(module.stage_category(stage),category)
+
+    def test_project_validation_stages_are_categorized(self):
+        workspace=self.base/'workspaces'/'categories';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('#!/bin/sh\nexit 0\n');hook.chmod(0o755)
+        out=self.base/'project-categories'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',out],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertTrue(all(stage['category']=='PROJECT' for stage in summary['stages']))
+        self.assertEqual(summary['cleanup']['category'],'CLEANUP')
+
+    def test_fault_injection_rejects_bad_manifest_and_missing_command(self):
+        bad=self.base/'bad-toolset.json'
+        bad.write_text(json.dumps({'schema_version':99}))
+        invalid=command([sys.executable,SCRIPTS/'lab_toolset.py','--manifest',bad,'validate'])
+        self.assertNotEqual(invalid.returncode,0)
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_missing',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['commands']['core'].append('definitely-not-a-runner-command')
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        missing=hard['command']['tool_definitely-not-a-runner-command']['exec']
+        self.assertNotEqual(subprocess.run(missing,shell=True).returncode,0)
+
+    def test_goss_installer_fails_closed_on_checksum_mismatch(self):
+        fakebin=self.base/'fakebin';fakebin.mkdir()
+        fakecurl=fakebin/'curl'
+        fakecurl.write_text("""#!/bin/sh
+out=''
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then shift; out="$1"; fi
+  shift
+done
+printf corrupt > "$out"
+""");fakecurl.chmod(0o755)
+        cache=self.base/'goss-corrupt'
+        result=command([SCRIPTS/'install-goss.sh'],env={
+            **self.env,'PATH':f"{fakebin}:{os.environ.get('PATH','')}",'GOSS_CACHE_DIR':cache
+        })
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((cache/'goss').exists())
+
+    def test_docker_and_media_faults_are_classified_and_cleaned(self):
+        for stage in ('docker','media'):
+            out=self.base/f'fault-{stage}'
+            result=command([sys.executable,SCRIPTS/'lab_smoke.py','full','--only',stage,
+                            '--output-dir',out],env={**self.env,'PATH':'/nonexistent'})
+            self.assertNotEqual(result.returncode,0,stage)
+            summary=json.loads((out/'summary.json').read_text())
+            self.assertEqual(summary['stages'][stage]['status'],'failed')
+            self.assertIn(summary['stages'][stage]['category'],('DOCKER','MEDIA'))
+            self.assertFalse(any(p.name.startswith('work-') for p in out.iterdir()))
+
+
+    def test_runner_reports_stable_rdc_failure_category(self):
+        fake=self.base/'rdc-failing-goss'
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport json,sys\n"
+            "print(json.dumps({'results':[{'resource-id':'rdc_health','resource-type':'Command','successful':False}]}))\n"
+            "raise SystemExit(1)\n"
+        );fake.chmod(0o755)
+        out=self.base/'rdc-category'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--require-rdc','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['stages']['host']['failure_categories'],['RDC'])
+        self.assertEqual(summary['failure_categories'],['RDC'])
 
 
 if __name__=='__main__': unittest.main()

@@ -33,7 +33,8 @@ The automatic prewarm is managed by:
 - `scripts/agent-bootstrap.sh --full`
 - canonical readiness state: `~/.cache/agent-runner-kit/prewarm.env`
 - canonical prewarm log: `~/.cache/agent-runner-kit/prewarm.log`
-- toolchain compatibility/version rules: `scripts/agent-lib.sh`
+- canonical toolchain/acceptance contract: `config/runner-toolset.json`
+- manifest query/readiness bridge: `scripts/lab_toolset.py` and `scripts/agent-lib.sh`
 
 Check readiness with:
 
@@ -41,7 +42,7 @@ Check readiness with:
 ./scripts/agent-run.sh status
 ```
 
-If prewarm is still running, continue with work that only needs already-available tools. A stale or outdated READY marker is invalidated automatically when the toolchain version changes or a required command is missing.
+If prewarm is still running, continue with work that only needs already-available tools. READY is written only after full bootstrap, manifest-driven command readiness, and `validate runner quick` succeed. A stale or outdated READY marker is invalidated automatically when the toolchain version changes or a required command is missing.
 
 
 ## Runner lifetime and handoff safety
@@ -101,6 +102,20 @@ or, for a PR with one or more targeted tests:
 
 Project-specific setup and test commands do **not** belong in this Lab repository. The target branch owns them in `.github/agent-lab/runner.sh`. The Lab exports a persistent, secret-free `AGENT_PROJECT_CACHE_DIR` outside the workspace; the workflow restores/saves that cache plus the npm download cache between ephemeral runners. This keeps dependency/test harness preparation branch-specific while avoiding repeated downloads and repeated RDC setup calls.
 
+For full validation, use `./scripts/agent-run.sh validate <workspace>`. The target hook must implement `prepare`, `check`, `full`, `test`, and `clean-materialized`. On a failed `full`, it may write newline-delimited failing selectors to `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt`; the Lab reruns only those selectors for diagnosis, preserves the original failure, stores bounded stage logs plus machine/human summaries, and requests cleanup after normal completion or caught `SIGINT`/`SIGTERM`. A forced `SIGKILL` cannot run cleanup. Legacy `/app/node_modules` hooks remain serialized for the entire validation.
+
+Validate the Lab runner separately from project policy:
+
+```bash
+./scripts/agent-run.sh validate runner quick
+./scripts/agent-run.sh validate runner full
+./scripts/agent-run.sh validate full <workspace>
+```
+
+`runner quick` is the prewarm readiness gate and covers host/toolchain/network/RDC acceptance plus native/CMake/Node/Python/Git smoke operations. `runner full` adds isolated Docker and media smoke tests. `validate full <workspace>` requires full runner validation before invoking the target repository's project contract. Treat `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, `MEDIA`, `PROJECT`, and `CLEANUP` as stable failure categories when triaging summaries.
+
+Use `./scripts/agent-run.sh shell-help` before dropping to a raw shell. Route authenticated GitHub operations through `agent-run.sh github`, and do not run raw `npm ci` against a workspace whose `node_modules` is a shared/materialized link.
+
 Run tests through Remote Desktop Commander. Use managed jobs when a test must survive a disconnected shell, needs a timeout/report, or can spawn descendants:
 
 ```bash
@@ -157,10 +172,11 @@ Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchain
 
 For changes to this Lab itself:
 
-1. Through Remote Desktop Commander, syntax-check changed shell scripts with `bash -n`.
-2. Through Remote Desktop Commander, run the relevant helper in a bounded smoke test.
-3. Verify RDC remains healthy.
-4. Confirm prewarm status reaches `READY` or reports an actionable `FAILED` state.
-5. Confirm existing unrelated working-tree changes were not overwritten.
+1. Through Remote Desktop Commander, run `bash -n` for changed shell scripts, `python3 -m py_compile` for changed Python, and `git diff --check`.
+2. Run `python3 -m unittest discover -s tests -v`.
+3. Run `./scripts/agent-run.sh validate runner quick`; for runner/toolchain changes also run `./scripts/agent-run.sh validate runner full`.
+4. Exercise the relevant fault-injection path and confirm the stable failure category is reported without a false green.
+5. Verify RDC remains healthy and prewarm reaches `READY` or reports an actionable `FAILED` state.
+6. Confirm existing unrelated working-tree changes were not overwritten.
 
 Prefer direct, deterministic checks over adding new workflows solely for validation.

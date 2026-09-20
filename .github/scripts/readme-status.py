@@ -76,7 +76,8 @@ def reliability(repo, runs):
         keep = step_by_names(steps, KEEP_STEPS)
         if verify.get("status") == "completed":
             verify_outcomes.append(verify.get("conclusion") == "success")
-        if keep.get("status") == "completed" and keep.get("started_at"):
+        if (run.get("conclusion") != "cancelled" and keep.get("status") == "completed"
+                and keep.get("started_at")):
             keepalive_outcomes.append(keep.get("conclusion") == "success")
         stop = steps.get(STOP_STEP, {})
         ready_at = timestamp(verify.get("completed_at")) if verify.get("conclusion") == "success" else None
@@ -119,7 +120,7 @@ def collect(repo, branch, now):
     queued = [r for r in runs if r.get("status") not in ("completed", "in_progress")]
     run = next(iter(active or queued or runs), None)
     state = {
-        "state": "idle", "checked": now.isoformat(), "run_id": None, "run_url": None,
+        "state": "idle", "checked": now.isoformat(), "stale": False, "run_id": None, "run_url": None,
         "job_started": None, "keepalive_started": None, "elapsed": None, "remaining": None,
         "handoff": None, "hard_timeout": None, "headroom": timeout_minutes - online_minutes,
         "auto_handoff_minutes": auto_handoff_minutes,
@@ -181,6 +182,7 @@ def render(state, repo):
     rows = [
         ("Runner state", STATE_LABELS.get(state.get("state"), STATE_LABELS["unknown"])),
         ("Agent work mode", MODE_LABELS.get(state.get("work_mode"), MODE_LABELS["unknown"])),
+        ("Status freshness", "⚠️ stale / unavailable" if state.get("stale") else f"✅ current as of {utc(timestamp(state.get('checked')))}"),
         ("Last checked", utc(timestamp(state.get("checked")))),
         ("Runner/job started", utc(timestamp(state.get("job_started")))),
         ("Keepalive started", utc(timestamp(state.get("keepalive_started")))),
@@ -231,7 +233,7 @@ def git(*args):
     return subprocess.run(["git",*args],check=True,capture_output=True,text=True).stdout.strip()
 
 def unknown_state(now):
-    return {"state":"unknown","checked":now.isoformat(),"run_id":None,"run_url":None,"job_started":None,
+    return {"state":"unknown","checked":now.isoformat(),"stale":True,"run_id":None,"run_url":None,"job_started":None,
             "keepalive_started":None,"elapsed":None,"remaining":None,"handoff":None,"hard_timeout":None,
             "headroom":None,"auto_handoff_minutes":20,"work_mode":"unknown","successor_queued":False,"verify_rate":None,"verify_sample":0,
             "keepalive_rate":None,"keepalive_sample":0,"handoff_rate":None,"handoff_sample":0,"median_gap":None}

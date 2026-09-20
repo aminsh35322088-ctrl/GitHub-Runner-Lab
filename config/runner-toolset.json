@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "toolchain_version": "2026-09-20.1",
+  "profile_groups": {
+    "core": [
+      "core"
+    ],
+    "build": [
+      "core",
+      "build"
+    ],
+    "media": [
+      "core",
+      "media"
+    ],
+    "full": [
+      "core",
+      "build",
+      "media"
+    ]
+  },
+  "packages": {
+    "core": [
+      "ca-certificates",
+      "curl",
+      "wget",
+      "git",
+      "gh",
+      "jq",
+      "yq",
+      "unzip",
+      "zip",
+      "rsync",
+      "ripgrep",
+      "fd-find",
+      "fzf",
+      "tree",
+      "file",
+      "lsof",
+      "strace",
+      "procps",
+      "net-tools",
+      "netcat-openbsd",
+      "dnsutils",
+      "sqlite3",
+      "shellcheck",
+      "python3",
+      "python3-pip"
+    ],
+    "build": [
+      "build-essential",
+      "cmake",
+      "ninja-build",
+      "pkg-config",
+      "python3-venv",
+      "python3-dev",
+      "python3-setuptools",
+      "python3-wheel",
+      "git-lfs",
+      "clang",
+      "gdb",
+      "libssl-dev",
+      "libsqlite3-dev",
+      "zlib1g-dev",
+      "libffi-dev"
+    ],
+    "media": [
+      "ffmpeg",
+      "imagemagick"
+    ]
+  },
+  "commands": {
+    "core": [
+      "git",
+      "gh",
+      "node",
+      "npm",
+      "python3",
+      "rg",
+      "fd",
+      "jq",
+      "sqlite3",
+      "shellcheck"
+    ],
+    "build": [
+      "cmake",
+      "ninja",
+      "gcc",
+      "clang",
+      "gdb",
+      "git-lfs"
+    ],
+    "media": [
+      "ffmpeg",
+      "convert",
+      "ffprobe",
+      "identify"
+    ]
+  },
+  "node": {
+    "expected": "22.14.0"
+  },
+  "thresholds": {
+    "disk_free_gb": 10,
+    "inode_free_percent": 5
+  },
+  "goss": {
+    "version": "0.4.10",
+    "base_url": "https://github.com/goss-org/goss/releases/download/v0.4.10",
+    "assets": {
+      "x86_64": {
+        "filename": "goss_0.4.10_linux_x86_64.tar.gz",
+        "sha256": "26e365428946294bcec0c61d867bb3c8349f39feb3d0e6f59084e98632785cc7"
+      },
+      "aarch64": {
+        "filename": "goss_0.4.10_linux_arm64.tar.gz",
+        "sha256": "90a59612b4d67d9f1a9038634c000790136bb82526a69de1e81ac075c2f6d2c6"
+      }
+    }
+  },
+  "network": {
+    "critical": [
+      {
+        "kind": "dns",
+        "host": "github.com"
+      },
+      {
+        "kind": "http",
+        "url": "https://api.github.com"
+      }
+    ],
+    "advisory": [
+      {
+        "kind": "http",
+        "url": "https://registry.npmjs.org"
+      },
+      {
+        "kind": "http",
+        "url": "https://pypi.org"
+      }
+    ]
+  }
+}

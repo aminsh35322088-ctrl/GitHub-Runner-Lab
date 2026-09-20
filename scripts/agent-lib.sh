@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Shared helpers for the disposable agent toolchain.
 
+AGENT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AGENT_TOOLSET_CLI="$AGENT_LIB_DIR/lab_toolset.py"
+
 agent_toolchain_version() {
-  printf '%s\n' "2026-09-18.3"
+  python3 "$AGENT_TOOLSET_CLI" toolchain-version
 }
 
 agent_cache_dir() {
@@ -26,7 +29,7 @@ agent_status_value() {
 }
 
 agent_required_full_commands() {
-  printf '%s\n'     git gh node npm python3 rg fd jq     cmake ninja gcc clang gdb git-lfs     ffmpeg convert sqlite3 shellcheck
+  python3 "$AGENT_TOOLSET_CLI" commands full
 }
 
 agent_full_toolchain_ready() {

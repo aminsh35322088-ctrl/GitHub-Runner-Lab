@@ -74,6 +74,26 @@ A typical project-aware workspace preparation is:
 
 Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
+Run the project-owned full validation contract as one managed job:
+
+```bash
+./scripts/agent-run.sh validate /path/to/workspace
+```
+
+The hook receives `prepare`, `check`, and `full`; after a failed `full`, newline-delimited selectors in `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt` are retried with `test` to diagnose flaky/order-dependent failures. `clean-materialized` runs after normal completion and is also attempted after caught `SIGINT`/`SIGTERM` during the managed-job grace window; forced `SIGKILL` cannot be intercepted. The job directory retains `summary.md`, `summary.json`, and bounded per-stage logs (10 MiB per stage by default, configurable with `--log-max-mb` or `AGENT_VALIDATION_LOG_MAX_MB`). A diagnostic retry never turns a failed full run green.
+
+The Lab can validate the runner independently of any target repository:
+
+```bash
+./scripts/agent-run.sh validate runner quick
+./scripts/agent-run.sh validate runner full
+./scripts/agent-run.sh validate full /path/to/workspace
+```
+
+`runner quick` checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub DNS/HTTPS, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests. `runner full` additionally performs Docker and FFmpeg/ImageMagick functional smoke tests. Docker validation builds a local `FROM scratch` image and runs it with no network, dropped capabilities, a read-only root filesystem, and tight CPU/memory/PID limits, so registry availability cannot false-fail the engine test. Runner reports are emitted as Markdown, JSON, and JUnit with stable failure categories: `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, and `MEDIA`; project validation uses `PROJECT` and `CLEANUP`.
+
+The canonical runner contract lives in `config/runner-toolset.json`. Bootstrap, readiness, doctor, and self-validation consume it through `scripts/lab_toolset.py`. Goss is only the host-validation engine: version `0.4.10` and its per-architecture SHA256 values are pinned in the manifest, and `scripts/install-goss.sh` verifies the archive before installing it into the runner cache.
+
 Use managed jobs for bounded builds and tests:
 
 ```bash
@@ -81,7 +101,7 @@ job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)
 ./scripts/agent-run.sh job wait "$job"
 ```
 
-Each job gets a clean environment, durable JSON result, capped combined output, timeout/cancellation, approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`. Container jobs add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
+Each job gets a clean environment, durable JSON result with an artifact index, capped combined output, timeout/cancellation, a configurable termination grace window (`--grace-seconds`, default 10), approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`; project jobs automatically preserve the persistent project-cache root and explicitly configured project-runner/validation settings. Container jobs add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
 
 For this project's default OpenCode Telegram bot repository:
 
@@ -95,9 +115,11 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 
 ## Helper scripts
 
-- `scripts/agent-lib.sh` — shared toolchain version/readiness contract.
-- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer.
-- `scripts/agent-prewarm.sh` — self-contained foreground/background full prewarm with locking and canonical state/log files.
+- `config/runner-toolset.json` — canonical package, command, threshold, network, Node, and pinned Goss contract.
+- `scripts/lab_toolset.py` — validates and queries the canonical runner manifest.
+- `scripts/agent-lib.sh` — shell bridge to manifest-driven toolchain readiness.
+- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer driven by the manifest.
+- `scripts/agent-prewarm.sh` — full prewarm whose READY state is gated by quick runner self-validation.
 - `scripts/agent-status.sh` — compact toolchain + exact local runner countdown report.
 - `scripts/agent-runtime.sh` — initializes and reports the local 330-minute handoff timer.
 - `scripts/agent-checkpoint.sh` — creates verified Git bundles, staged/unstaged patches, and filtered untracked source snapshots for clones and linked worktrees.
@@ -108,6 +130,9 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/lab_jobs.py` — starts, observes, stops, drains, and reports bounded detached jobs.
 - `scripts/lab_ready.py` — emits a read-only JSON readiness report.
 - `scripts/agent-github.sh` — exposes the optional PAT only to an explicit `gh`, `git`, or authenticated workspace operation.
+- `scripts/install-goss.sh` — installs the manifest-pinned Goss release with SHA256 verification.
+- `scripts/lab_runner_validate.py` — Goss host acceptance, advisory network checks, smoke orchestration, and Markdown/JSON/JUnit reports.
+- `scripts/lab_smoke.py` — bounded native/runtime/Git/Docker/media functional smoke suite.
 - `scripts/lab_fault_server.py` — provides loopback-only delay, error, streaming, and disconnect fixtures.
 - `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
@@ -121,7 +146,7 @@ Canonical prewarm files:
 ~/.cache/agent-runner-kit/prewarm.log
 ```
 
-A failed prewarm does not take RDC offline. READY state is versioned and revalidated against the required command set, so toolchain changes cannot leave a stale green marker. The lifecycle clock starts during early workflow setup. It stays SAFE until 20 minutes remain, then switches to the restart window and rotates to a fresh runner instead of making the agent abandon work 30–60 minutes early.
+A failed prewarm does not take RDC offline. READY state is versioned and is written only after the required command set and quick runner self-validation pass, so toolchain or host regressions cannot leave a stale green marker. The lifecycle clock starts during early workflow setup. It stays SAFE until 20 minutes remain, then switches to the restart window and rotates to a fresh runner instead of making the agent abandon work 30–60 minutes early.
 
 ## Test policy
 

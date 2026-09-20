@@ -87,5 +87,9 @@ trap finish EXIT
     agent_missing_full_commands
     exit 20
   fi
+  validation_dir="$CACHE_DIR/prewarm-validation"
+  rm -rf "$validation_dir"
+  echo "[agent-prewarm] Running quick self-validation."
+  python3 "$SELF_DIR/lab_runner_validate.py" quick --output-dir "$validation_dir"
   echo "[agent-prewarm] completed=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 } >> "$LOG_FILE" 2>&1
