@@ -74,6 +74,14 @@ A typical project-aware workspace preparation is:
 
 Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
+Run the project-owned full validation contract as one managed job:
+
+```bash
+./scripts/agent-run.sh validate /path/to/workspace
+```
+
+The hook receives `prepare`, `check`, and `full`; after a failed `full`, newline-delimited selectors in `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt` are retried with `test` to diagnose flaky/order-dependent failures. `clean-materialized` always runs. The job directory retains `summary.md`, `summary.json`, and per-stage logs. A diagnostic retry never turns a failed full run green.
+
 Use managed jobs for bounded builds and tests:
 
 ```bash
@@ -81,7 +89,7 @@ job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)
 ./scripts/agent-run.sh job wait "$job"
 ```
 
-Each job gets a clean environment, durable JSON result, capped combined output, timeout/cancellation, approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`. Container jobs add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
+Each job gets a clean environment, durable JSON result with an artifact index, capped combined output, timeout/cancellation, approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`. Container jobs add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
 
 For this project's default OpenCode Telegram bot repository:
 

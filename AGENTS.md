@@ -101,6 +101,10 @@ or, for a PR with one or more targeted tests:
 
 Project-specific setup and test commands do **not** belong in this Lab repository. The target branch owns them in `.github/agent-lab/runner.sh`. The Lab exports a persistent, secret-free `AGENT_PROJECT_CACHE_DIR` outside the workspace; the workflow restores/saves that cache plus the npm download cache between ephemeral runners. This keeps dependency/test harness preparation branch-specific while avoiding repeated downloads and repeated RDC setup calls.
 
+For full validation, use `./scripts/agent-run.sh validate <workspace>`. The target hook must implement `prepare`, `check`, `full`, `test`, and `clean-materialized`. On a failed `full`, it may write newline-delimited failing selectors to `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt`; the Lab reruns only those selectors for diagnosis, preserves the original failure, stores stage logs and machine/human summaries, and always requests cleanup.
+
+Use `./scripts/agent-run.sh shell-help` before dropping to a raw shell. Route authenticated GitHub operations through `agent-run.sh github`, and do not run raw `npm ci` against a workspace whose `node_modules` is a shared/materialized link.
+
 Run tests through Remote Desktop Commander. Use managed jobs when a test must survive a disconnected shell, needs a timeout/report, or can spawn descendants:
 
 ```bash

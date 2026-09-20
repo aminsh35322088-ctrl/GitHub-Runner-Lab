@@ -43,6 +43,10 @@ if [[ -z "${AGENT_JOB_ID:-}" ]]; then
   exec python3 "$SELF_DIR/lab_jobs.py" wait "$job"
 fi
 export AGENT_PROJECT_ROOT="$TARGET"
+if [[ "$ACTION" == "validate" ]]; then
+  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$SELF_DIR/lab_validate.py" "$TARGET" "$@"
+fi
 if grep -q '/app/node_modules' "$CONFIG"; then
   # Compatibility for older project hooks. The global path is serialized until
   # that project moves to workspace-local dependency links.

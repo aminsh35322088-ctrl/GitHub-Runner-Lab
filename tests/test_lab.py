@@ -1,3 +1,4 @@
+import datetime as dt
 import io
 import json
 import os
@@ -264,6 +265,72 @@ class LabTest(unittest.TestCase):
 
     def test_workspace_routes_remote_git_through_optional_auth_helper(self):
         self.assertIn("'git-auto'",(SCRIPTS/'lab_workspace.py').read_text())
+
+
+    def test_validate_contract_runs_full_diagnoses_flake_and_cleans(self):
+        workspace=self.base/'workspaces'/'demo';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        calls=self.base/'calls'
+        hook.write_text(f'''#!/usr/bin/env bash
+set -eu
+echo "$1 $*" >> "{calls}"
+case "$1" in
+  full) echo tests/example.test.ts > "$AGENT_JOB_OUTPUT_DIR/failed-tests.txt"; exit 1 ;;
+  test) exit 0 ;;
+esac
+''')
+        hook.chmod(0o755)
+        output=self.base/'validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'flaky')
+        self.assertIn('full full',calls.read_text())
+        self.assertIn('test test tests/example.test.ts',calls.read_text())
+        self.assertIn('clean-materialized clean-materialized',calls.read_text())
+        self.assertTrue((output/'summary.md').exists())
+
+    def test_validate_contract_writes_success_summary(self):
+        workspace=self.base/'workspaces'/'demo';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text(f'#!/usr/bin/env bash\nset -eu\ntest "$PWD" = "{workspace}"\nexit 0\n');hook.chmod(0o755)
+        output=self.base/'validation'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',output],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((output/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'passed')
+        self.assertEqual([stage['name'] for stage in summary['stages']],['prepare','check','full'])
+
+    def test_agent_run_exposes_managed_validation_and_guard_help(self):
+        script=(SCRIPTS/'agent-run.sh').read_text()
+        self.assertIn('validate) exec "$SELF_DIR/agent-project.sh" validate',script)
+        self.assertIn('shell-help)',script)
+        self.assertIn('Use agent-run.sh github',script)
+
+    def test_reliability_excludes_cancelled_keepalive_from_completion_rate(self):
+        spec=importlib.util.spec_from_file_location('readme_status_keepalive',ROOT/'.github/scripts/readme-status.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        jobs={
+            1:{'jobs':[{'name':'runner-lab','steps':[
+                {'name':'Verify connection','status':'completed','conclusion':'success','completed_at':'2026-09-19T00:01:00Z'},
+                {'name':'Prewarm Agent Toolchain and Keep RDC Lab Alive','status':'completed','conclusion':'cancelled','started_at':'2026-09-19T00:01:00Z'}]}]},
+            2:{'jobs':[{'name':'runner-lab','steps':[
+                {'name':'Verify connection','status':'completed','conclusion':'success','completed_at':'2026-09-19T05:01:00Z'},
+                {'name':'Prewarm Agent Toolchain and Keep RDC Lab Alive','status':'completed','conclusion':'success','started_at':'2026-09-19T05:01:00Z'}]}]},
+        }
+        module.api=lambda path: jobs[int(path.split('/')[6])]
+        runs=[{'id':1,'status':'completed','conclusion':'cancelled','created_at':'2026-09-19T00:00:00Z'},
+              {'id':2,'status':'completed','conclusion':'success','created_at':'2026-09-19T05:00:00Z'}]
+        stats=module.reliability('x/y',runs)
+        self.assertEqual(stats['keepalive_rate'],100)
+        self.assertEqual(stats['keepalive_sample'],1)
+
+    def test_readme_status_marks_stale_snapshots(self):
+        spec=importlib.util.spec_from_file_location('readme_status_stale',ROOT/'.github/scripts/readme-status.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        state=module.unknown_state(dt.datetime(2026,9,19,tzinfo=dt.timezone.utc))
+        state['stale']=True
+        self.assertIn('Status freshness',module.render(state,'x/y'))
 
 
 if __name__=='__main__': unittest.main()

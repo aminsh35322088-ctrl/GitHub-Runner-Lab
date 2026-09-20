@@ -15,6 +15,11 @@ case "$cmd" in
   ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
   cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
   selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
+  validate) exec "$SELF_DIR/agent-project.sh" validate "${1:-$PWD}" "${@:2}" ;;
+  shell-help)
+    echo "Use agent-run.sh github ... for authenticated GitHub operations."
+    echo "Use agent-run.sh validate WORKSPACE for managed full validation; do not run raw npm ci against shared node_modules links."
+    ;;
 
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
   prewarm) exec "$SELF_DIR/agent-prewarm.sh" "$@" ;;
@@ -107,7 +112,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|job|resume|decrypt|github|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

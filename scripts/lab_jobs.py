@@ -180,6 +180,8 @@ def worker(job):
             subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         info.update(finished=time.time(), peak_group_rss_bytes=peak)
         command_file.unlink(missing_ok=True)
+        info['artifacts'] = sorted(path.name for path in d.iterdir()
+                                   if path.is_file() and path.name != 'result.json')
         atomic(d / 'result.json', info)
 
 
