@@ -304,7 +304,8 @@ esac
 
     def test_agent_run_exposes_managed_validation_and_guard_help(self):
         script=(SCRIPTS/'agent-run.sh').read_text()
-        self.assertIn('validate) exec "$SELF_DIR/agent-project.sh" validate',script)
+        self.assertIn('validate)',script)
+        self.assertIn('lab_runner_validate.py',script)
         self.assertIn('shell-help)',script)
         self.assertIn('Use agent-run.sh github',script)
 
@@ -562,6 +563,27 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertEqual(summary['classification'],'failed')
         self.assertEqual(summary['stages']['smoke']['status'],'failed')
         self.assertEqual(summary['stages']['smoke']['details']['native']['status'],'failed')
+
+
+    def test_validate_router_preserves_legacy_and_adds_runner_project_full_modes(self):
+        bindir=self.base/'router';bindir.mkdir()
+        runner=bindir/'agent-run.sh';runner.write_text((SCRIPTS/'agent-run.sh').read_text());runner.chmod(0o755)
+        project=bindir/'agent-project.sh'
+        project.write_text('#!/bin/sh\nprintf "PROJECT:%s\n" "$*"\n');project.chmod(0o755)
+        validator=bindir/'lab_runner_validate.py'
+        validator.write_text('import sys\nprint("RUNNER:"+" ".join(sys.argv[1:]))\n')
+        cases=[
+            (['validate','/tmp/demo'],['PROJECT:validate /tmp/demo']),
+            (['validate','project','/tmp/demo'],['PROJECT:validate /tmp/demo']),
+            (['validate','runner','quick','--skip-smoke'],['RUNNER:quick --skip-smoke']),
+            (['validate','runner','full'],['RUNNER:full']),
+            (['validate','full','/tmp/demo'],['RUNNER:full','PROJECT:validate /tmp/demo']),
+        ]
+        for args,expected in cases:
+            result=command([runner,*args],cwd=bindir)
+            self.assertEqual(result.returncode,0,(args,result.stderr))
+            lines=[line for line in result.stdout.splitlines() if line]
+            self.assertEqual(lines,expected,args)
 
 
 if __name__=='__main__': unittest.main()

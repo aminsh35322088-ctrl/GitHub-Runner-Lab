@@ -15,10 +15,43 @@ case "$cmd" in
   ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
   cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
   selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
-  validate) exec "$SELF_DIR/agent-project.sh" validate "${1:-$PWD}" "${@:2}" ;;
+  validate)
+    mode="${1:-}"
+    case "$mode" in
+      runner)
+        shift
+        profile="${1:-quick}"
+        case "$profile" in
+          quick|full) ;;
+          *) echo "Validation profile must be quick or full." >&2; exit 2 ;;
+        esac
+        if (($# > 0)); then shift; fi
+        exec python3 "$SELF_DIR/lab_runner_validate.py" "$profile" "$@"
+        ;;
+      project)
+        shift
+        exec "$SELF_DIR/agent-project.sh" validate "${1:-$PWD}" "${@:2}"
+        ;;
+      full)
+        shift
+        workspace="${1:-$PWD}"
+        if (($# > 0)); then shift; fi
+        python3 "$SELF_DIR/lab_runner_validate.py" full
+        exec "$SELF_DIR/agent-project.sh" validate "$workspace" "$@"
+        ;;
+      -h|--help)
+        echo "Usage: agent-run.sh validate [WORKSPACE|project [WORKSPACE]|runner [quick|full] [OPTIONS]|full [WORKSPACE]]"
+        exit 0
+        ;;
+      *)
+        exec "$SELF_DIR/agent-project.sh" validate "${1:-$PWD}" "${@:2}"
+        ;;
+    esac
+    ;;
   shell-help)
     echo "Use agent-run.sh github ... for authenticated GitHub operations."
-    echo "Use agent-run.sh validate WORKSPACE for managed full validation; do not run raw npm ci against shared node_modules links."
+    echo "Use agent-run.sh validate runner quick|full for host validation, or validate WORKSPACE for project validation."
+    echo "Do not run raw npm ci against shared node_modules links."
     ;;
 
   bootstrap) exec "$SELF_DIR/agent-bootstrap.sh" "$@" ;;
