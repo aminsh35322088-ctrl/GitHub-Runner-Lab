@@ -522,4 +522,46 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
             self.assertEqual(result.returncode,0,f"{name}: {result.stderr}")
 
 
+    def test_smoke_profiles_are_bounded_and_manifest_complete(self):
+        spec=importlib.util.spec_from_file_location('lab_smoke',SCRIPTS/'lab_smoke.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        self.assertEqual(module.stage_names('quick'),['native','cmake_ninja','node','python','git'])
+        self.assertEqual(module.stage_names('full'),
+                         ['native','cmake_ninja','node','python','git','docker','media'])
+        commands=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
+        self.assertEqual(commands.returncode,0,commands.stderr)
+        self.assertIn('ffprobe',commands.stdout.split())
+        self.assertIn('identify',commands.stdout.split())
+
+    def test_smoke_failure_is_reported_and_scratch_is_cleaned(self):
+        out=self.base/'smoke-failure'
+        result=command([sys.executable,SCRIPTS/'lab_smoke.py','quick','--only','node',
+                        '--output-dir',out],env={**self.env,'PATH':'/nonexistent'})
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['node']['status'],'failed')
+        self.assertFalse(any(p.name.startswith('work-') for p in out.iterdir()))
+
+    def test_runner_validation_propagates_smoke_failure(self):
+        fake_goss=self.base/'fake-goss'
+        fake_goss.write_text('#!/bin/sh\nexit 0\n');fake_goss.chmod(0o755)
+        fake_smoke=self.base/'fake-smoke.py'
+        fake_smoke.write_text(
+            "import json,pathlib,sys\n"
+            "out=pathlib.Path(sys.argv[sys.argv.index('--output-dir')+1]);out.mkdir(parents=True,exist_ok=True)\n"
+            "(out/'summary.json').write_text(json.dumps({'classification':'failed','stages':{'native':{'status':'failed'}}}))\n"
+            "raise SystemExit(1)\n"
+        )
+        out=self.base/'runner-smoke-failure'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick',
+                        '--goss-bin',fake_goss,'--smoke-script',fake_smoke,'--output-dir',out],
+                       env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['classification'],'failed')
+        self.assertEqual(summary['stages']['smoke']['status'],'failed')
+        self.assertEqual(summary['stages']['smoke']['details']['native']['status'],'failed')
+
+
 if __name__=='__main__': unittest.main()

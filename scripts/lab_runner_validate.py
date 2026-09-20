@@ -140,6 +140,33 @@ def _write_reports(output: Path, summary: dict):
     ET.ElementTree(suite).write(output / "junit.xml", encoding="utf-8", xml_declaration=True)
 
 
+def _run_smoke(smoke_script: Path, profile: str, output: Path):
+    smoke_output = output / "smoke"
+    started = time.monotonic()
+    result = subprocess.run(
+        [sys.executable, str(smoke_script), profile, "--output-dir", str(smoke_output)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    summary_path = smoke_output / "summary.json"
+    details = {}
+    if summary_path.is_file():
+        details = json.loads(summary_path.read_text()).get("stages", {})
+    log_path = output / "smoke.log"
+    combined = result.stdout
+    if result.stderr:
+        combined += ("\n" if combined else "") + result.stderr
+    log_path.write_text(combined)
+    return {
+        "status": "passed" if result.returncode == 0 else "failed",
+        "exit_code": result.returncode,
+        "duration_seconds": round(time.monotonic() - started, 3),
+        "log": log_path.name,
+        "details": details,
+    }
+
+
 def _resolve_goss(explicit: Path | None):
     if explicit:
         path = explicit.expanduser().resolve()
@@ -167,6 +194,7 @@ def main():
     parser.add_argument("--goss-bin", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--skip-smoke", action="store_true")
+    parser.add_argument("--smoke-script", type=Path, default=ROOT / "scripts" / "lab_smoke.py")
     parser.add_argument("--require-rdc", action="store_true")
     args = parser.parse_args()
 
@@ -198,6 +226,14 @@ def main():
             advisory_result["status"] = "degraded"
             classification = "degraded"
         stages["network_advisory"] = advisory_result
+
+    if classification != "failed" and not args.skip_smoke:
+        smoke = _run_smoke(args.smoke_script, args.profile, output)
+        stages["smoke"] = smoke
+        if smoke["status"] != "passed":
+            classification = "failed"
+    elif classification == "failed" and not args.skip_smoke:
+        stages["smoke"] = {"status": "skipped", "exit_code": 0, "duration_seconds": 0}
 
     summary = {
         "classification": classification,
