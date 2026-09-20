@@ -631,4 +631,99 @@ agent_missing_full_commands() {{ :; }}
         self.assertIn('tool.git=',result.stdout)
 
 
+    def test_runner_reports_stable_toolchain_failure_category(self):
+        fake=self.base/'categorizing-goss'
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport json,sys\n"
+            "print(json.dumps({'results':[{'resource-id':'tool_git','resource-type':'Command','successful':False}]}))\n"
+            "raise SystemExit(1)\n"
+        );fake.chmod(0o755)
+        out=self.base/'categorized-runner'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['stages']['host']['failure_categories'],['TOOLCHAIN'])
+        self.assertEqual(summary['failure_categories'],['TOOLCHAIN'])
+
+    def test_smoke_stages_have_stable_failure_categories(self):
+        spec=importlib.util.spec_from_file_location('lab_smoke_categories',SCRIPTS/'lab_smoke.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        expected={
+            'native':'TOOLCHAIN','cmake_ninja':'TOOLCHAIN','node':'TOOLCHAIN',
+            'python':'TOOLCHAIN','git':'TOOLCHAIN','docker':'DOCKER','media':'MEDIA',
+        }
+        for stage,category in expected.items():
+            self.assertEqual(module.stage_category(stage),category)
+
+    def test_project_validation_stages_are_categorized(self):
+        workspace=self.base/'workspaces'/'categories';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('#!/bin/sh\nexit 0\n');hook.chmod(0o755)
+        out=self.base/'project-categories'
+        result=command([sys.executable,SCRIPTS/'lab_validate.py',workspace,'--output-dir',out],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertTrue(all(stage['category']=='PROJECT' for stage in summary['stages']))
+        self.assertEqual(summary['cleanup']['category'],'CLEANUP')
+
+    def test_fault_injection_rejects_bad_manifest_and_missing_command(self):
+        bad=self.base/'bad-toolset.json'
+        bad.write_text(json.dumps({'schema_version':99}))
+        invalid=command([sys.executable,SCRIPTS/'lab_toolset.py','--manifest',bad,'validate'])
+        self.assertNotEqual(invalid.returncode,0)
+        spec=importlib.util.spec_from_file_location('lab_runner_validate_missing',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['commands']['core'].append('definitely-not-a-runner-command')
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base,require_rdc=False)
+        missing=hard['command']['tool_definitely-not-a-runner-command']['exec']
+        self.assertNotEqual(subprocess.run(missing,shell=True).returncode,0)
+
+    def test_goss_installer_fails_closed_on_checksum_mismatch(self):
+        fakebin=self.base/'fakebin';fakebin.mkdir()
+        fakecurl=fakebin/'curl'
+        fakecurl.write_text("""#!/bin/sh
+out=''
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then shift; out="$1"; fi
+  shift
+done
+printf corrupt > "$out"
+""");fakecurl.chmod(0o755)
+        cache=self.base/'goss-corrupt'
+        result=command([SCRIPTS/'install-goss.sh'],env={
+            **self.env,'PATH':f"{fakebin}:{os.environ.get('PATH','')}",'GOSS_CACHE_DIR':cache
+        })
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((cache/'goss').exists())
+
+    def test_docker_and_media_faults_are_classified_and_cleaned(self):
+        for stage in ('docker','media'):
+            out=self.base/f'fault-{stage}'
+            result=command([sys.executable,SCRIPTS/'lab_smoke.py','full','--only',stage,
+                            '--output-dir',out],env={**self.env,'PATH':'/nonexistent'})
+            self.assertNotEqual(result.returncode,0,stage)
+            summary=json.loads((out/'summary.json').read_text())
+            self.assertEqual(summary['stages'][stage]['status'],'failed')
+            self.assertIn(summary['stages'][stage]['category'],('DOCKER','MEDIA'))
+            self.assertFalse(any(p.name.startswith('work-') for p in out.iterdir()))
+
+
+    def test_runner_reports_stable_rdc_failure_category(self):
+        fake=self.base/'rdc-failing-goss'
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport json,sys\n"
+            "print(json.dumps({'results':[{'resource-id':'rdc_health','resource-type':'Command','successful':False}]}))\n"
+            "raise SystemExit(1)\n"
+        );fake.chmod(0o755)
+        out=self.base/'rdc-category'
+        result=command([sys.executable,SCRIPTS/'lab_runner_validate.py','quick','--goss-bin',fake,
+                        '--skip-smoke','--require-rdc','--output-dir',out],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        summary=json.loads((out/'summary.json').read_text())
+        self.assertEqual(summary['stages']['host']['failure_categories'],['RDC'])
+        self.assertEqual(summary['failure_categories'],['RDC'])
+
+
 if __name__=='__main__': unittest.main()

@@ -89,7 +89,8 @@ def run_stage(hook, workspace, name, output, args=(), max_log_bytes=10 * 1024 * 
             _ACTIVE_PROCESS = None
             poller.close()
     return {
-        "name": name, "exit_code": exit_code,
+        "name": name, "category": "CLEANUP" if name == "clean-materialized" else "PROJECT",
+        "exit_code": exit_code,
         "duration_seconds": round(time.monotonic() - started, 2),
         "log": log_path.name, "log_bytes": written, "log_truncated": truncated,
     }

@@ -77,6 +77,32 @@ def build_specs(toolset, *, home: Path, cache: Path, require_rdc: bool):
     return hard, advisory
 
 
+def _resource_category(resource_id: str, resource_type: str):
+    if resource_id == "rdc_health":
+        return "RDC"
+    if resource_id.startswith("tool_") or resource_id == "node_version":
+        return "TOOLCHAIN"
+    if resource_type in ("DNS", "HTTP"):
+        return "NETWORK"
+    return "HOST"
+
+
+def _goss_failure_categories(stdout: str):
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+    categories = {
+        _resource_category(
+            str(item.get("resource-id", "")),
+            str(item.get("resource-type", "")),
+        )
+        for item in payload.get("results", [])
+        if item.get("successful") is False
+    }
+    return sorted(categories)
+
+
 def _run_goss(goss_bin: Path, spec: dict, output: Path, name: str):
     spec_path = output / f"{name}.goss.json"
     log_path = output / f"{name}.goss.log"
@@ -92,13 +118,18 @@ def _run_goss(goss_bin: Path, spec: dict, output: Path, name: str):
     if result.stderr:
         combined += ("\n" if combined else "") + result.stderr
     log_path.write_text(combined)
-    return {
+    stage = {
         "status": "passed" if result.returncode == 0 else "failed",
         "exit_code": result.returncode,
         "duration_seconds": round(time.monotonic() - started, 3),
         "log": log_path.name,
         "spec": spec_path.name,
     }
+    if result.returncode != 0:
+        stage["failure_categories"] = _goss_failure_categories(result.stdout)
+        if not stage["failure_categories"]:
+            stage["failure_categories"] = ["HOST" if name == "host" else "NETWORK"]
+    return stage
 
 
 def _write_reports(output: Path, summary: dict):
@@ -158,13 +189,20 @@ def _run_smoke(smoke_script: Path, profile: str, output: Path):
     if result.stderr:
         combined += ("\n" if combined else "") + result.stderr
     log_path.write_text(combined)
-    return {
+    stage = {
         "status": "passed" if result.returncode == 0 else "failed",
         "exit_code": result.returncode,
         "duration_seconds": round(time.monotonic() - started, 3),
         "log": log_path.name,
         "details": details,
     }
+    if result.returncode != 0:
+        stage["failure_categories"] = sorted({
+            detail.get("category", "TOOLCHAIN")
+            for detail in details.values()
+            if detail.get("status") == "failed"
+        })
+    return stage
 
 
 def _resolve_goss(explicit: Path | None):
@@ -235,11 +273,17 @@ def main():
     elif classification == "failed" and not args.skip_smoke:
         stages["smoke"] = {"status": "skipped", "exit_code": 0, "duration_seconds": 0}
 
+    failure_categories = sorted({
+        category
+        for stage in stages.values()
+        for category in stage.get("failure_categories", [])
+    })
     summary = {
         "classification": classification,
         "profile": args.profile,
         "toolchain_version": toolset["toolchain_version"],
         "require_rdc": require_rdc,
+        "failure_categories": failure_categories,
         "stages": stages,
     }
     _write_reports(output, summary)

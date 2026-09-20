@@ -23,6 +23,16 @@ def stage_names(profile: str):
     raise ValueError(f"unknown smoke profile: {profile}")
 
 
+def stage_category(name: str):
+    if name in ("native", "cmake_ninja", "node", "python", "git"):
+        return "TOOLCHAIN"
+    if name == "docker":
+        return "DOCKER"
+    if name == "media":
+        return "MEDIA"
+    raise ValueError(f"unknown smoke stage: {name}")
+
+
 def _run(argv, *, cwd: Path, log: list[str], timeout=30, env=None, expected=None):
     display = " ".join(str(x) for x in argv)
     log.append(f"$ {display}")
@@ -209,6 +219,7 @@ def run_stage(name: str, output: Path):
     log_path.write_text("\n".join(log_lines) + ("\n" if log_lines else ""))
     result = {
         "status": status,
+        "category": stage_category(name),
         "duration_seconds": round(time.monotonic() - started, 3),
         "log": log_path.name,
     }
