@@ -2,6 +2,10 @@ name: RustDesk Core Diagnostics
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rustdesk-core-diagnostics.yml'
 
 permissions:
   contents: read
@@ -13,17 +17,42 @@ concurrency:
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout Runner Lab
+      - name: Checkout RustDesk Core Lab
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: aminsh35322088-ctrl/RustDesk-Core-Lab
+          path: core-lab
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.AGENT_GITHUB_TOKEN }}
 
-      - name: Clone RustDesk Core Lab
+      - name: Install RustDesk native build dependencies
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/aminsh35322088-ctrl/RustDesk-Core-Lab.git core-lab
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates clang cmake curl gcc g++ git make perl pkg-config libclang-dev llvm-dev nasm \
+            libasound2-dev libunwind-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgtk-3-dev libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev libdbus-1-dev libssl-dev \
+            libyuv-dev libvpx-dev libopus-dev libaom-dev
+          sudo mkdir -p /opt/rustdesk-pkgconfig
+          sudo tee /opt/rustdesk-pkgconfig/libyuv.pc >/dev/null <<'PC'
+          prefix=/usr
+          exec_prefix=${prefix}
+          libdir=/usr/lib/x86_64-linux-gnu
+          includedir=/usr/include
+
+          Name: libyuv
+          Description: YUV conversion library
+          Version: 0
+          Libs: -L${libdir} -lyuv
+          Cflags: -I${includedir}
+          PC
 
       - name: Reconstruct pinned RustDesk source
         shell: bash
@@ -31,24 +60,36 @@ jobs:
           set -euo pipefail
           cd core-lab
           ./scripts/reconstruct-rustdesk.sh
-          test "$(git -C rustdesk-research rev-parse HEAD)" = "$(cat rustdesk/UPSTREAM_SHA)"
+          test "$(git -C rustdesk-research rev-parse HEAD)" = "$(tr -d '[:space:]' < rustdesk/UPSTREAM_SHA)"
 
-      - name: Verify public-server auth hardening
+      - name: Verify public-account routing contract
         shell: bash
         run: |
           set -euo pipefail
           cd core-lab
-          grep -q 'fn session_access_token' rustdesk-research/src/client.rs
-          grep -q 'public_override_preserves_public_access_token' rustdesk-research/src/client.rs
-          grep -q 'custom_override_never_receives_public_access_token' rustdesk-research/src/client.rs
+          grep -q 'public_server_uses_default_account_aware_rendezvous_path' rustdesk-research/src/headless_controller.rs
+          grep -q 'self_hosted_server_remains_session_scoped' rustdesk-research/src/headless_controller.rs
+          grep -q 'if id_server.trim().eq_ignore_ascii_case("public")' rustdesk-research/src/headless_controller.rs
+          grep -q 'lc.other_server = None' rustdesk-research/src/headless_controller.rs
           grep -q '#\[cfg(feature = "flutter")\]' rustdesk-research/src/hbbs_http.rs
-          echo "Public token scoping and OIDC feature gate: OK"
+          echo "Public account-aware routing and OIDC feature gate: OK"
+
+      - name: Run full Core and Bridge validation
+        env:
+          PKG_CONFIG_PATH: /opt/rustdesk-pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd core-lab
+          ./scripts/validate.sh
 
       - name: Check RustDesk public account endpoint
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 10             https://admin.rustdesk.com/api/login-options             -o /tmp/rustdesk-login-options.json
+          curl --fail --silent --show-error --max-time 10 \
+            https://admin.rustdesk.com/api/login-options \
+            -o /tmp/rustdesk-login-options.json
           python3 - <<'PY'
           import json
           data = json.load(open('/tmp/rustdesk-login-options.json'))
@@ -62,18 +103,16 @@ jobs:
           set -euo pipefail
           cd core-lab
           python3 - <<'PY'
-          import pathlib, re, socket, sys
+          import pathlib, re, socket
 
           root = pathlib.Path('rustdesk-research')
-          block = None
-          source = None
           pattern = re.compile(r'RENDEZVOUS_SERVERS[^=]*=\s*&\[(.*?)\];', re.S)
+          block = source = None
           for path in root.rglob('*.rs'):
               text = path.read_text(errors='ignore')
-              m = pattern.search(text)
-              if m:
-                  block = m.group(1)
-                  source = path
+              match = pattern.search(text)
+              if match:
+                  block, source = match.group(1), path
                   break
           if block is None:
               raise SystemExit('RENDEZVOUS_SERVERS definition not found')
@@ -83,7 +122,6 @@ jobs:
               raise SystemExit('public rendezvous pool is empty')
 
           print(f'pool source: {source}')
-          print(f'candidates: {len(servers)}')
           reachable = []
           for raw in servers:
               host, port = raw, 21116
@@ -109,8 +147,10 @@ jobs:
           {
             echo '## RustDesk Core Diagnostics'
             echo
-            echo '- Canonical patch reconstruction: checked'
-            echo '- Public-token scoping tests: checked'
+            echo '- Canonical patch clean reconstruction: checked'
+            echo '- Public account-aware routing regression tests: checked'
+            echo '- Core cargo check/tests: checked'
+            echo '- Bridge fmt/check/tests/build: checked'
             echo '- OIDC module remains feature-gated: checked'
             echo '- Public account endpoint: checked'
             echo '- Public rendezvous TCP pool: checked'
