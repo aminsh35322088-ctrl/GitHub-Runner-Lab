@@ -72,7 +72,7 @@ Manual checkpoint:
 ./scripts/agent-run.sh checkpoint manual
 ```
 
-Automatic checkpoints cover ordinary clones and linked worktrees. They contain a full Git bundle, staged and unstaged patches, metadata, and allowlisted untracked source/configuration files that pass secret-pattern and size checks. Every stored file is checksummed; recovery verifies the exact file set and extracts only safe paths into a new directory. The workflow authenticates and encrypts the latest checkpoint with `RDC_STATE_KEY`, saves the current encrypted snapshot on the dedicated `agent-checkpoints` branch, and also uploads a short-retention artifact.
+Automatic checkpoints cover Lab-managed clones and linked worktrees plus scratch repositories explicitly registered with `./scripts/agent-run.sh workspace adopt PATH`. They contain a full Git bundle, staged and unstaged patches, metadata, and allowlisted untracked source/configuration files. Secret-like content in tracked dirty patches fails closed; unsafe/unrecognized untracked files are excluded. Every stored file is checksummed. Recovery verifies the exact file set, materializes repositories into a fresh recovery root, re-registers them for future checkpoints, and reapplies a repository-local Git author identity when one can be derived safely. The workflow authenticates and encrypts the latest checkpoint with `RDC_STATE_KEY`, saves the current encrypted snapshot on the dedicated `agent-checkpoints` branch, and also uploads a short-retention artifact.
 
 ## Remote Desktop Commander call budget
 
@@ -160,8 +160,10 @@ Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchain
 
 ## Workspace safety
 
-- Work under `~/agent-workspaces` unless a task requires another path.
+- Work under `~/agent-workspaces` unless a task requires another path. If valuable work must live elsewhere, immediately register the repository with `./scripts/agent-run.sh workspace adopt PATH`; unregistered arbitrary paths are not checkpointed.
 - `agent-workspace.sh` refuses dirty, divergent, or unpublished work instead of resetting it. Use another explicit `--dir` when the existing workspace must be preserved.
+- Fresh and recovered Lab workspaces use repository-local Git author metadata; never solve identity problems by placing tokens or credentials in Git config.
+- If a remote-tracking ref is missing or corrupt, use `./scripts/agent-run.sh git-sync WORKSPACE --branch BRANCH`. The helper verifies the remote branch, repairs only safe loose-ref corruption, never resets/rebases the worktree, and fails closed rather than editing `packed-refs` directly.
 - Never assume changes on the runner are durable. Push durable changes to the correct GitHub branch.
 - Do not commit RDC identity files, tokens, device state, secrets, or files from `~/.desktop-commander-device`.
 - Use `agent-github.sh` for optional fine-grained PAT operations. Its token is command-scoped and must never be copied into a job environment, checkpoint, cache, repository config, or URL.

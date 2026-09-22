@@ -6,11 +6,9 @@ from pathlib import Path
 import os
 import re
 import sys
-from lab_common import SCRIPTS, git, lock, run, runtime, workspace_root
-
-
-def remote_git(*args, check=True):
-    return run([SCRIPTS / 'agent-github.sh', 'git-auto', *args], check=check)
+from lab_common import git, lock, run, runtime, workspace_root
+from lab_git import ensure_repo_identity, fetch_with_tracking_repair, remote_git
+from lab_workspace_registry import adopt
 
 
 def main():
@@ -37,7 +35,7 @@ def main():
             raise RuntimeError('Workspace belongs to a different remote')
         if git(dest, 'status', '--porcelain'):
             raise RuntimeError('Dirty workspace preserved; commit/checkpoint or use another --dir')
-        remote_git('-C', dest, 'fetch', '--prune', 'origin')
+        fetch_with_tracking_repair(dest, 'origin', None if a.pr else a.ref)
         if a.pr:
             target = f'refs/remotes/origin/pr/{a.pr}'
             remote_git('-C', dest, 'fetch', 'origin', f'+refs/pull/{a.pr}/head:{target}')
@@ -59,9 +57,13 @@ def main():
         else: git(dest, 'checkout', '--detach', target)
         if a.deps:
             raise RuntimeError('Use a managed project job for dependency installation; workspace is ready')
+        identity = ensure_repo_identity(dest)
+        adopt(dest, quiet=True)
     print(f'AGENT_WORKSPACE={dest}')
     print(f'AGENT_SHA={git(dest, "rev-parse", "HEAD")}')
     print(f'AGENT_BRANCH={git(dest, "branch", "--show-current")}')
+    if identity:
+        print(f'AGENT_GIT_IDENTITY={identity[2]}')
 
 
 if __name__ == '__main__':

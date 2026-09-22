@@ -12,6 +12,8 @@ case "$cmd" in
   resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
   decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
   github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
+  git-sync) exec python3 "$SELF_DIR/lab_git.py" sync "$@" ;;
+  git-identity) exec python3 "$SELF_DIR/lab_git.py" identity "$@" ;;
   ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
   cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
   selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
@@ -50,6 +52,8 @@ case "$cmd" in
     ;;
   shell-help)
     echo "Use agent-run.sh github ... for authenticated GitHub operations."
+    echo "Use agent-run.sh workspace adopt PATH for scratch repositories that must survive runner rotation."
+    echo "Use agent-run.sh git-sync WORKSPACE --branch BRANCH to repair/refresh remote-tracking state without moving HEAD."
     echo "Use agent-run.sh validate runner quick|full for host validation, or validate WORKSPACE for project validation."
     echo "Do not run raw npm ci against shared node_modules links."
     ;;
@@ -145,7 +149,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac
