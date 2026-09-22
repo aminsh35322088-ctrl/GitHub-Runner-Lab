@@ -76,6 +76,67 @@ class LabTest(unittest.TestCase):
         self.assertEqual(git(dest, 'rev-parse', 'HEAD').stdout.strip(), head)
         self.assertEqual((dest/'tracked.txt').read_text(), 'local\n')
 
+    def test_workspace_sets_repo_local_identity_from_github_actor(self):
+        remote = self.base / 'remote-identity.git'
+        subprocess.run(['git', 'init', '--bare', '--initial-branch=main', remote], check=True, capture_output=True)
+        seed = self.base / 'seed-identity'; init_repo(seed, remote)
+        dest = self.base / 'workspaces' / 'identity'
+        env = {**self.env, 'GITHUB_ACTOR': 'octocat', 'GITHUB_ACTOR_ID': '1234567'}
+        result = command([SCRIPTS/'agent-workspace.sh', '--repo', remote, '--dir', dest], env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(dest, 'config', '--local', '--get', 'user.name').stdout.strip(), 'octocat')
+        self.assertEqual(git(dest, 'config', '--local', '--get', 'user.email').stdout.strip(),
+                         '1234567+octocat@users.noreply.github.com')
+        clean_env = {**env, 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1'}
+        (dest/'identity.txt').write_text('works\n')
+        self.assertEqual(command(['git', '-C', dest, 'add', 'identity.txt'], env=clean_env).returncode, 0)
+        committed = command(['git', '-C', dest, 'commit', '-m', 'identity probe'], env=clean_env)
+        self.assertEqual(committed.returncode, 0, committed.stderr)
+
+    def test_workspace_repairs_corrupt_remote_tracking_ref_without_moving_head(self):
+        remote = self.base / 'remote-ref.git'
+        subprocess.run(['git', 'init', '--bare', '--initial-branch=main', remote], check=True, capture_output=True)
+        seed = self.base / 'seed-ref'; init_repo(seed, remote)
+        dest = self.base / 'workspaces' / 'repair'
+        args = [SCRIPTS/'agent-workspace.sh', '--repo', remote, '--dir', dest]
+        self.assertEqual(command(args, env=self.env).returncode, 0)
+        head = git(dest, 'rev-parse', 'HEAD').stdout.strip()
+        ref = dest / '.git' / 'refs' / 'remotes' / 'origin' / 'main'
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text('not-a-valid-object-id\n')
+        result = command(args, env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(dest, 'rev-parse', 'HEAD').stdout.strip(), head)
+        self.assertEqual(git(dest, 'rev-parse', 'refs/remotes/origin/main').stdout.strip(), head)
+
+    def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
+        external = self.base / 'scratch' / 'external-repo'
+        external.parent.mkdir()
+        init_repo(external)
+        (external/'tracked.txt').write_text('dirty external\n')
+        (external/'new.rs').write_text('fn main() {}\n')
+        adopted = command([SCRIPTS/'agent-workspace.sh', 'adopt', external], env=self.env)
+        self.assertEqual(adopted.returncode, 0, adopted.stderr)
+        self.assertIn('WORKSPACE_ADOPTED=', adopted.stdout)
+        saved = command([SCRIPTS/'agent-checkpoint.sh', 'adopted-test'], env=self.env)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        source = (Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').resolve()
+        manifest = json.loads((source/'manifest.json').read_text())
+        entries = [x for x in manifest['repositories'] if x.get('source_path') == str(external.resolve())]
+        self.assertEqual(len(entries), 1)
+        recovered = self.base/'recovered-adopted'
+        recovery_env = {**self.env, 'GITHUB_ACTOR': 'octocat', 'GITHUB_ACTOR_ID': '1234567'}
+        result = command([sys.executable, SCRIPTS/'lab_checkpoint.py', 'resume', source, recovered],
+                         env=recovery_env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        restored = recovered / entries[0]['name']
+        self.assertEqual((restored/'tracked.txt').read_text(), 'dirty external\n')
+        self.assertEqual((restored/'new.rs').read_text(), 'fn main() {}\n')
+        self.assertEqual(git(restored, 'config', '--local', '--get', 'user.name').stdout.strip(),
+                         'octocat')
+        self.assertEqual(git(restored, 'config', '--local', '--get', 'user.email').stdout.strip(),
+                         '1234567+octocat@users.noreply.github.com')
+
     def test_checkpoint_roundtrip_includes_worktree_and_safe_untracked(self):
         primary = Path(self.env['AGENT_WORKSPACE_ROOT'])/'primary'; init_repo(primary)
         worktree = Path(self.env['AGENT_WORKSPACE_ROOT'])/'feature'
@@ -94,6 +155,15 @@ class LabTest(unittest.TestCase):
         self.assertEqual((recovered/'feature/tracked.txt').read_text(),'unstaged\n')
         self.assertEqual((recovered/'feature/new.ts').read_text(),'export const x = 1\n')
         self.assertFalse((recovered/'feature/token.txt').exists())
+
+    def test_checkpoint_fails_closed_on_secret_in_tracked_patch(self):
+        repo = Path(self.env['AGENT_WORKSPACE_ROOT'])/'secret-patch'
+        init_repo(repo)
+        (repo/'tracked.txt').write_text('github_pat_' + 'S'*30 + '\n')
+        result = command([SCRIPTS/'agent-checkpoint.sh', 'secret-test'], env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('secret-like data', result.stderr.lower())
+        self.assertFalse((Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').exists())
 
     def test_checkpoint_archive_authentication_detects_tamper(self):
         repo = Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo'; init_repo(repo)
@@ -238,6 +308,8 @@ class LabTest(unittest.TestCase):
         self.assertNotIn('@latest remote',(ROOT/'scripts/bootstrap-rdc.sh').read_text())
         sync=(SCRIPTS/'checkpoint-sync.sh').read_text()
         self.assertIn('--force-with-lease=',sync)
+        self.assertIn('lab_checkpoint.py" resume',sync)
+        self.assertIn('recovery.env',sync)
         self.assertNotIn('fetch --quiet --depth=1 origin "$BRANCH"',sync)
 
     def test_every_workflow_action_is_pinned_to_a_commit(self):
@@ -265,7 +337,10 @@ class LabTest(unittest.TestCase):
         self.assertIn('legacy-app-node-modules.lock',script)
 
     def test_workspace_routes_remote_git_through_optional_auth_helper(self):
-        self.assertIn("'git-auto'",(SCRIPTS/'lab_workspace.py').read_text())
+        workspace=(SCRIPTS/'lab_workspace.py').read_text()
+        helper=(SCRIPTS/'lab_git.py').read_text()
+        self.assertIn('from lab_git import',workspace)
+        self.assertIn("'git-auto'",helper)
 
 
     def test_validate_contract_runs_full_diagnoses_flake_and_cleans(self):
@@ -308,6 +383,8 @@ esac
         self.assertIn('lab_runner_validate.py',script)
         self.assertIn('shell-help)',script)
         self.assertIn('Use agent-run.sh github',script)
+        self.assertIn('git-sync)',script)
+        self.assertIn('workspace adopt',script)
 
     def test_reliability_excludes_cancelled_keepalive_from_completion_rate(self):
         spec=importlib.util.spec_from_file_location('readme_status_keepalive',ROOT/'.github/scripts/readme-status.py')

@@ -73,6 +73,22 @@ A typical project-aware workspace preparation is:
 ./scripts/agent-run.sh work --repo https://github.com/OWNER/REPO.git --ref main
 ```
 
+Official Lab workspaces are registered automatically for checkpoint continuity. If a task must use a scratch repository outside `~/agent-workspaces`, explicitly adopt it before doing valuable uncommitted work:
+
+```bash
+./scripts/agent-run.sh workspace adopt /path/to/scratch-repo
+```
+
+Checkpoint restore now materializes verified repositories into a fresh recovery root and registers them for subsequent checkpoints. `agent-run.sh status` reports that recovery root when one exists. Workspace preparation and recovery also install a repository-local Git author identity from `AGENT_GIT_NAME`/`AGENT_GIT_EMAIL`, the GitHub workflow actor, or the authenticated GitHub account; credentials are never written into Git configuration.
+
+For a missing or corrupt remote-tracking ref, use the non-destructive sync helper:
+
+```bash
+./scripts/agent-run.sh git-sync /path/to/workspace --branch main
+```
+
+It verifies the remote branch first, repairs only a broken loose tracking ref, fetches the verified object, and refuses to move `HEAD` or edit `packed-refs` directly.
+
 Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
 Run the project-owned full validation contract as one managed job:
@@ -123,10 +139,12 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-prewarm.sh` — full prewarm whose READY state is gated by quick runner self-validation.
 - `scripts/agent-status.sh` — compact toolchain + exact local runner countdown report.
 - `scripts/agent-runtime.sh` — initializes and reports the local 330-minute handoff timer.
-- `scripts/agent-checkpoint.sh` — creates verified Git bundles, staged/unstaged patches, and filtered untracked source snapshots for clones and linked worktrees.
+- `scripts/agent-checkpoint.sh` — creates verified Git bundles, staged/unstaged patches, and filtered untracked source snapshots; secret-like data in tracked dirty patches fails closed.
 - `scripts/package-agent-checkpoints.sh` — authenticates and encrypts the latest snapshot before persistence.
-- `scripts/checkpoint-sync.sh` — restores or saves the encrypted snapshot through the dedicated `agent-checkpoints` branch.
-- `scripts/agent-workspace.sh` — prepares branch/PR workspaces under `~/agent-workspaces` and refuses dirty, divergent, or unpublished state instead of resetting it.
+- `scripts/checkpoint-sync.sh` — restores/saves the encrypted snapshot through the dedicated `agent-checkpoints` branch and materializes verified recovery workspaces after a runner restart.
+- `scripts/agent-workspace.sh` — prepares and auto-registers branch/PR workspaces, or explicitly adopts/forgets scratch repositories for checkpoint continuity.
+- `scripts/lab_workspace_registry.py` — keeps the explicit, secret-free registry of checkpointed workspace paths.
+- `scripts/lab_git.py` — manages repo-local Git identity and verified remote-tracking-ref repair without moving `HEAD`.
 - `scripts/agent-project.sh` — invokes the target branch's project-specific Agent Lab runner using an external persistent cache.
 - `scripts/lab_jobs.py` — starts, observes, stops, drains, and reports bounded detached jobs.
 - `scripts/lab_ready.py` — emits a read-only JSON readiness report.

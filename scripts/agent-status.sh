@@ -44,5 +44,11 @@ if [[ "$state" == "FAILED" || "$state" == "STALE" || "$state" == "OUTDATED" ]]; 
 fi
 
 
+recovery_file="$(agent_cache_dir)/recovery.env"
+if [[ -f "$recovery_file" ]]; then
+  echo "=== AGENT RECOVERY ==="
+  cat "$recovery_file"
+fi
+
 echo "=== RUNNER RUNTIME ==="
 "$SELF_DIR/agent-runtime.sh" status

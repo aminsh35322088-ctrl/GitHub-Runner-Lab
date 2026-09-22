@@ -15,6 +15,8 @@ import time
 import uuid
 
 from lab_common import atomic, git, lock, path_env, run, workspace_root
+from lab_git import ensure_repo_identity
+from lab_workspace_registry import adopt as adopt_workspace, registered_repositories
 
 MAX_FILE = 2 * 1024 * 1024
 SOURCE_SUFFIXES = {'.py', '.sh', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx',
@@ -34,10 +36,28 @@ def checkpoint_root():
 
 def repositories():
     root = workspace_root()
-    if not root.exists():
-        return []
-    return sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink()
-                  and (p / '.git').exists())
+    candidates = []
+    if root.exists():
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and not path.is_symlink() and (path / '.git').exists():
+                candidates.append((path.resolve(), path.name))
+    candidates.extend((path.resolve(), name) for path, name in registered_repositories())
+
+    unique = []
+    seen_paths = set()
+    used_names = set()
+    for repo, preferred_name in candidates:
+        key = str(repo)
+        if key in seen_paths:
+            continue
+        seen_paths.add(key)
+        name = preferred_name
+        if name in used_names:
+            digest = hashlib.sha256(key.encode()).hexdigest()[:10]
+            name = f'{name}-{digest}'
+        used_names.add(name)
+        unique.append((repo, name))
+    return unique
 
 
 def safe_untracked(repo, name):
@@ -66,17 +86,22 @@ def snapshot(reason):
         out.mkdir(mode=0o700)
         manifest = {'version': 2, 'created': time.time(), 'reason': reason, 'repositories': []}
         try:
-            for repo in repositories():
+            for repo, recovery_name in repositories():
                 head = git(repo, 'rev-parse', 'HEAD')
                 if git(repo, 'ls-files', '-u'):
                     raise RuntimeError(f'Unmerged index in {repo}; resolve or save it explicitly first')
-                dest = out / repo.name
+                dest = out / recovery_name
                 dest.mkdir(mode=0o700)
                 # Full bundle makes recovery independent of origin availability or upstream configuration.
                 run(['git', '-C', repo, 'bundle', 'create', dest / 'repository.bundle', '--all', 'HEAD'])
                 for filename, args in [('index.patch', ['diff', '--binary', '--cached', 'HEAD']),
                                        ('worktree.patch', ['diff', '--binary'])]:
-                    (dest / filename).write_bytes(run(['git', '-C', repo, *args]).stdout)
+                    patch_data = run(['git', '-C', repo, *args]).stdout
+                    if SECRET.search(patch_data):
+                        raise RuntimeError(
+                            f'Secret-like data detected in dirty tracked patch for {repo}; checkpoint refused'
+                        )
+                    (dest / filename).write_bytes(patch_data)
                 included, excluded = [], []
                 names = run(['git', '-C', repo, 'ls-files', '--others', '--exclude-standard', '-z']).stdout
                 for raw in names.split(b'\0'):
@@ -97,8 +122,9 @@ def snapshot(reason):
                 remote = git(repo, 'remote', 'get-url', 'origin', check=False)
                 if re.search(r'https?://[^/]*@', remote):
                     remote = ''
-                manifest['repositories'].append({'name': repo.name, 'head': head,
+                manifest['repositories'].append({'name': recovery_name, 'head': head,
                     'branch': git(repo, 'branch', '--show-current'), 'remote': remote,
+                    'source_path': str(repo),
                     'included_untracked': included, 'excluded_untracked': excluded})
             jobs = path_env('AGENT_JOBS_DIR', Path.home() / 'agent-jobs')
             if jobs.exists():
@@ -178,8 +204,13 @@ def resume(source, destination):
         if (source / '_jobs').exists():
             shutil.copytree(source / '_jobs', stage / '_previous-job-reports')
         stage.rename(destination)
+        for info in manifest['repositories']:
+            recovered_repo = destination / info['name']
+            adopt_workspace(recovered_repo, quiet=True)
+            ensure_repo_identity(recovered_repo)
     except Exception:
-        shutil.rmtree(stage)
+        if stage.exists():
+            shutil.rmtree(stage)
         raise
     print(f'RECOVERED_ROOT={destination}')
     print('Previous processes are not restarted. Review reports before rerunning commands.')

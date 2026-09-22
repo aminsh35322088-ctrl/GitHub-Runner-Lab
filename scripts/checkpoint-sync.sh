@@ -21,7 +21,17 @@ if [[ "$action" == restore ]]; then
   git -C "$LAB_ROOT" show FETCH_HEAD:latest.enc > "$tmp/latest.enc"
   destination="${AGENT_RECOVERY_DIR:-$HOME/agent-recovery}/${GITHUB_RUN_ID:-manual}-$(date +%s)"
   python3 "$SELF_DIR/lab_archive.py" decrypt "$tmp/latest.enc" "$destination"
-  echo "RECOVERY_AVAILABLE=$destination/snapshot"
+  snapshot="$destination/snapshot"
+  recovered="${AGENT_RECOVERED_WORKSPACE_ROOT:-$HOME/agent-workspaces/recovered-${GITHUB_RUN_ID:-manual}-$(date +%s)}"
+  python3 "$SELF_DIR/lab_checkpoint.py" resume "$snapshot" "$recovered"
+  {
+    echo "RECOVERY_STATUS=READY"
+    echo "RECOVERY_SOURCE=$snapshot"
+    echo "RECOVERED_ROOT=$recovered"
+  } > "$CACHE/recovery.env"
+  chmod 600 "$CACHE/recovery.env"
+  echo "RECOVERY_AVAILABLE=$snapshot"
+  echo "RECOVERED_ROOT=$recovered"
   exit 0
 fi
 [[ "$action" == save ]] || { echo 'Usage: checkpoint-sync.sh {save|restore}' >&2; exit 2; }
