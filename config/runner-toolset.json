@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "toolchain_version": "2026-09-20.1",
+  "toolchain_version": "2026-09-22.1",
   "profile_groups": {
     "core": [
       "core"
@@ -59,10 +59,32 @@
       "git-lfs",
       "clang",
       "gdb",
+      "perl",
+      "libclang-dev",
+      "llvm-dev",
+      "nasm",
       "libssl-dev",
       "libsqlite3-dev",
       "zlib1g-dev",
-      "libffi-dev"
+      "libffi-dev",
+      "libasound2-dev",
+      "libunwind-dev",
+      "libgstreamer1.0-dev",
+      "libgstreamer-plugins-base1.0-dev",
+      "libgtk-3-dev",
+      "libpulse-dev",
+      "libva-dev",
+      "libvdpau-dev",
+      "libxcb-randr0-dev",
+      "libxcb-shape0-dev",
+      "libxcb-xfixes0-dev",
+      "libxdo-dev",
+      "libxfixes-dev",
+      "libdbus-1-dev",
+      "libyuv-dev",
+      "libvpx-dev",
+      "libopus-dev",
+      "libaom-dev"
     ],
     "media": [
       "ffmpeg",
@@ -97,6 +119,23 @@
       "identify"
     ]
   },
+  "pkg_config_modules": {
+    "core": [],
+    "build": [
+      "glib-2.0",
+      "gtk+-3.0",
+      "gstreamer-1.0",
+      "gstreamer-app-1.0",
+      "libpulse",
+      "libyuv"
+    ],
+    "media": []
+  },
+  "pkg_config_path": [
+    "/opt/rustdesk-pkgconfig",
+    "/usr/lib/x86_64-linux-gnu/pkgconfig",
+    "/usr/share/pkgconfig"
+  ],
   "node": {
     "expected": "22.14.0"
   },

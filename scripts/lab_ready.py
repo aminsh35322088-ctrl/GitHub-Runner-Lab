@@ -16,12 +16,18 @@ for key, command in [('rdc', ['bash',str(SCRIPTS/'health.sh')]),
         p=subprocess.run(command,capture_output=True,text=True,timeout=10)
         report[key]={'ok':p.returncode==0,'summary':p.stdout.strip()}
     except (OSError, subprocess.TimeoutExpired): report[key]={'ok':False}
+try:
+    probe = f'source {str(SCRIPTS / "agent-lib.sh")!r}; agent_full_toolchain_ready'
+    p=subprocess.run(['bash','-lc',probe],capture_output=True,text=True,timeout=20)
+    report['toolchain']={'ok':p.returncode==0}
+except (OSError, subprocess.TimeoutExpired):
+    report['toolchain']={'ok':False}
 stamp=kit()/'checkpoint-persisted-at'
 report['last_durable_checkpoint']=stamp.read_text().strip() if stamp.exists() else None
 try:
     p=subprocess.run(['bash',str(SCRIPTS/'agent-github.sh'),'gh','api','repos/aminsh35322088-ctrl/GitHub-Runner-Lab','--jq','.permissions'],capture_output=True,text=True,timeout=15)
     report['github']={'verified':p.returncode==0,'permissions':json.loads(p.stdout) if p.returncode==0 else None}
 except (OSError, subprocess.TimeoutExpired, ValueError): report['github']={'verified':False}
-report['ready']=report['runtime']['state']=='SAFE' and report['rdc']['ok'] and report['docker']['ok'] and all(report['tools'].values()) and report['free_disk_bytes']>2*1024**3
+report['ready']=report['runtime']['state']=='SAFE' and report['rdc']['ok'] and report['docker']['ok'] and report['toolchain']['ok'] and all(report['tools'].values()) and report['free_disk_bytes']>2*1024**3
 print(json.dumps(report,indent=2))
 raise SystemExit(0 if report['ready'] else 1)

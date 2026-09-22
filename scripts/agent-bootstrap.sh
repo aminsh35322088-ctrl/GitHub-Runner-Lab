@@ -36,6 +36,26 @@ else
   echo "[agent-bootstrap] profile=$PROFILE already satisfied."
 fi
 
+PKG_CONFIG_PATH_MANIFEST="$(python3 "$SELF_DIR/lab_toolset.py" pkg-config-path)"
+if [[ "$PROFILE" == "build" || "$PROFILE" == "full" ]]; then
+  if ! PKG_CONFIG_PATH="$PKG_CONFIG_PATH_MANIFEST" pkg-config --exists libyuv 2>/dev/null; then
+    sudo mkdir -p /opt/rustdesk-pkgconfig
+    sudo tee /opt/rustdesk-pkgconfig/libyuv.pc >/dev/null <<'PC'
+prefix=/usr
+exec_prefix=${prefix}
+libdir=/usr/lib/x86_64-linux-gnu
+includedir=/usr/include
+
+Name: libyuv
+Description: YUV conversion library
+Version: 0
+Libs: -L${libdir} -lyuv
+Cflags: -I${includedir}
+PC
+  fi
+fi
+export PKG_CONFIG_PATH="$PKG_CONFIG_PATH_MANIFEST${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
 if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
   ln -sfn "$(command -v fdfind)" "$LOCAL_BIN/fd"
 fi

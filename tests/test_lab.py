@@ -504,8 +504,17 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
             self.assertIn(name,commands)
         packages=command([sys.executable,SCRIPTS/'lab_toolset.py','packages','full'])
         self.assertEqual(packages.returncode,0,packages.stderr)
-        self.assertIn('build-essential',packages.stdout.split())
-        self.assertIn('ffmpeg',packages.stdout.split())
+        package_names=set(packages.stdout.split())
+        self.assertIn('build-essential',package_names)
+        self.assertIn('ffmpeg',package_names)
+        for name in ('libgtk-3-dev','libgstreamer1.0-dev','libgstreamer-plugins-base1.0-dev',
+                     'libpulse-dev','libxdo-dev','libyuv-dev','libvpx-dev','libopus-dev','libaom-dev'):
+            self.assertIn(name,package_names)
+
+        modules=command([sys.executable,SCRIPTS/'lab_toolset.py','pkg-config-modules','full'])
+        self.assertEqual(modules.returncode,0,modules.stderr)
+        for name in ('glib-2.0','gtk+-3.0','gstreamer-1.0','gstreamer-app-1.0','libpulse','libyuv'):
+            self.assertIn(name,modules.stdout.split())
 
     def test_toolset_manifest_pins_goss_with_checksums(self):
         result=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','x86_64'])
@@ -545,6 +554,11 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('inode_free_percent',rendered)
         self.assertIn('command -v git',rendered)
         self.assertIn('node --version',rendered)
+        self.assertIn('pkg-config --exists glib-2.0',rendered)
+        self.assertIn('pkg-config --exists gtk+-3.0',rendered)
+        self.assertIn('pkg-config --exists gstreamer-1.0',rendered)
+        self.assertIn('pkg-config --exists libpulse',rendered)
+        self.assertIn('pkg-config --exists libyuv',rendered)
 
     def test_runner_validation_reports_degraded_advisory_without_failing(self):
         fake=self.base/'fake-goss'
@@ -704,7 +718,8 @@ agent_missing_full_commands() {{ :; }}
         result=command([SCRIPTS/'agent-doctor.sh',self.base],env=self.env)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('toolset=VALID',result.stdout)
-        self.assertIn('toolchain_version=2026-09-20.1',result.stdout)
+        expected_version=json.loads((ROOT/'config/runner-toolset.json').read_text())['toolchain_version']
+        self.assertIn(f'toolchain_version={expected_version}',result.stdout)
         self.assertIn('tool.git=',result.stdout)
 
 

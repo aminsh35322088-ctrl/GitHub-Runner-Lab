@@ -50,6 +50,14 @@ def build_specs(toolset, *, home: Path, cache: Path, require_rdc: bool):
     for name in expand(toolset, "commands", "full"):
         hard["command"][f"tool_{name}"] = _command(f"command -v {name} >/dev/null")
 
+    pkg_config_path = ":".join(toolset.get("pkg_config_path", []))
+    for module in expand(toolset, "pkg_config_modules", "full"):
+        label = "".join(ch if ch.isalnum() else "_" for ch in module)
+        env = f"PKG_CONFIG_PATH={shlex.quote(pkg_config_path)} " if pkg_config_path else ""
+        hard["command"][f"pkg_config_{label}"] = _command(
+            f"{env}pkg-config --exists {shlex.quote(module)}"
+        )
+
     expected_node = toolset.get("node", {}).get("expected")
     if expected_node:
         hard["command"]["node_version"] = _command(

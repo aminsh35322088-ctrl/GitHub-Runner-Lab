@@ -11,7 +11,7 @@ def load_manifest(path=DEFAULT_MANIFEST):
     data = json.loads(Path(path).read_text())
     if data.get("schema_version") != 1:
         raise ValueError("unsupported runner toolset schema")
-    for key in ("toolchain_version", "profile_groups", "packages", "commands", "goss"):
+    for key in ("toolchain_version", "profile_groups", "packages", "commands", "pkg_config_modules", "pkg_config_path", "goss"):
         if key not in data:
             raise ValueError(f"missing manifest key: {key}")
     return data
@@ -45,25 +45,30 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     sub = p.add_subparsers(dest="command", required=True)
-    for name in ("packages", "commands"):
+    for name in ("packages", "commands", "pkg-config-modules"):
         s = sub.add_parser(name)
         s.add_argument("profile", choices=("core", "build", "media", "full"))
     sub.add_parser("toolchain-version")
+    sub.add_parser("pkg-config-path")
     g = sub.add_parser("goss")
     g.add_argument("arch")
     sub.add_parser("validate")
     args = p.parse_args()
     data = load_manifest(args.manifest)
-    if args.command in ("packages", "commands"):
-        print("\n".join(expand(data, args.command, args.profile)))
+    if args.command in ("packages", "commands", "pkg-config-modules"):
+        section = "pkg_config_modules" if args.command == "pkg-config-modules" else args.command
+        print("\n".join(expand(data, section, args.profile)))
     elif args.command == "toolchain-version":
         print(data["toolchain_version"])
+    elif args.command == "pkg-config-path":
+        print(":".join(data["pkg_config_path"]))
     elif args.command == "goss":
         print(json.dumps(goss_meta(data, args.arch), sort_keys=True))
     elif args.command == "validate":
         for profile in data["profile_groups"]:
             expand(data, "packages", profile)
             expand(data, "commands", profile)
+            expand(data, "pkg_config_modules", profile)
         print("TOOLSET=VALID")
     return 0
 
