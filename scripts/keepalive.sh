@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-: "${RDC_STATE_KEY:?RDC_STATE_KEY secret is required}"
-
 MINUTES="${1:-330}"
+RDC_ENABLED="${RDC_ENABLED:-true}"
+CLOUDFLARE_SSH_ENABLED="${CLOUDFLARE_SSH_ENABLED:-false}"
+if [[ "$RDC_ENABLED" == "true" || -n "${RDC_STATE_KEY:-}" ]]; then
+  : "${RDC_STATE_KEY:?RDC_STATE_KEY secret is required}"
+fi
 PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
 DEVICE_FILE="$HOME/.desktop-commander-device/device.json"
 REQUEST_FILE="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}/handoff.request"
@@ -12,6 +15,8 @@ MAX_RESTARTS=3
 CHECKPOINT_DONE=false
 LAST_CHECKPOINT=0
 HEALTH_FAILURES=0
+CLOUDFLARE_HEALTH_FAILURES=0
+CLOUDFLARE_RESTARTS=0
 SUCCESSOR_QUEUED=false
 
 if ! [[ "$MINUTES" =~ ^[0-9]+$ ]] || (( MINUTES < 1 || MINUTES > 330 )); then
@@ -60,7 +65,7 @@ if [[ "$(runtime_value RUNTIME_STATE)" == "UNKNOWN" ]]; then
 fi
 
 LAST_HASH="$(hash_state)"
-echo "Keeping RDC Lab online until the lifecycle enters the final auto-restart window."
+echo "Keeping Runner Lab online until the lifecycle enters the final auto-restart window."
 ./scripts/agent-runtime.sh status
 
 TOTAL_TICKS=$((MINUTES * 6))
@@ -68,26 +73,47 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
   sleep 10
   minute=$(((tick + 5) / 6))
 
-  if ./scripts/health.sh >/dev/null 2>&1; then
-    HEALTH_FAILURES=0
-  else
-    HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
-  fi
-  if (( HEALTH_FAILURES >= 3 )); then
-    if [[ -s "$DEVICE_FILE" ]]; then
-      ./scripts/persist-rdc-state.sh || true
-      LAST_HASH="$(hash_state)"
+  if [[ "$RDC_ENABLED" == "true" ]]; then
+    if ./scripts/health.sh >/dev/null 2>&1; then
+      HEALTH_FAILURES=0
+    else
+      HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
     fi
+    if (( HEALTH_FAILURES >= 3 )); then
+      if [[ -s "$DEVICE_FILE" ]]; then
+        ./scripts/persist-rdc-state.sh || true
+        LAST_HASH="$(hash_state)"
+      fi
 
-    RESTARTS=$((RESTARTS + 1))
-    echo "[$minute] RDC stopped; automatic RDC process restart $RESTARTS/$MAX_RESTARTS."
-    if (( RESTARTS > MAX_RESTARTS )); then
-      echo "RDC exceeded the local restart limit; ending this runner so the watchdog can replace it."
-      exit 1
+      RESTARTS=$((RESTARTS + 1))
+      echo "[$minute] RDC stopped; automatic RDC process restart $RESTARTS/$MAX_RESTARTS."
+      if (( RESTARTS > MAX_RESTARTS )); then
+        echo "RDC exceeded the local restart limit; ending this runner so the watchdog can replace it."
+        exit 1
+      fi
+      ./scripts/stop-rdc.sh || true
+      ./scripts/start-rdc.sh
+      HEALTH_FAILURES=0
     fi
-    ./scripts/stop-rdc.sh || true
-    ./scripts/start-rdc.sh
-    HEALTH_FAILURES=0
+  fi
+
+  if [[ "$CLOUDFLARE_SSH_ENABLED" == "true" ]]; then
+    if ./scripts/cloudflare-ssh.sh health >/dev/null 2>&1; then
+      CLOUDFLARE_HEALTH_FAILURES=0
+    else
+      CLOUDFLARE_HEALTH_FAILURES=$((CLOUDFLARE_HEALTH_FAILURES + 1))
+    fi
+    if (( CLOUDFLARE_HEALTH_FAILURES >= 3 )); then
+      CLOUDFLARE_RESTARTS=$((CLOUDFLARE_RESTARTS + 1))
+      echo "[$minute] Cloudflare SSH unhealthy; automatic restart $CLOUDFLARE_RESTARTS/$MAX_RESTARTS."
+      if (( CLOUDFLARE_RESTARTS > MAX_RESTARTS )); then
+        echo "Cloudflare SSH exceeded the local restart limit; ending this runner so the watchdog can replace it."
+        exit 1
+      fi
+      ./scripts/cloudflare-ssh.sh stop || true
+      ./scripts/cloudflare-ssh.sh start
+      CLOUDFLARE_HEALTH_FAILURES=0
+    fi
   fi
 
   now="$(date +%s)"
@@ -118,9 +144,13 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
     ELAPSED="$(awk -F= '$1=="ELAPSED_MINUTES"{print $2}' <<<"$RUNTIME")"
     AUTO_HANDOFF="${AUTO_HANDOFF:-20}"
 
-    PID="$(cat "$PID_FILE")"
-    RSS="$(ps -p "$PID" -o rss= 2>/dev/null | xargs || true)"
-    echo "[$minute] RDC healthy pid=$PID rss_kb=${RSS:-unknown} lifecycle=${STATE:-UNKNOWN} elapsed=${ELAPSED:-?}m remaining=${REMAINING:-?}m."
+    if [[ "$RDC_ENABLED" == "true" && -s "$PID_FILE" ]]; then
+      PID="$(cat "$PID_FILE")"
+      RSS="$(ps -p "$PID" -o rss= 2>/dev/null | xargs || true)"
+      echo "[$minute] RDC healthy pid=$PID rss_kb=${RSS:-unknown} lifecycle=${STATE:-UNKNOWN} elapsed=${ELAPSED:-?}m remaining=${REMAINING:-?}m."
+    else
+      echo "[$minute] Runner healthy access=cloudflare-ssh lifecycle=${STATE:-UNKNOWN} elapsed=${ELAPSED:-?}m remaining=${REMAINING:-?}m."
+    fi
 
     if [[ "$STATE" == "HANDOFF_DUE" ]] || { [[ "$REMAINING" =~ ^[0-9]+$ ]] && (( REMAINING <= AUTO_HANDOFF )); }; then
       echo "[$minute] Final ${AUTO_HANDOFF}m restart window reached; checkpointing and rotating to a fresh runner."
@@ -131,4 +161,4 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
   fi
 done
 
-echo "RDC Lab keepalive window completed; workflow finalizers will persist state and release the successor."
+echo "Runner Lab keepalive window completed; workflow finalizers will persist state and release the successor."
