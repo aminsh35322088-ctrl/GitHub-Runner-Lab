@@ -20,7 +20,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: rdc-runner-lab
+  group: ${{ github.event_name == 'pull_request' && format('runner-lab-pr-{0}', github.event.pull_request.number) || 'runner-lab-runtime' }}
   cancel-in-progress: false
 
 env:
