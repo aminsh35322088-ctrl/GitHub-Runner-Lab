@@ -53,7 +53,7 @@ For first setup or recovery, manually dispatch `rdc-lab.yml` with `bootstrap=tru
 
 The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
 
-`RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broader, command-scoped GitHub access, an optional fine-grained PAT can be stored as the `AGENT_GITHUB_TOKEN` repository secret. Grant only the repositories and permissions the Agent actually needs. The token is installed after RDC becomes healthy, is never copied into managed job environments, caches, or checkpoints, and is removed during finalization. Normal checkout and lifecycle writes continue to use `GITHUB_TOKEN`.
+`RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broad Agent GitHub access, store the fine-grained PAT as the `AGENT_GITHUB_TOKEN` repository secret. After RDC becomes healthy, the workflow consumes that secret once through stdin, logs the `runner` user into GitHub CLI, and configures Git to use GitHub CLI as its credential helper. Fresh RDC/Agent shells therefore use normal `gh` and `git` commands without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` environment variables. The bootstrap step verifies the GitHub API identity and an end-to-end Git credential lookup before continuing. The secret is never written to repository config, checkpoints, caches, or command-line arguments. Normal checkout and lifecycle writes continue to use the workflow `GITHUB_TOKEN` where applicable.
 
 A practical fine-grained PAT baseline is **Contents: read/write** for the selected development repositories and **Pull requests: read/write** when the Agent should create or update PRs. Add **Actions: read/write** only when it must dispatch or rerun workflows, and add Issues or other permissions only for tasks that use them. Give the token an expiry and rotate the repository secret before it expires.
 
@@ -148,7 +148,7 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-project.sh` — invokes the target branch's project-specific Agent Lab runner using an external persistent cache.
 - `scripts/lab_jobs.py` — starts, observes, stops, drains, and reports bounded detached jobs.
 - `scripts/lab_ready.py` — emits a read-only JSON readiness report.
-- `scripts/agent-github.sh` — exposes the optional PAT only to an explicit `gh`, `git`, or authenticated workspace operation.
+- `scripts/agent-github.sh` — bootstraps persistent per-runner GitHub CLI authentication from stdin, configures the Git credential helper, verifies API/Git access, and keeps legacy `gh`/`git` wrapper entry points compatible.
 - `scripts/install-goss.sh` — installs the manifest-pinned Goss release with SHA256 verification.
 - `scripts/lab_runner_validate.py` — Goss host acceptance, advisory network checks, smoke orchestration, and Markdown/JSON/JUnit reports.
 - `scripts/lab_smoke.py` — bounded native/runtime/Git/Docker/media functional smoke suite.

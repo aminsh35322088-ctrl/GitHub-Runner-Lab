@@ -43,6 +43,8 @@ if [[ "$state" == "FAILED" || "$state" == "STALE" || "$state" == "OUTDATED" ]]; 
   tail -n 40 "$LOG_FILE" 2>/dev/null || true
 fi
 
+echo "=== GITHUB AUTH ==="
+"$SELF_DIR/agent-github.sh" status || true
 
 recovery_file="$(agent_cache_dir)/recovery.env"
 if [[ -f "$recovery_file" ]]; then
