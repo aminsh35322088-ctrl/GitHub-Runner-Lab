@@ -130,11 +130,19 @@ jobs:
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/health.sh
 
-      - name: Configure optional Agent GitHub access
+      - name: Configure Agent GitHub access
         if: steps.mode.outputs.ready == 'true'
         env:
           AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-        run: ./scripts/agent-github.sh install
+        shell: bash
+        run: |
+          if [[ -z "${AGENT_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::AGENT_GITHUB_TOKEN is required for transparent Agent GitHub access."
+            exit 1
+          fi
+          printf '%s' "$AGENT_GITHUB_TOKEN" | ./scripts/agent-github.sh install
+          unset AGENT_GITHUB_TOKEN
+          ./scripts/agent-github.sh verify
 
       # Restore dependency/download caches only after RDC is already reachable.
       # Target-repository setup scripts own the cache contents; the Lab only
