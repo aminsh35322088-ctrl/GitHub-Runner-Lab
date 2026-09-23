@@ -123,7 +123,7 @@ job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)
 ./scripts/agent-run.sh job wait "$job"
 ```
 
-Managed jobs start with a clean environment. Pass a required non-secret fixture explicitly with `--pass-env NAME`; do not pass credentials unless the target repository explicitly requires them. Container jobs default to `--network none`, drop Linux capabilities, and apply CPU, memory, swap, and PID limits. Completed reports and dependency caches older than 14 days are pruned only while no managed job is active.
+Managed jobs start with a clean, isolated HOME. Host managed jobs receive only the non-secret paths to GitHub CLI's stored auth and a dedicated credential-helper-only Git config, so normal `gh`/HTTPS `git` work without token environment variables. Pass other required non-secret fixtures explicitly with `--pass-env NAME`; do not pass credentials manually. Container jobs intentionally do not inherit host GitHub credentials, default to `--network none`, drop Linux capabilities, and apply CPU, memory, swap, and PID limits. Completed reports and dependency caches older than 14 days are pruned only while no managed job is active.
 
 ## Heavy workloads
 

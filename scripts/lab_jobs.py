@@ -114,10 +114,24 @@ def worker(job):
     # Serialize startup with creator and drain; do not race queued metadata.
     with lock(kit() / 'jobs.lock'):
         info = read(job)
+
+    # Keep the job HOME isolated, but preserve only the non-secret paths needed
+    # for transparent GitHub authentication. The token itself remains in gh's
+    # runner-user credential store and is never copied into the job environment.
+    runner_home = Path(os.environ.get('HOME', str(Path.home()))).expanduser().resolve()
+    gh_config_dir = Path(os.environ.get(
+        'GH_CONFIG_DIR', str(runner_home / '.config/gh'))).expanduser().resolve()
+    github_git_config = Path(os.environ.get(
+        'AGENT_GITHUB_JOB_GIT_CONFIG',
+        str(runner_home / '.config/agent-lab/github-auth/gitconfig'))).expanduser().resolve()
+
     env = clean_environment()
     (d / 'home').mkdir(exist_ok=True); (d / 'tmp').mkdir(exist_ok=True)
     env.update(HOME=str(d / 'home'), TMPDIR=str(d / 'tmp'), AGENT_JOB_ID=job,
                AGENT_JOB_OUTPUT_DIR=str(d), RUNNER_TRACKING_ID='agent-lab-job-' + job)
+    if gh_config_dir.is_dir() and github_git_config.is_file():
+        env['GH_CONFIG_DIR'] = str(gh_config_dir)
+        env['GIT_CONFIG_GLOBAL'] = str(github_git_config)
     for name in info.get('passed_environment', []):
         if name in os.environ: env[name] = os.environ[name]
     command_file = d / 'command.json'

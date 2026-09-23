@@ -230,6 +230,32 @@ class LabTest(unittest.TestCase):
         self.assertEqual((Path(self.env['AGENT_JOBS_DIR'])/job/'output.log').read_text().strip(),'visible blocked')
         report=json.loads(waited.stdout);self.assertEqual(report['passed_environment'],['ALLOWED_FIXTURE'])
 
+    def test_managed_job_preserves_github_auth_paths_without_token_env(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'auth-job';init_repo(workspace)
+        home=self.base/'runner-home'; ghdir=home/'.config/gh'; ghdir.mkdir(parents=True)
+        gitconfig=home/'.config/agent-lab/github-auth/gitconfig'
+        gitconfig.parent.mkdir(parents=True); gitconfig.write_text('[credential "https://github.com"]\n\thelper = !gh auth git-credential\n')
+        env={**self.env,'HOME':home,'GH_TOKEN':'must-not-pass','GITHUB_TOKEN':'must-not-pass',
+             'AGENT_GITHUB_TOKEN':'must-not-pass'}
+        code=(
+            'import os;'
+            'print("HOME="+os.environ.get("HOME",""));'
+            'print("GH_CONFIG_DIR="+os.environ.get("GH_CONFIG_DIR",""));'
+            'print("GIT_CONFIG_GLOBAL="+os.environ.get("GIT_CONFIG_GLOBAL",""));'
+            'print("TOKENS="+str(any(os.environ.get(k) for k in ("GH_TOKEN","GITHUB_TOKEN","AGENT_GITHUB_TOKEN"))))'
+        )
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',
+                        '--','python3','-c',code],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        job=result.stdout.strip()
+        waited=command([sys.executable,SCRIPTS/'lab_jobs.py','wait',job],env=env)
+        self.assertEqual(waited.returncode,0,waited.stderr)
+        output=(Path(self.env['AGENT_JOBS_DIR'])/job/'output.log').read_text()
+        self.assertIn('GH_CONFIG_DIR='+str(ghdir),output)
+        self.assertIn('GIT_CONFIG_GLOBAL='+str(gitconfig),output)
+        self.assertIn('TOKENS=False',output)
+        self.assertNotIn('HOME='+str(home)+'\n',output)
+
     def test_managed_job_times_out_and_cleans_descendant(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
         result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','1','--',
@@ -357,10 +383,37 @@ class LabTest(unittest.TestCase):
         self.assertIn('AGENT_GITHUB=READY',verified.stdout)
         self.assertIn('AGENT_GITHUB_LOGIN=octocat',verified.stdout)
         self.assertIn('AGENT_GITHUB_GIT_CREDENTIAL=READY',verified.stdout)
+        self.assertIn('AGENT_GITHUB_MANAGED_JOB=READY',verified.stdout)
         self.assertTrue((home/'.config/gh/git-setup').exists())
         calls=log.read_text()
         self.assertIn('auth login --hostname github.com --git-protocol https --with-token',calls)
         self.assertIn('auth setup-git --hostname github.com',calls)
+
+    def test_agent_github_install_writes_managed_job_git_helper_config(self):
+        home=self.base/'home-job-config';home.mkdir()
+        bindir=self.base/'fake-bin-job-config';bindir.mkdir()
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            'case "$1 $2" in',
+            '  "auth login") cat >/dev/null; mkdir -p "$HOME/.config/gh"; printf "ok\n" > "$HOME/.config/gh/authenticated" ;;',
+            '  "auth setup-git") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_gh.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
+                                 input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
+        self.assertEqual(installed.returncode,0,installed.stderr)
+        config=home/'.config/agent-lab/github-auth/gitconfig'
+        self.assertTrue(config.exists())
+        text=config.read_text()
+        self.assertIn('github.com',text)
+        self.assertIn('gh auth git-credential',text)
 
     def test_agent_github_verify_fails_closed_when_api_or_git_credential_is_missing(self):
         home=self.base/'home-fail';home.mkdir()
