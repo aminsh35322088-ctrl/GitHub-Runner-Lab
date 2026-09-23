@@ -1,6 +1,8 @@
-name: Remote Desktop Commander Lab
+name: Runner Lab
 
 on:
+  pull_request:
+
   # Proven Exit-Node continuity model: self-handover is primary, schedule is only a backstop.
   schedule:
     - cron: '31 */6 * * *'
@@ -27,7 +29,24 @@ env:
   RDC_VERSION: 0.2.51
 
 jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate Runner Lab
+        shell: bash
+        run: |
+          chmod +x scripts/*.sh .github/scripts/*.sh
+          bash -n scripts/*.sh .github/scripts/*.sh
+          python3 -m compileall -q scripts tests
+          python3 -m unittest discover -s tests -v
+
   runner-lab:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
