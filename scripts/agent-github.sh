@@ -1,44 +1,72 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-TOKEN_FILE="${AGENT_GITHUB_TOKEN_FILE:-/run/agent-lab/github-token}"
+
+HOST="${AGENT_GITHUB_HOST:-github.com}"
+
+configured() {
+  gh auth status --hostname "$HOST" >/dev/null 2>&1
+}
+
 case "${1:-status}" in
   install)
-    # Invoked only by a workflow step carrying the repository secret.
-    if [[ -z "${AGENT_GITHUB_TOKEN:-}" ]]; then
+    # Read the repository secret from stdin exactly once. The caller should pipe
+    # AGENT_GITHUB_TOKEN into this command; it is never persisted by this script
+    # outside GitHub CLI's own authentication store.
+    if [[ -t 0 ]]; then
       echo 'AGENT_GITHUB=NOT_CONFIGURED'
+      echo 'agent-github.sh install expects the token on stdin' >&2
       exit 0
     fi
-    sudo install -d -m 700 /run/agent-lab
-    printf '%s' "$AGENT_GITHUB_TOKEN" | sudo tee "$TOKEN_FILE" >/dev/null
-    sudo chmod 600 "$TOKEN_FILE"
+    if ! gh auth login --hostname "$HOST" --git-protocol https --with-token; then
+      echo 'AGENT_GITHUB=FAILED' >&2
+      exit 4
+    fi
+    gh auth setup-git --hostname "$HOST"
+    if ! configured; then
+      echo 'AGENT_GITHUB=FAILED' >&2
+      exit 4
+    fi
     echo 'AGENT_GITHUB=CONFIGURED'
     ;;
   status)
-    if sudo test -s "$TOKEN_FILE"; then
+    if configured; then
       echo 'AGENT_GITHUB=CONFIGURED'
     else
       echo 'AGENT_GITHUB=NOT_CONFIGURED'
+      exit 1
     fi
+    ;;
+  verify)
+    configured || { echo 'AGENT_GITHUB=NOT_CONFIGURED' >&2; exit 4; }
+    login="$(gh api user --jq .login)"
+    [[ -n "$login" ]] || { echo 'AGENT_GITHUB_API=FAILED' >&2; exit 4; }
+    if ! printf 'protocol=https\nhost=%s\n\n' "$HOST" |
+      git credential fill |
+      awk -F= '$1=="password" && length($2)>0 {ok=1} END {exit !ok}'; then
+      echo 'AGENT_GITHUB_GIT_CREDENTIAL=FAILED' >&2
+      exit 4
+    fi
+    echo 'AGENT_GITHUB=READY'
+    echo "AGENT_GITHUB_LOGIN=$login"
+    echo 'AGENT_GITHUB_API=READY'
+    echo 'AGENT_GITHUB_GIT_CREDENTIAL=READY'
     ;;
   remove)
-    sudo rm -f "$TOKEN_FILE"
+    if configured; then
+      gh auth logout --hostname "$HOST" >/dev/null 2>&1 || true
+    fi
     echo 'AGENT_GITHUB=REMOVED'
     ;;
-  gh|git|git-auto)
-    command="$1"; shift
-    if [[ "$command" == git-auto ]] && ! sudo test -s "$TOKEN_FILE"; then
-      exec git "$@"
-    fi
-    export GH_TOKEN
-    GH_TOKEN="$(sudo cat "$TOKEN_FILE")"
-    [[ -n "$GH_TOKEN" ]] || { echo 'AGENT_GITHUB_TOKEN is unavailable' >&2; exit 4; }
-    export GH_PROMPT_DISABLED=1
-    if [[ "$command" == gh ]]; then
-      exec gh "$@"
-    fi
-    # Command-scoped helper; clear persisted checkout headers and other helpers.
-    exec git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-      -c http.https://github.com/.extraheader= "$@"
+  gh)
+    shift
+    exec gh "$@"
     ;;
-  *) echo 'Usage: agent-github.sh {install|status|remove|gh ARGS...|git ARGS...|git-auto ARGS...}' >&2; exit 2 ;;
+  git|git-auto)
+    shift
+    exec git "$@"
+    ;;
+  *)
+    echo 'Usage: agent-github.sh {install|status|verify|remove|gh ARGS...|git ARGS...|git-auto ARGS...}' >&2
+    exit 2
+    ;;
 esac

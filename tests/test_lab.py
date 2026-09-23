@@ -312,6 +312,83 @@ class LabTest(unittest.TestCase):
         self.assertIn('recovery.env',sync)
         self.assertNotIn('fetch --quiet --depth=1 origin "$BRANCH"',sync)
 
+    def test_agent_github_uses_persistent_gh_auth_not_runtime_token_file(self):
+        script=(SCRIPTS/'agent-github.sh').read_text()
+        self.assertIn('gh auth login',script)
+        self.assertIn('--with-token',script)
+        self.assertIn('gh auth setup-git',script)
+        self.assertNotIn('/run/agent-lab/github-token',script)
+        self.assertNotIn('sudo cat',script)
+        self.assertNotIn('GH_TOKEN="$(sudo',script)
+
+    def test_agent_github_install_survives_fresh_shell_without_token_env(self):
+        home=self.base/'home';home.mkdir()
+        bindir=self.base/'fake-bin';bindir.mkdir()
+        log=self.base/'gh.log'
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            f'printf "%s\\n" "$*" >> "{log}"',
+            'case "$1 $2" in',
+            '  "auth login") cat >/dev/null; mkdir -p "$HOME/.config/gh"; printf "ok\\n" > "$HOME/.config/gh/authenticated" ;;',
+            '  "auth setup-git") test -f "$HOME/.config/gh/authenticated"; git config --global credential.https://github.com.helper "!gh auth git-credential"; printf "ok\\n" > "$HOME/.config/gh/git-setup" ;;',
+            '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth git-credential") test -f "$HOME/.config/gh/authenticated"; cat >/dev/null; printf "username=x-access-token\\npassword=fake-token\\n" ;;',
+            '  "auth logout") rm -f "$HOME/.config/gh/authenticated" ;;',
+            '  "api user") test -f "$HOME/.config/gh/authenticated"; printf "octocat\\n" ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_gh.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        env.pop('AGENT_GITHUB_TOKEN',None);env.pop('GH_TOKEN',None);env.pop('GITHUB_TOKEN',None)
+        installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
+                                 input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
+        self.assertEqual(installed.returncode,0,installed.stderr)
+        self.assertIn('AGENT_GITHUB=CONFIGURED',installed.stdout)
+        fresh={k:v for k,v in env.items() if k not in ('AGENT_GITHUB_TOKEN','GH_TOKEN','GITHUB_TOKEN')}
+        status=command([SCRIPTS/'agent-github.sh','status'],env=fresh)
+        self.assertEqual(status.returncode,0,status.stderr)
+        self.assertIn('AGENT_GITHUB=CONFIGURED',status.stdout)
+        verified=command([SCRIPTS/'agent-github.sh','verify'],env=fresh)
+        self.assertEqual(verified.returncode,0,verified.stderr)
+        self.assertIn('AGENT_GITHUB=READY',verified.stdout)
+        self.assertIn('AGENT_GITHUB_LOGIN=octocat',verified.stdout)
+        self.assertIn('AGENT_GITHUB_GIT_CREDENTIAL=READY',verified.stdout)
+        self.assertTrue((home/'.config/gh/git-setup').exists())
+        calls=log.read_text()
+        self.assertIn('auth login --hostname github.com --git-protocol https --with-token',calls)
+        self.assertIn('auth setup-git --hostname github.com',calls)
+
+    def test_agent_github_verify_fails_closed_when_api_or_git_credential_is_missing(self):
+        home=self.base/'home-fail';home.mkdir()
+        bindir=self.base/'fake-bin-fail';bindir.mkdir()
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            'case "$1 $2" in',
+            '  "auth status") exit 0 ;;',
+            '  "api user") exit 1 ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_git=bindir/'git'
+        fake_git.write_text('#!/usr/bin/env bash\nexit 1\n')
+        fake_gh.chmod(0o755);fake_git.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        result=command([SCRIPTS/'agent-github.sh','verify'],env=env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertNotIn('AGENT_GITHUB=READY',result.stdout)
+
+    def test_workflow_pipes_agent_secret_into_persistent_login(self):
+        workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
+        self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | ./scripts/agent-github.sh install",workflow)
+        self.assertIn('./scripts/agent-github.sh verify',workflow)
+
     def test_every_workflow_action_is_pinned_to_a_commit(self):
         for path in (ROOT/'.github/workflows').glob('*.yml'):
             for line in path.read_text().splitlines():

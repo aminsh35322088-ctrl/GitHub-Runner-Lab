@@ -114,7 +114,7 @@ Validate the Lab runner separately from project policy:
 
 `runner quick` is the prewarm readiness gate and covers host/toolchain/network/RDC acceptance plus native/CMake/Node/Python/Git smoke operations. `runner full` adds isolated Docker and media smoke tests. `validate full <workspace>` requires full runner validation before invoking the target repository's project contract. Treat `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, `MEDIA`, `PROJECT`, and `CLEANUP` as stable failure categories when triaging summaries.
 
-Use `./scripts/agent-run.sh shell-help` before dropping to a raw shell. Route authenticated GitHub operations through `agent-run.sh github`, and do not run raw `npm ci` against a workspace whose `node_modules` is a shared/materialized link.
+Use `./scripts/agent-run.sh shell-help` before dropping to a raw shell. On a healthy Runner, GitHub authentication is transparent: use normal `gh` and HTTPS `git` commands from any fresh RDC/Agent shell and do not search for or depend on `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. `agent-run.sh github` remains only as a backward-compatible wrapper. Do not run raw `npm ci` against a workspace whose `node_modules` is a shared/materialized link.
 
 Run tests through Remote Desktop Commander. Use managed jobs when a test must survive a disconnected shell, needs a timeout/report, or can spawn descendants:
 
@@ -166,7 +166,7 @@ Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchain
 - If a remote-tracking ref is missing or corrupt, use `./scripts/agent-run.sh git-sync WORKSPACE --branch BRANCH`. The helper verifies the remote branch, repairs only safe loose-ref corruption, never resets/rebases the worktree, and fails closed rather than editing `packed-refs` directly.
 - Never assume changes on the runner are durable. Push durable changes to the correct GitHub branch.
 - Do not commit RDC identity files, tokens, device state, secrets, or files from `~/.desktop-commander-device`.
-- Use `agent-github.sh` for optional fine-grained PAT operations. Its token is command-scoped and must never be copied into a job environment, checkpoint, cache, repository config, or URL.
+- The workflow bootstraps GitHub CLI from `AGENT_GITHUB_TOKEN` once, then future shells use GitHub CLI's stored authentication and Git credential helper. Never copy the PAT into a job environment, checkpoint, cache, repository config, URL, or command line; Agents should use normal `gh`/`git` commands instead of reading the secret.
 - Do not modify the stable Tailscale Exit Node repository from this Lab unless the user explicitly asks.
 - Preserve the RDC handoff/watchdog lifecycle unless the task specifically concerns it.
 
