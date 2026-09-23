@@ -76,7 +76,8 @@ def clean_environment():
     # This prevents accidental inheritance, not hostile same-user access.
     allowed = {'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TZ', 'TERM',
                'TMPDIR', 'CI', 'RUNNER_OS', 'RUNNER_ARCH', 'AGENT_WORKSPACE_ROOT',
-               'AGENT_KIT_CACHE_DIR', 'AGENT_PROJECT_CACHE_ROOT'}
+               'AGENT_KIT_CACHE_DIR', 'AGENT_PROJECT_CACHE_ROOT', 'GH_CONFIG_DIR',
+               'AGENT_GITHUB_JOB_GIT_CONFIG'}
     env = {k: v for k, v in os.environ.items() if k in allowed}
     env.update(GIT_TERMINAL_PROMPT='0', GIT_CONFIG_GLOBAL='/dev/null',
                GIT_CONFIG_NOSYSTEM='1')
