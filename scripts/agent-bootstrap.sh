@@ -39,8 +39,8 @@ fi
 PKG_CONFIG_PATH_MANIFEST="$(python3 "$SELF_DIR/lab_toolset.py" pkg-config-path)"
 if [[ "$PROFILE" == "build" || "$PROFILE" == "full" ]]; then
   if ! PKG_CONFIG_PATH="$PKG_CONFIG_PATH_MANIFEST" pkg-config --exists libyuv 2>/dev/null; then
-    sudo mkdir -p /opt/rustdesk-pkgconfig
-    sudo tee /opt/rustdesk-pkgconfig/libyuv.pc >/dev/null <<'PC'
+    sudo mkdir -p /opt/agent-lab-pkgconfig
+    sudo tee /opt/agent-lab-pkgconfig/libyuv.pc >/dev/null <<'PC'
 prefix=/usr
 exec_prefix=${prefix}
 libdir=/usr/lib/x86_64-linux-gnu
