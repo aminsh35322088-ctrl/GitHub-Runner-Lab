@@ -10,22 +10,22 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-09-25 06:43:44 UTC |
-| Last checked | 2026-09-25 06:43:44 UTC |
-| Runner/job started | 2026-09-25 05:12:53 UTC |
-| Keepalive started | 2026-09-25 05:13:30 UTC |
-| Runner age | 90 min |
-| Runner lifecycle remaining | 239 min |
+| Status freshness | ✅ current as of 2026-09-25 10:24:39 UTC |
+| Last checked | 2026-09-25 10:24:39 UTC |
+| Runner/job started | 2026-09-25 10:23:57 UTC |
+| Keepalive started | 2026-09-25 10:24:37 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-09-25 10:42:53 UTC |
-| Hard job timeout | 2026-09-25 11:02:53 UTC |
+| Nominal handoff | 2026-09-25 15:53:57 UTC |
+| Hard job timeout | 2026-09-25 16:13:57 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 90% (10 samples) |
 | Keepalive completion | 71% (7 samples) |
 | Handoff ≤15 min | 100% (8 samples) |
-| Median handoff gap | 1.2 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/36097575968) |
+| Median handoff gap | 0.9 min |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/36097621438) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
