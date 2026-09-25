@@ -10,12 +10,12 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-09-25 17:28:55 UTC |
-| Last checked | 2026-09-25 17:28:55 UTC |
+| Status freshness | ✅ current as of 2026-09-25 20:43:48 UTC |
+| Last checked | 2026-09-25 20:43:48 UTC |
 | Runner/job started | 2026-09-25 17:16:06 UTC |
 | Keepalive started | 2026-09-25 17:16:56 UTC |
-| Runner age | 12 min |
-| Runner lifecycle remaining | 317 min |
+| Runner age | 207 min |
+| Runner lifecycle remaining | 122 min |
 | Auto restart threshold | 20 min remaining |
 | Nominal handoff | 2026-09-25 22:46:06 UTC |
 | Hard job timeout | 2026-09-25 23:06:06 UTC |
