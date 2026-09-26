@@ -61,9 +61,18 @@ def start(args):
     cwd = Path(args.cwd).resolve()
     if not cwd.is_dir(): raise ValueError('Invalid working directory')
     with lock(kit() / 'jobs.lock'):
-        state = runtime()['state']
+        lifecycle = runtime()
+        state = lifecycle['state']
         if state != 'SAFE' and not (state == 'UNKNOWN' and args.allow_unknown_runtime):
             raise ValueError(f'New jobs refused: lifecycle={state}')
+        if state == 'SAFE':
+            headroom = int(os.getenv('AGENT_JOB_LIFECYCLE_HEADROOM_SECONDS', '120'))
+            remaining = int(lifecycle.get('remaining', 0))
+            if args.timeout + headroom > remaining:
+                raise ValueError(
+                    f'New job refused: timeout={args.timeout}s + headroom={headroom}s '
+                    f'exceeds lifecycle remaining={remaining}s'
+                )
         if any(j['state'] in ('queued', 'running') and j['cwd'] == str(cwd) for j in all_jobs()):
             raise ValueError('This workspace already has an active managed job')
         job = time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8]
