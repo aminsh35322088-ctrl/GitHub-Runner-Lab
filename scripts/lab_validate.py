@@ -34,16 +34,44 @@ def descendants(root_pid):
     return reversed(ordered)
 
 
-def signal_tree(process, signum):
-    for pid in descendants(process.pid):
+def process_group_members(pgid):
+    members = []
+    for path in Path("/proc").glob("[0-9]*/stat"):
         try:
-            os.kill(pid, signum)
-        except ProcessLookupError:
+            pid = int(path.parent.name)
+            fields = path.read_text().rsplit(")", 1)[1].split()
+            if int(fields[2]) == pgid:
+                members.append(pid)
+        except (OSError, ValueError, IndexError):
             pass
+    return members
+
+
+def signal_tree(process, signum):
     try:
-        process.send_signal(signum)
+        os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
+
+
+def quiesce_stage_group(pgid, grace_seconds=2.0):
+    members = process_group_members(pgid)
+    if not members:
+        return 0
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return 0
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        if not process_group_members(pgid):
+            return len(members)
+        time.sleep(0.05)
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return len(members)
 
 
 def handle_signal(signum, _frame):
@@ -66,7 +94,7 @@ def run_stage(hook, workspace, name, output, args=(), max_log_bytes=10 * 1024 * 
         process = subprocess.Popen(
             ["bash", str(hook), name, *args],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            cwd=workspace, env=env,
+            cwd=workspace, env=env, start_new_session=True,
         )
         _ACTIVE_PROCESS = process
         poller = selectors.DefaultSelector()
@@ -85,6 +113,11 @@ def run_stage(hook, workspace, name, output, args=(), max_log_bytes=10 * 1024 * 
                     if len(chunk) > room:
                         truncated = True
             exit_code = process.wait()
+            stray_processes = quiesce_stage_group(process.pid)
+            if stray_processes and exit_code == 0:
+                # A validation stage must not report success while detached work
+                # is still mutating the workspace behind the orchestrator.
+                exit_code = 125
         finally:
             _ACTIVE_PROCESS = None
             poller.close()
@@ -93,6 +126,7 @@ def run_stage(hook, workspace, name, output, args=(), max_log_bytes=10 * 1024 * 
         "exit_code": exit_code,
         "duration_seconds": round(time.monotonic() - started, 2),
         "log": log_path.name, "log_bytes": written, "log_truncated": truncated,
+        "stray_processes_terminated": stray_processes,
     }
 
 def write_summary(output, summary):
