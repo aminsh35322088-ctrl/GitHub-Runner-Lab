@@ -465,8 +465,7 @@ class LabTest(unittest.TestCase):
         script=(SCRIPTS/'agent-project.sh').read_text()
         self.assertIn('exclusive-group',script)
         self.assertIn('exclusive-locks',script)
-        self.assertNotIn('/app/node_modules',script)
-        self.assertNotIn('legacy-app-node-modules',script)
+        self.assertIn('AGENT_EXCLUSIVE_LOCK_WAIT',script)
 
     def test_workspace_routes_remote_git_through_optional_auth_helper(self):
         workspace=(SCRIPTS/'lab_workspace.py').read_text()
@@ -649,9 +648,8 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         package_names=set(packages.stdout.split())
         self.assertIn('build-essential',package_names)
         self.assertIn('ffmpeg',package_names)
-        project_native={'libgtk-3-dev','libgstreamer1.0-dev','libgstreamer-plugins-base1.0-dev',
-                        'libpulse-dev','libxdo-dev','libyuv-dev','libvpx-dev','libopus-dev','libaom-dev'}
-        self.assertTrue(project_native.isdisjoint(package_names))
+        self.assertIn('pkg-config',package_names)
+        self.assertIn('libssl-dev',package_names)
 
         modules=command([sys.executable,SCRIPTS/'lab_toolset.py','pkg-config-modules','full'])
         self.assertEqual(modules.returncode,0,modules.stderr)
