@@ -35,6 +35,7 @@ def load(workspace: Path) -> tuple[Path, dict]:
             "required_pkg_config_modules": [],
             "minimum_lifecycle_seconds": 0,
             "minimum_free_disk_gb": 0,
+            "exclusive_group": "",
         }
     data = json.loads(path.read_text())
     if data.get("schema_version") != 1:
@@ -42,7 +43,7 @@ def load(workspace: Path) -> tuple[Path, dict]:
     allowed = {
         "schema_version", "bootstrap", "required_commands",
         "required_pkg_config_modules", "minimum_lifecycle_seconds",
-        "minimum_free_disk_gb",
+        "minimum_free_disk_gb", "exclusive_group",
     }
     unknown = set(data) - allowed
     if unknown:
@@ -57,6 +58,9 @@ def load(workspace: Path) -> tuple[Path, dict]:
         value = data.get(key, 0)
         if not isinstance(value, (int, float)) or value < 0:
             raise ValueError(f"{key} must be a non-negative number")
+    exclusive_group = data.get("exclusive_group", "")
+    if not isinstance(exclusive_group, str) or (exclusive_group and not SAFE_NAME.fullmatch(exclusive_group)):
+        raise ValueError("exclusive_group must be an empty string or a safe group name")
     return path, {
         "schema_version": 1,
         "bootstrap": data.get("bootstrap", False),
@@ -64,6 +68,7 @@ def load(workspace: Path) -> tuple[Path, dict]:
         "required_pkg_config_modules": data.get("required_pkg_config_modules", []),
         "minimum_lifecycle_seconds": int(data.get("minimum_lifecycle_seconds", 0)),
         "minimum_free_disk_gb": float(data.get("minimum_free_disk_gb", 0)),
+        "exclusive_group": exclusive_group,
     }
 
 
@@ -103,6 +108,7 @@ def status(workspace: Path) -> tuple[dict, bool]:
         "lifecycle": life,
         "minimum_free_disk_gb": data["minimum_free_disk_gb"],
         "free_disk_bytes": free,
+        "exclusive_group": data["exclusive_group"],
         "ready": not missing_commands and not missing_modules and lifecycle_ok and disk_ok,
     }
     return report, report["ready"]
@@ -110,7 +116,7 @@ def status(workspace: Path) -> tuple[dict, bool]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("show", "check", "bootstrap-required"))
+    parser.add_argument("action", choices=("show", "check", "bootstrap-required", "exclusive-group"))
     parser.add_argument("workspace", type=Path)
     args = parser.parse_args()
     workspace = args.workspace.expanduser().resolve()
@@ -119,6 +125,9 @@ def main():
     path, data = load(workspace)
     if args.action == "bootstrap-required":
         print("true" if data["bootstrap"] else "false")
+        return 0
+    if args.action == "exclusive-group":
+        print(data["exclusive_group"])
         return 0
     report, ready = status(workspace)
     print(json.dumps(report, indent=2, sort_keys=True))
