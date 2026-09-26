@@ -30,7 +30,7 @@ def _tracking_ref(remote, branch):
 
 
 def git_supports_show_ref_exists(repo):
-    """Probe `git show-ref --exists`, which Git 2.42 added.
+    """Probe `git show-ref --exists`, which Git 2.43 added.
 
     Older Git answers 129 (usage error) for the unknown option, which would
     otherwise be indistinguishable from a genuine reference problem. The probe
@@ -44,7 +44,7 @@ def git_supports_show_ref_exists(repo):
 def tracking_ref_state(repo, remote, branch):
     if not git_supports_show_ref_exists(repo):
         raise RuntimeError(
-            'Reference inspection requires Git 2.42 or newer '
+            'Reference inspection requires Git 2.43 or newer '
             '(`git show-ref --exists`). Upgrade Git, then retry.'
         )
     ref = _tracking_ref(remote, branch)
