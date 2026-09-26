@@ -12,7 +12,7 @@ import sys
 import time
 import uuid
 
-from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime
+from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path
 
 
 def root():
@@ -114,7 +114,14 @@ def worker(job):
     # Serialize startup with creator and drain; do not race queued metadata.
     with lock(kit() / 'jobs.lock'):
         info = read(job)
+    # Managed jobs are readers/mutators of their own checkout. A shared workspace
+    # lease allows best-effort checkpoint reads but blocks lifecycle operations
+    # that can replace tracked files while the job is active.
+    with lock(workspace_lock_path(info['cwd']), shared=True):
+        _run_worker(job, d, info)
 
+
+def _run_worker(job, d, info):
     # Keep the job HOME isolated, but preserve only the non-secret paths needed
     # for transparent GitHub authentication. The token itself remains in gh's
     # runner-user credential store and is never copied into the job environment.
