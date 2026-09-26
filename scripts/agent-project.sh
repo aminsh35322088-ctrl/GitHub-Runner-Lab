@@ -44,18 +44,18 @@ if [[ -z "${AGENT_JOB_ID:-}" ]]; then
   job_args=(start --cwd "$TARGET" --timeout "${AGENT_JOB_TIMEOUT:-1800}" --grace-seconds "${AGENT_JOB_GRACE_SECONDS:-10}" --pass-env AGENT_PROJECT_CACHE_ROOT)
   [[ -n "${AGENT_PROJECT_RUNNER:-}" ]] && job_args+=(--pass-env AGENT_PROJECT_RUNNER)
   [[ -n "${AGENT_PROJECT_CONTRACT:-}" ]] && job_args+=(--pass-env AGENT_PROJECT_CONTRACT)
-  [[ -n "${AGENT_LEGACY_LOCK_WAIT:-}" ]] && job_args+=(--pass-env AGENT_LEGACY_LOCK_WAIT)
+  [[ -n "${AGENT_EXCLUSIVE_LOCK_WAIT:-}" ]] && job_args+=(--pass-env AGENT_EXCLUSIVE_LOCK_WAIT)
   [[ -n "${AGENT_VALIDATION_LOG_MAX_MB:-}" ]] && job_args+=(--pass-env AGENT_VALIDATION_LOG_MAX_MB)
   job="$(python3 "$SELF_DIR/lab_jobs.py" "${job_args[@]}" -- bash "$SELF_DIR/agent-project.sh" "$ACTION" "$TARGET" "$@")"
   echo "AGENT_JOB_ID=$job"
   exec python3 "$SELF_DIR/lab_jobs.py" wait "$job"
 fi
 export AGENT_PROJECT_ROOT="$TARGET"
-if grep -q '/app/node_modules' "$CONFIG"; then
-  # Compatibility for older project hooks. The global path is serialized until
-  # that project moves to workspace-local dependency links.
-  exec 7>"$CACHE_ROOT/legacy-app-node-modules.lock"
-  flock -w "${AGENT_LEGACY_LOCK_WAIT:-900}" 7
+exclusive_group="$(python3 "$CONTRACT_TOOL" exclusive-group "$TARGET")"
+if [[ -n "$exclusive_group" ]]; then
+  mkdir -p "$CACHE_ROOT/exclusive-locks"
+  exec 7>"$CACHE_ROOT/exclusive-locks/$exclusive_group.lock"
+  flock -w "${AGENT_EXCLUSIVE_LOCK_WAIT:-900}" 7
 fi
 
 bootstrap_required="$(python3 "$CONTRACT_TOOL" bootstrap-required "$TARGET")"
