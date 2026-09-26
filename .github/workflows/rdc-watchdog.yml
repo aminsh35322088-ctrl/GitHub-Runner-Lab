@@ -46,7 +46,7 @@ jobs:
             echo "Persistent RDC state exists."
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No rdc-state branch exists yet; run RDC Lab once with bootstrap=true."
+            echo "::notice::No RDC account is connected yet. Run Remote Desktop Commander Lab once with Start / Resume."
           fi
 
       - name: Ensure RDC Lab is running
