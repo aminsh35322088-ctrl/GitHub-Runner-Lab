@@ -14,7 +14,7 @@ case "$cmd" in
   github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
   git-sync) exec python3 "$SELF_DIR/lab_git.py" sync "$@" ;;
   git-identity) exec python3 "$SELF_DIR/lab_git.py" identity "$@" ;;
-  ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
+  ready) exec python3 "$SELF_DIR/lab_ready.py" "$@" ;;
   cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
   docker-storage) exec python3 "$SELF_DIR/lab_docker_storage.py" "$@" ;;
   selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
