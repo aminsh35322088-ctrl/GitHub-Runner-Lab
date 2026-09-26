@@ -114,7 +114,7 @@ dispatch_run() {
     -X POST "${AUTH[@]}" \
     -H 'Content-Type: application/json' \
     "$DISPATCH_API" \
-    -d "$(jq -nc --arg ref "$REF" '{ref: $ref}')" || true)"
+    -d "$(jq -nc --arg ref "$REF" '{ref: $ref, inputs: {action: "Start / Resume"}}')" || true)"
   case "$code" in
     204|200) log "Dispatch accepted (HTTP ${code})." ;;
     *) warn "Failed to dispatch ${WORKFLOW} (HTTP ${code})."; cat /tmp/ensure-rdc-dispatch.json 2>/dev/null || true; return 1 ;;
