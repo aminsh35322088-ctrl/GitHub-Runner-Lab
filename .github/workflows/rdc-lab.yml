@@ -24,6 +24,7 @@ env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
   RDC_VERSION: 0.2.51
+  TAILSCALE_HOSTNAME: GitHub-Runner-Lab
 
 jobs:
   account-switch:
@@ -227,6 +228,70 @@ jobs:
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/persist-rdc-state.sh
+
+      - name: Validate Tailscale OAuth secrets
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        shell: bash
+        run: |
+          if [[ -z "${TS_OAUTH_CLIENT_ID:-}" || -z "${TS_OAUTH_SECRET:-}" ]]; then
+            echo "::error::TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET are required to join the Tailnet."
+            exit 1
+          fi
+
+      - name: Connect Tailscale
+        if: steps.verify.outputs.ready == 'true'
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:exit,tag:ssh
+          hostname: ${{ env.TAILSCALE_HOSTNAME }}
+          version: latest
+          use-cache: "false"
+          args: --accept-dns=false
+
+      - name: Enable and verify Tailscale SSH
+        id: tailscale
+        if: steps.verify.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo tailscale set --ssh
+
+          READY=false
+          for i in $(seq 1 12); do
+            if tailscale status >/dev/null 2>&1; then
+              READY=true
+              break
+            fi
+            echo "Tailscale is not ready yet. Retry ${i}/12..."
+            sleep 5
+          done
+          if [[ "$READY" != "true" ]]; then
+            echo "::error::Tailscale did not become ready."
+            exit 1
+          fi
+
+          sudo tailscale debug prefs | jq -e '.RunSSH == true' >/dev/null
+          tailscale status --json | jq -e '(.Self.Online // false) == true' >/dev/null
+
+          TS_IPV4="$(tailscale ip -4 | head -n1)"
+          [[ -n "$TS_IPV4" ]]
+          echo "ipv4=$TS_IPV4" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Tailscale"
+            echo
+            echo "- Status: connected"
+            echo "- Hostname: `$TAILSCALE_HOSTNAME`"
+            echo "- IPv4: `$TS_IPV4`"
+            echo "- SSH: enabled"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "TAILSCALE_HEALTH=READY"
+          echo "TAILSCALE_IPV4=$TS_IPV4"
 
       - name: Configure Agent GitHub access
         if: steps.mode.outputs.ready == 'true'
