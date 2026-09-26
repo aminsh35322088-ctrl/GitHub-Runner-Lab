@@ -214,7 +214,7 @@ A failed prewarm does not take RDC offline. READY state is versioned and is writ
 
 ## Test policy
 
-This Lab can run heavy local builds and tests when the target repository permits it. In this project, validation is launched through Remote Desktop Commander so the test process runs inside the same engineered runner environment users receive. A target repository's own policy still takes precedence; for example, `opencode-telegram-bot` reserves its full suite for GitHub Actions CI and permits only targeted local validation unless that policy changes.
+This Lab can run heavy local builds and tests when the target repository permits it. Validation runs inside the same engineered runner environment users receive, while the target repository's own policy and Agent Lab contract remain authoritative for which checks are allowed and which prerequisites are required.
 
 ## Isolation
 
