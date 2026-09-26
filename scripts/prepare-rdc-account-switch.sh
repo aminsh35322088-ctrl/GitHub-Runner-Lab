@@ -6,6 +6,14 @@ set -Eeuo pipefail
 : "${SELF_RUN_ID:?SELF_RUN_ID is required}"
 
 WORKFLOW="${WORKFLOW:-rdc-lab.yml}"
+POLL_SECONDS="${RDC_SWITCH_POLL_SECONDS:-3}"
+FORCE_AFTER_SECONDS="${RDC_SWITCH_FORCE_AFTER_SECONDS:-15}"
+MAX_POLLS="${RDC_SWITCH_MAX_POLLS:-60}"
+for value in "$POLL_SECONDS" "$FORCE_AFTER_SECONDS" "$MAX_POLLS"; do
+  [[ "$value" =~ ^[0-9]+$ ]] || { echo "RDC switch timing values must be non-negative integers." >&2; exit 2; }
+done
+(( MAX_POLLS > 0 )) || { echo "RDC_SWITCH_MAX_POLLS must be greater than zero." >&2; exit 2; }
+
 RUNS_API="https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/runs"
 RUN_API="https://api.github.com/repos/${REPO}/actions/runs"
 AUTH=(
@@ -52,7 +60,7 @@ declare -A cancel_requested_at=()
 declare -A force_requested=()
 empty_polls=0
 
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$MAX_POLLS"); do
   others="$(fetch_others)"
   count="$(jq 'length' <<<"$others")"
 
@@ -62,7 +70,7 @@ for _ in $(seq 1 60); do
       echo "No competing RDC Lab run remains. Safe to authorize the new account."
       exit 0
     fi
-    sleep 3
+    sleep "$POLL_SECONDS"
     continue
   fi
 
@@ -80,7 +88,7 @@ for _ in $(seq 1 60); do
     fi
 
     age=$((now - cancel_requested_at[$id]))
-    if (( age >= 15 )) && [[ -z "${force_requested[$id]:-}" ]]; then
+    if (( age >= FORCE_AFTER_SECONDS )) && [[ -z "${force_requested[$id]:-}" ]]; then
       echo "RDC Lab run ${id} is still ${status} after ${age}s; escalating to force-cancel once."
       request_cancel "$id" force-cancel "force-cancellation"
       force_requested[$id]=1
@@ -94,7 +102,7 @@ for _ in $(seq 1 60); do
     fi
   done < <(jq -r '.[] | [.id, .status] | @tsv' <<<"$others")
 
-  sleep 3
+  sleep "$POLL_SECONDS"
 done
 
 echo "Existing RDC Lab runs did not settle within the safety window; refusing to switch accounts to avoid a state race." >&2
