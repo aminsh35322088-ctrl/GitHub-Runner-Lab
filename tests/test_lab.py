@@ -845,6 +845,13 @@ agent_missing_full_commands() {{ :; }}
         self.assertEqual(passed.returncode,0,passed.stderr)
         self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
 
+    def test_docker_storage_parses_buildx_human_sizes(self):
+        spec=importlib.util.spec_from_file_location('lab_docker_storage',SCRIPTS/'lab_docker_storage.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        self.assertEqual(module.parse_size('53B'),53)
+        self.assertEqual(module.parse_size('785.3kB'),785300)
+        self.assertEqual(module.parse_size('1.5MiB'),1572864)
+
     def test_doctor_includes_target_project_status_contract(self):
         workspace=self.base/'workspaces'/'doctor-contract';init_repo(workspace)
         hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
