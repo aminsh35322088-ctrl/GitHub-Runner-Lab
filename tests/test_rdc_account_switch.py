@@ -26,27 +26,33 @@ class RdcAccountSwitchTest(unittest.TestCase):
             log = temp / "requests.log"
 
             curl = bindir / "curl"
-            curl.write_text("""#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
+            curl.write_text("""#!/usr/bin/env bash
+set -eu
+url="${!#}"
+is_post=false
+out_file=""
+previous=""
+for arg in "$@"; do
+  if [[ "$previous" == "-o" ]]; then out_file="$arg"; fi
+  if [[ "$arg" == "-X" ]]; then is_post=true; fi
+  previous="$arg"
+done
 
-args = sys.argv[1:]
-state = Path(os.environ["FAKE_CURL_STATE"])
-log = Path(os.environ["FAKE_CURL_LOG"])
-url = args[-1]
+if [[ "$is_post" == "true" ]]; then
+  printf '%s\\n' "$url" >> "$FAKE_CURL_LOG"
+  [[ -z "$out_file" ]] || printf '{}\\n' > "$out_file"
+  printf '202'
+  exit 0
+fi
 
-if "-X" in args:
-    with log.open("a") as fh:
-        fh.write(url + "\\n")
-    if "-o" in args:
-        Path(args[args.index("-o") + 1]).write_text("{}")
-    sys.stdout.write("202")
-    raise SystemExit(0)
-
-poll = int(state.read_text()) + 1
-state.write_text(str(poll))
-runs = [{"id": 42, "status": "in_progress"}] if poll <= 2 else []
-sys.stdout.write(json.dumps({"workflow_runs": runs}))
+poll="$(cat "$FAKE_CURL_STATE")"
+poll=$((poll + 1))
+printf '%s\\n' "$poll" > "$FAKE_CURL_STATE"
+if (( poll <= 2 )); then
+  printf '%s\\n' '{"workflow_runs":[{"id":42,"status":"in_progress"}]}'
+else
+  printf '%s\\n' '{"workflow_runs":[]}'
+fi
 """)
             curl.chmod(0o755)
 
