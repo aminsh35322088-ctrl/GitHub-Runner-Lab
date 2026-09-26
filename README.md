@@ -229,9 +229,9 @@ The Lab's own regression suite lives in `tests/` and uses only the Python standa
 ./scripts/agent-run.sh selftest
 ```
 
-The `Regression Tests` workflow runs that suite on every push to `main` and on every pull request, alongside `bash -n` over every shell script and Python byte-compilation. A green Lab run therefore reports evidence about the Lab's code, not only about the RDC lifecycle.
+For Lab changes, follow the direct validation contract in `AGENTS.md`: run the regression suite, shell/Python syntax checks, `git diff --check`, and `./scripts/agent-run.sh validate runner quick` on the Runner itself. This keeps validation deterministic without introducing a separate CI workflow solely for tests.
 
-Workspace reference inspection requires **Git 2.42 or newer**, because it probes references with `git show-ref --exists`. On an older Git the suite fails with an explicit version message rather than a misleading reference-corruption error.
+Workspace reference inspection requires **Git 2.43 or newer**, because it probes references with `git show-ref --exists`. On an older Git the suite fails with an explicit version message rather than a misleading reference-corruption error.
 
 ## Isolation
 
