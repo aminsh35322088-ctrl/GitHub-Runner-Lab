@@ -92,6 +92,21 @@ class WorkspaceIsolationTest(unittest.TestCase):
         waited = run([sys.executable, SCRIPTS / "lab_jobs.py", "wait", job], env=self.env)
         self.assertEqual(waited.returncode, 0, waited.stderr)
 
+    def test_managed_job_refuses_work_that_cannot_fit_before_handoff(self):
+        workspace = self.base / "workspaces" / "budget"
+        init_repo(workspace)
+        now = int(time.time())
+        (Path(self.env["AGENT_KIT_CACHE_DIR"]) / "runtime.env").write_text(
+            f"START_EPOCH={now}\nHANDOFF_EPOCH={now + 20}\nAUTO_HANDOFF_MINUTES=0\n"
+        )
+        result = run(
+            [sys.executable, SCRIPTS / "lab_jobs.py", "start", "--cwd", workspace,
+             "--timeout", "30", "--", "true"],
+            env={**self.env, "AGENT_JOB_LIFECYCLE_HEADROOM_SECONDS": "5"},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exceeds lifecycle remaining", result.stderr)
+
     def test_validation_fails_stage_before_cleanup_when_detached_child_survives(self):
         workspace = self.base / "workspaces" / "detached"
         init_repo(workspace)
