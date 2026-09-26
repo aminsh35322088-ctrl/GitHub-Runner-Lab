@@ -35,7 +35,7 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 1. Add repository secret `RDC_STATE_KEY` with at least 32 random characters (for example, generate one with `openssl rand -base64 48`).
 2. Add `AGENT_GITHUB_TOKEN` for the Agent's authenticated GitHub access. The current Runner startup verifies this credential and fails closed if it is missing or unusable.
-3. Add `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` from the same Tailscale OAuth client used by the Exit Node. The Runner joins the Tailnet as an ephemeral tagged node and enables Tailscale SSH; it does **not** advertise itself as an Exit Node.
+3. Add `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` from the dedicated Tailscale OAuth client for this Runner. The Runner joins the Tailnet as an ephemeral tagged node and enables Tailscale SSH; it does **not** advertise itself as an Exit Node.
 4. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
 5. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
 
