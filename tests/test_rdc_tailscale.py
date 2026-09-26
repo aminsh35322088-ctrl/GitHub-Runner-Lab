@@ -20,7 +20,7 @@ class RdcTailscaleIntegrationTest(unittest.TestCase):
         self.assertIn("Validate Tailscale OAuth secrets", self.runner)
 
     def test_runner_joins_tailnet_without_becoming_exit_node(self):
-        self.assertIn("tags: tag:exit,tag:ssh", self.runner)
+        self.assertIn("tags: tag:ssh", self.runner)
         self.assertIn("hostname: ${{ env.TAILSCALE_HOSTNAME }}", self.runner)
         self.assertIn("sudo tailscale set --ssh", self.runner)
         self.assertIn("TAILSCALE_HEALTH=READY", self.runner)
