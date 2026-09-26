@@ -860,7 +860,8 @@ exit 0
         env={**self.env,'AGENT_PROJECT_CACHE_ROOT':cache}
         result=command([SCRIPTS/'agent-doctor.sh',workspace],env=env)
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn('--- project contract ---',result.stdout)
+        self.assertIn('--- project requirements ---',result.stdout)
+        self.assertIn('--- project hook status ---',result.stdout)
         self.assertIn('PROJECT_CONTRACT_STATUS=READY',result.stdout)
 
     def test_doctor_uses_manifest_as_toolchain_source_of_truth(self):
