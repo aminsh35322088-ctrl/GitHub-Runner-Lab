@@ -24,7 +24,7 @@ env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
   RDC_VERSION: 0.2.51
-  TAILSCALE_HOSTNAME: GitHub-Runner-Lab
+  TAILSCALE_HOSTNAME: GitHub-Lab
 
 jobs:
   account-switch:
