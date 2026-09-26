@@ -80,8 +80,9 @@ sys.stdout.write(json.dumps({"workflow_runs": runs}))
                     "https://api.github.com/repos/example/repo/actions/runs/42/force-cancel",
                 ],
             )
-            self.assertEqual(result.stdout.count("cancellation accepted"), 1)
-            self.assertEqual(result.stdout.count("force-cancellation accepted"), 1)
+            lines = result.stdout.splitlines()
+            self.assertEqual(sum(": cancellation accepted (HTTP 202)." in line for line in lines), 1)
+            self.assertEqual(sum(": force-cancellation accepted (HTTP 202)." in line for line in lines), 1)
 
 
 if __name__ == "__main__":
