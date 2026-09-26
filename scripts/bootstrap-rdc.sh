@@ -55,5 +55,5 @@ for ((elapsed=0; elapsed<TIMEOUT_SECONDS; elapsed+=2)); do
   sleep 2
 done
 
-echo "Timed out waiting for RDC account authorization. Re-run the workflow with bootstrap=true."
+echo "Timed out waiting for RDC account authorization. Run Remote Desktop Commander Lab again with Start / Resume."
 exit 1
