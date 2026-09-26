@@ -1,6 +1,7 @@
 """Small, dependency-free primitives shared by Lab commands."""
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -47,12 +48,19 @@ def atomic(path, data):
             os.unlink(tmp)
 
 
+def workspace_lock_path(workspace):
+    canonical = str(Path(workspace).expanduser().resolve())
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    return kit() / 'workspace-locks' / f'{digest}.lock'
+
+
 @contextlib.contextmanager
-def lock(path, blocking=True):
+def lock(path, blocking=True, shared=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open('a') as f:
-        fcntl.flock(f, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+        fcntl.flock(f, mode | (0 if blocking else fcntl.LOCK_NB))
         yield
 
 
