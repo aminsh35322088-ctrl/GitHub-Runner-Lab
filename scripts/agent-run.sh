@@ -16,6 +16,7 @@ case "$cmd" in
   git-identity) exec python3 "$SELF_DIR/lab_git.py" identity "$@" ;;
   ready) exec python3 "$SELF_DIR/lab_ready.py" ;;
   cache) exec python3 "$SELF_DIR/lab_cache.py" "$@" ;;
+  docker-storage) exec python3 "$SELF_DIR/lab_docker_storage.py" "$@" ;;
   selftest) exec python3 -m unittest discover -s "$SELF_DIR/../tests" -v ;;
   validate)
     mode="${1:-}"
@@ -149,7 +150,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac
