@@ -109,6 +109,21 @@ class LabTest(unittest.TestCase):
         self.assertEqual(git(dest, 'rev-parse', 'HEAD').stdout.strip(), head)
         self.assertEqual(git(dest, 'rev-parse', 'refs/remotes/origin/main').stdout.strip(), head)
 
+    def test_tracking_ref_state_reports_unsupported_git_instead_of_corrupt_ref(self):
+        repo = self.base / 'cap-repo'
+        init_repo(repo)
+        import lab_git
+        original = lab_git.git_supports_show_ref_exists
+        lab_git.git_supports_show_ref_exists = lambda repo: False
+        try:
+            with self.assertRaises(RuntimeError) as caught:
+                lab_git.tracking_ref_state(repo, 'origin', 'main')
+        finally:
+            lab_git.git_supports_show_ref_exists = original
+        message = str(caught.exception)
+        self.assertIn('Git 2.42', message)
+        self.assertNotIn('Corrupt ref', message)
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
