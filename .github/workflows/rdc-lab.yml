@@ -7,19 +7,18 @@ on:
 
   workflow_dispatch:
     inputs:
-      bootstrap:
-        description: 'One-time RDC account authorization (use only for first setup/recovery)'
+      action:
+        description: 'What do you want to do?'
         required: true
-        default: false
-        type: boolean
+        default: 'Start / Resume'
+        type: choice
+        options:
+          - 'Start / Resume'
+          - 'Connect a new RDC account'
 
 permissions:
   contents: write
   actions: write
-
-concurrency:
-  group: rdc-runner-lab
-  cancel-in-progress: false
 
 env:
   ONLINE_MINUTES: 330
@@ -27,12 +26,108 @@ env:
   RDC_VERSION: 0.2.51
 
 jobs:
+  account-switch:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Connect a new RDC account' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    concurrency:
+      group: rdc-account-switch
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Prepare scripts
+        shell: bash
+        run: chmod +x scripts/*.sh .github/scripts/*.sh
+
+      - name: Validate RDC persistence secret
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        shell: bash
+        run: |
+          if [ ${#RDC_STATE_KEY} -lt 32 ]; then
+            echo "::error::RDC_STATE_KEY is required and must contain at least 32 characters. Add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Install Remote Desktop Commander
+        run: npm install --global "@wonderwhy-er/desktop-commander@$RDC_VERSION"
+
+      - name: Safely stop the current RDC Lab
+        env:
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          WORKFLOW: rdc-lab.yml
+        run: ./scripts/prepare-rdc-account-switch.sh
+
+      - name: Authorize the new RDC account
+        id: authorize
+        run: ./scripts/bootstrap-rdc.sh
+
+      - name: Start and verify the new RDC account
+        id: verify
+        shell: bash
+        run: |
+          ./scripts/start-rdc.sh
+          ./scripts/health.sh
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Stop verification session
+        if: steps.verify.outputs.ready == 'true'
+        run: ./scripts/stop-rdc.sh
+
+      - name: Commit the verified RDC account switch
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/persist-rdc-state.sh
+
+      - name: Start RDC Lab with the new account
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
+        run: bash .github/scripts/ensure-rdc-lab.sh
+
+      - name: Restore service with the previous account after a failed switch
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+          DISABLED: ${{ vars.RDC_LAB_DISABLED }}
+        run: |
+          ./scripts/stop-rdc.sh || true
+          bash .github/scripts/ensure-rdc-lab.sh
+
   runner-lab:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.action != 'Connect a new RDC account' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
+    concurrency:
+      group: rdc-runner-lab
+      cancel-in-progress: false
+
     outputs:
-      configured: ${{ steps.mode.outputs.ready }}
+      configured: ${{ steps.verify.outputs.ready }}
       queued: ${{ steps.handover.outputs.queued }}
 
     steps:
@@ -53,22 +148,18 @@ jobs:
           chmod +x scripts/*.sh .github/scripts/*.sh
           ./scripts/agent-runtime.sh start "$ONLINE_MINUTES"
 
-      - name: Check persistent state key
-        id: key
+      - name: Validate RDC persistence secret
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         shell: bash
         run: |
-          if [ ${#RDC_STATE_KEY} -ge 32 ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Create repository secret RDC_STATE_KEY with at least 32 random characters."
+          if [ ${#RDC_STATE_KEY} -lt 32 ]; then
+            echo "::error::RDC_STATE_KEY is required and must contain at least 32 characters. Add it under Settings > Secrets and variables > Actions."
+            exit 1
           fi
 
       - name: Restore latest RDC state
         id: restore
-        if: steps.key.outputs.ready == 'true'
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         shell: bash
@@ -86,49 +177,44 @@ jobs:
       - name: Select startup mode
         id: mode
         env:
-          KEY_READY: ${{ steps.key.outputs.ready }}
           STATE_RESTORED: ${{ steps.restore.outputs.restored }}
-          BOOTSTRAP_REQUESTED: ${{ inputs.bootstrap || 'false' }}
         shell: bash
         run: |
-          if [ "$KEY_READY" != "true" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
-          elif [ "$STATE_RESTORED" = "true" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          if [ "$STATE_RESTORED" = "true" ]; then
             echo "bootstrap=false" >> "$GITHUB_OUTPUT"
             echo "Persistent RDC state found; unattended auto-login enabled."
-          elif [ "$BOOTSTRAP_REQUESTED" = "true" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
-            echo "No RDC state exists yet; entering one-time account authorization."
           else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "bootstrap=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No RDC state exists yet. Run this workflow manually once with bootstrap=true."
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+            echo "No RDC account is connected yet; starting first-time authorization automatically."
           fi
 
       - name: Install Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
         run: npm install --global "@wonderwhy-er/desktop-commander@$RDC_VERSION"
 
-      - name: One-time RDC account authorization
+      - name: Authorize RDC account
+        id: authorize
         if: steps.mode.outputs.bootstrap == 'true'
         run: ./scripts/bootstrap-rdc.sh
-
-      - name: Persist bootstrap identity
-        if: steps.mode.outputs.bootstrap == 'true'
-        env:
-          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
-        run: ./scripts/persist-rdc-state.sh
 
       - name: Start Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
 
       - name: Verify connection
+        id: verify
         if: steps.mode.outputs.ready == 'true'
-        run: ./scripts/health.sh
+        shell: bash
+        run: |
+          ./scripts/health.sh
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Persist verified first-time RDC identity
+        if: steps.mode.outputs.bootstrap == 'true' && steps.verify.outputs.ready == 'true'
+        env:
+          RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+        run: ./scripts/persist-rdc-state.sh
 
       - name: Configure Agent GitHub access
         if: steps.mode.outputs.ready == 'true'
@@ -186,7 +272,7 @@ jobs:
       # while this run still owns the concurrency group.
       - name: Queue Successor Run
         id: handover
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
@@ -209,14 +295,14 @@ jobs:
           fi
 
       - name: Save final Agent checkpoint
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/checkpoint-sync.sh save finalizer
 
       - name: Upload Agent Checkpoint
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -226,24 +312,24 @@ jobs:
           retention-days: 7
 
       - name: Gracefully Stop RDC
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/stop-rdc.sh
 
       - name: Persist final RDC state
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/persist-rdc-state.sh
 
       - name: Prune retained Agent data
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/agent-run.sh cache --apply --days 14
 
       - name: Save Agent Project Cache
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -253,7 +339,7 @@ jobs:
           key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
 
       - name: Remove optional Agent GitHub token
-        if: ${{ always() && steps.mode.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         run: ./scripts/agent-github.sh remove
 
