@@ -24,10 +24,12 @@ if [[ "$ACTION" == "status" ]]; then
   echo "AGENT_PROJECT_CACHE_DIR=$AGENT_PROJECT_CACHE_DIR"
   if [[ -f "$CONFIG" ]]; then
     echo "AGENT_PROJECT_CONFIG=READY"
+    export AGENT_PROJECT_ROOT="$TARGET"
+    exec bash "$CONFIG" status "$@"
   else
     echo "AGENT_PROJECT_CONFIG=MISSING"
+    exit 0
   fi
-  exit 0
 fi
 
 if [[ ! -f "$CONFIG" ]]; then
