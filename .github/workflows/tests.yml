@@ -1,0 +1,51 @@
+name: Regression Tests
+
+on:
+  push:
+    branches: [main]
+
+  pull_request:
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unittest:
+    name: Python regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Report toolchain versions
+        shell: bash
+        run: |
+          git --version
+          python3 --version
+
+      - name: Run regression suite
+        shell: bash
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Check shell script syntax
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          for file in scripts/*.sh .github/scripts/*.sh; do
+            echo "bash -n ${file}"
+            bash -n "${file}" || status=1
+          done
+          exit "${status}"
+
+      - name: Byte-compile Python
+        shell: bash
+        run: python3 -m compileall -q scripts tests .github/scripts
