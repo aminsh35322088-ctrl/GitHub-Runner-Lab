@@ -17,32 +17,42 @@ AUTH=(
 fetch_others() {
   curl --connect-timeout 10 --max-time 30 -fsSL "${AUTH[@]}" "${RUNS_API}?per_page=30" \
     | jq --arg self "$SELF_RUN_ID" \
-      '[.workflow_runs[] | select((.id | tostring) != $self and .status != "completed")]'
+      '[.workflow_runs[] | select((.id | tostring) != $self and .status != "completed") | {id, status}]'
 }
 
-cancel_run() {
-  local id="$1" code
-  code="$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/rdc-switch-cancel.json -w '%{http_code}' \
-    -X POST "${AUTH[@]}" "${RUN_API}/${id}/cancel" || true)"
+request_cancel() {
+  local id="$1" endpoint="$2" label="$3" code body
+  body="$(mktemp)"
+  code="$(curl --connect-timeout 10 --max-time 30 -sS -o "$body" -w '%{http_code}' \
+    -X POST "${AUTH[@]}" "${RUN_API}/${id}/${endpoint}" || true)"
   case "$code" in
-    202|409|404)
-      echo "RDC Lab run ${id}: cancellation accepted/already settled (HTTP ${code})."
+    202)
+      echo "RDC Lab run ${id}: ${label} accepted (HTTP 202)."
+      ;;
+    409|404)
+      echo "RDC Lab run ${id}: already settled while requesting ${label} (HTTP ${code})."
       ;;
     *)
-      echo "Failed to cancel RDC Lab run ${id} (HTTP ${code})." >&2
-      cat /tmp/rdc-switch-cancel.json 2>/dev/null || true
+      echo "Failed to request ${label} for RDC Lab run ${id} (HTTP ${code})." >&2
+      cat "$body" >&2 2>/dev/null || true
+      rm -f "$body"
       return 1
       ;;
   esac
+  rm -f "$body"
 }
 
 echo "Preparing a safe RDC account switch. Existing encrypted account state will not be modified yet."
 
-# The previous long-lived run can queue a successor while it is shutting down.
-# Require two consecutive empty polls so both the old run and any late successor
-# are settled before interactive authorization begins.
+# Track cancellation state per run. A 202 response only means GitHub accepted
+# the request; repeatedly POSTing /cancel does not make settlement faster and
+# floods the log. If normal cancellation remains stuck, escalate once to the
+# documented force-cancel endpoint.
+declare -A cancel_requested_at=()
+declare -A force_requested=()
 empty_polls=0
-for _ in $(seq 1 24); do
+
+for _ in $(seq 1 60); do
   others="$(fetch_others)"
   count="$(jq 'length' <<<"$others")"
 
@@ -52,17 +62,40 @@ for _ in $(seq 1 24); do
       echo "No competing RDC Lab run remains. Safe to authorize the new account."
       exit 0
     fi
-    sleep 5
+    sleep 3
     continue
   fi
 
   empty_polls=0
-  echo "Stopping ${count} existing/queued RDC Lab run(s) before account switch."
-  while read -r id; do
-    [ -n "$id" ] && cancel_run "$id"
-  done < <(jq -r '.[].id' <<<"$others")
-  sleep 5
+  now="$(date +%s)"
+
+  while IFS=$'\t' read -r id status; do
+    [ -n "$id" ] || continue
+
+    if [[ -z "${cancel_requested_at[$id]:-}" ]]; then
+      echo "Stopping RDC Lab run ${id} before account switch (status=${status})."
+      request_cancel "$id" cancel "cancellation"
+      cancel_requested_at[$id]="$now"
+      continue
+    fi
+
+    age=$((now - cancel_requested_at[$id]))
+    if (( age >= 15 )) && [[ -z "${force_requested[$id]:-}" ]]; then
+      echo "RDC Lab run ${id} is still ${status} after ${age}s; escalating to force-cancel once."
+      request_cancel "$id" force-cancel "force-cancellation"
+      force_requested[$id]=1
+      continue
+    fi
+
+    if [[ -n "${force_requested[$id]:-}" ]]; then
+      echo "Waiting for RDC Lab run ${id} to settle after force-cancel (status=${status})."
+    else
+      echo "Waiting for RDC Lab run ${id} to settle (status=${status}, ${age}s since cancel request)."
+    fi
+  done < <(jq -r '.[] | [.id, .status] | @tsv' <<<"$others")
+
+  sleep 3
 done
 
-echo "Existing RDC Lab runs did not settle within 120 seconds; refusing to switch accounts to avoid a state race." >&2
+echo "Existing RDC Lab runs did not settle within the safety window; refusing to switch accounts to avoid a state race." >&2
 exit 1
