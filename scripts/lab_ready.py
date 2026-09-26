@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Read-only readiness report. Unknown credentials never count as verified."""
 import json
+import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,10 +26,29 @@ except (OSError, subprocess.TimeoutExpired):
     report['toolchain']={'ok':False}
 stamp=kit()/'checkpoint-persisted-at'
 report['last_durable_checkpoint']=stamp.read_text().strip() if stamp.exists() else None
+repository = os.getenv('GITHUB_REPOSITORY')
+if not repository:
+    try:
+        remote = subprocess.check_output(
+            ['git', '-C', str(SCRIPTS.parent), 'remote', 'get-url', 'origin'],
+            text=True, stderr=subprocess.DEVNULL, timeout=5).strip()
+        match = re.search(r'github\.com[/:]([^/]+/[^/]+?)(?:\.git)?report['ready']=report['runtime']['state']=='SAFE' and report['rdc']['ok'] and report['docker']['ok'] and report['toolchain']['ok'] and all(report['tools'].values()) and report['free_disk_bytes']>2*1024**3
+print(json.dumps(report,indent=2))
+raise SystemExit(0 if report['ready'] else 1)
+, remote)
+        repository = match.group(1) if match else None
+    except (OSError, subprocess.SubprocessError):
+        repository = None
 try:
-    p=subprocess.run(['bash',str(SCRIPTS/'agent-github.sh'),'gh','api','repos/aminsh35322088-ctrl/GitHub-Runner-Lab','--jq','.permissions'],capture_output=True,text=True,timeout=15)
-    report['github']={'verified':p.returncode==0,'permissions':json.loads(p.stdout) if p.returncode==0 else None}
-except (OSError, subprocess.TimeoutExpired, ValueError): report['github']={'verified':False}
+    if repository:
+        p=subprocess.run(['bash',str(SCRIPTS/'agent-github.sh'),'gh','api',f'repos/{repository}','--jq','.permissions'],capture_output=True,text=True,timeout=15)
+        report['github']={'verified':p.returncode==0,'repository':repository,
+                          'permissions':json.loads(p.stdout) if p.returncode==0 else None}
+    else:
+        p=subprocess.run(['bash',str(SCRIPTS/'agent-github.sh'),'status'],capture_output=True,text=True,timeout=15)
+        report['github']={'verified':p.returncode==0,'repository':None,'permissions':None}
+except (OSError, subprocess.TimeoutExpired, ValueError):
+    report['github']={'verified':False,'repository':repository,'permissions':None}
 report['ready']=report['runtime']['state']=='SAFE' and report['rdc']['ok'] and report['docker']['ok'] and report['toolchain']['ok'] and all(report['tools'].values()) and report['free_disk_bytes']>2*1024**3
 print(json.dumps(report,indent=2))
 raise SystemExit(0 if report['ready'] else 1)
