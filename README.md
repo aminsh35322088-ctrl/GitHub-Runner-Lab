@@ -35,8 +35,9 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 1. Add repository secret `RDC_STATE_KEY` with at least 32 random characters (for example, generate one with `openssl rand -base64 48`).
 2. Add `AGENT_GITHUB_TOKEN` for the Agent's authenticated GitHub access. The current Runner startup verifies this credential and fails closed if it is missing or unusable.
-3. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
-4. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
+3. Add `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` from the same Tailscale OAuth client used by the Exit Node. The Runner joins the Tailnet as an ephemeral tagged node and enables Tailscale SSH; it does **not** advertise itself as an Exit Node.
+4. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
+5. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
 
 To move the Lab to another Desktop Commander account, run the same workflow and choose **Connect a new RDC account**. The workflow safely stops the old runner, verifies the new account before replacing encrypted state, and starts a fresh runner automatically. No branch deletion, state cleanup, kill-switch toggling, or `bootstrap=true` is required. If the new authorization fails, the previous encrypted account state is kept and the Lab attempts to restore service with it.
 
@@ -54,6 +55,8 @@ Startup is intentionally ordered for fast remote access:
 
 Heavy package installation therefore never blocks initial RDC connectivity.
 
+After RDC is healthy, the workflow also connects the runner to the same Tailnet using the official Tailscale GitHub Action, enables Tailscale SSH, verifies that the node is online, and records its Tailscale IPv4 address in the GitHub job summary. These CI nodes are ephemeral and are removed automatically after the workflow finishes.
+
 ## RDC state
 
 The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random characters). The encrypted `device.json` is stored on the dedicated `rdc-state` branch; plaintext credentials are never committed. This branch is an implementation detail and users do not need to create, edit, or delete it.
@@ -63,6 +66,8 @@ The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random 
 **Connect a new RDC account** performs an atomic account rotation: the switch owns the same Runner concurrency group so a watchdog/successor cannot overlap the login window, settles the current long-lived runner, authorizes and health-checks the replacement identity locally, and only then writes the new encrypted state. Cancellation is requested once per old run; if GitHub accepts the request but the run does not settle, the helper waits and escalates once to force-cancel instead of spamming repeated cancel requests. A failed switch leaves the previous encrypted state untouched and triggers a recovery start.
 
 The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
+
+Tailscale uses the repository secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. The workflow reuses the working OAuth tag set from the Exit Node (`tag:exit,tag:ssh`) so no additional Tailnet policy change is required, but the Runner workflow never passes `--advertise-exit-node`; `tag:exit` here is only part of the existing credential identity. Tailscale SSH is enabled explicitly after connection.
 
 `RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broad Agent GitHub access, store the fine-grained PAT as the `AGENT_GITHUB_TOKEN` repository secret. After RDC becomes healthy, the workflow consumes that secret once through stdin, logs the `runner` user into GitHub CLI, and configures Git to use GitHub CLI as its credential helper. Fresh RDC/Agent shells therefore use normal `gh` and `git` commands without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` environment variables. The bootstrap step verifies the GitHub API identity and an end-to-end Git credential lookup before continuing. The secret is never written to repository config, checkpoints, caches, or command-line arguments. Normal checkout and lifecycle writes continue to use the workflow `GITHUB_TOKEN` where applicable.
 
