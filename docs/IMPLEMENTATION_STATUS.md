@@ -17,7 +17,7 @@ The feature branch is ready for review and a controlled first deployment.
 
 Validation ran through Remote Desktop Commander on the actual Ubuntu runner:
 
-- 19 regression tests passed.
+- 19 regression tests passed at the time of this review. The suite has since grown and now runs on every push and pull request through the `Regression Tests` workflow.
 - `bash -n`, ShellCheck, Python byte-compilation, Node syntax checking, Actionlint, and `git diff --check` passed.
 - A real constrained Alpine managed job passed with no Docker socket, non-root execution, no network, and CPU/memory limits.
 - The installed RDC package is 0.2.51, and its runtime exposes the reachability and heartbeat fields used by the supervisor.
