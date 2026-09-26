@@ -61,6 +61,34 @@ def capture(argv, timeout=30):
     }
 
 
+def buildx_usage():
+    raw = capture(["docker", "buildx", "du", "--format=json"], timeout=30)
+    if not raw.get("ok"):
+        return raw
+    total = reclaimable = records = 0
+    invalid = 0
+    for line in raw.get("stdout", "").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+            size = int(item.get("Size", 0))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            invalid += 1
+            continue
+        records += 1
+        total += size
+        if item.get("Reclaimable") is True:
+            reclaimable += size
+    return {
+        "ok": invalid == 0,
+        "records": records,
+        "total_bytes": total,
+        "reclaimable_bytes": reclaimable,
+        "invalid_records": invalid,
+    }
+
+
 def thresholds(args):
     manifest = load_manifest()
     base = manifest.get("thresholds", {})
@@ -88,7 +116,7 @@ def status(args):
         },
         "healthy": healthy,
         "docker_system_df": capture(["docker", "system", "df"], timeout=20),
-        "buildx_du": capture(["docker", "buildx", "du"], timeout=30),
+        "buildx_du": buildx_usage(),
     }
     return report
 
@@ -108,29 +136,28 @@ def prune(args):
         }
 
     builder_until = validate_age(args.builder_until)
-    image_until = validate_age(args.image_until)
     with lock(kit() / "jobs.lock"):
         active = [job["id"] for job in all_jobs() if job["state"] in ("queued", "running")]
         if active:
             raise RuntimeError(f"refusing Docker prune while managed jobs are active: {','.join(active)}")
         before = status(args)
+        min_free_gb, _ = thresholds(args)
         builder = capture(
-            ["docker", "builder", "prune", "-f", "--filter", f"until={builder_until}"],
-            timeout=120,
-        )
-        images = capture(
-            ["docker", "image", "prune", "-f", "--filter", f"until={image_until}"],
+            [
+                "docker", "buildx", "prune", "--force",
+                "--filter", f"until={builder_until}",
+                "--min-free-space", f"{min_free_gb:g}gb",
+            ],
             timeout=120,
         )
         after = status(args)
     return {
         "applied": True,
         "builder_until": builder_until,
-        "image_until": image_until,
         "builder_prune": builder,
-        "image_prune": images,
         "before": before,
         "after": after,
+        "healthy": builder.get("ok") is True and after.get("healthy") is True,
     }
 
 
@@ -147,15 +174,11 @@ def main():
                 "--builder-until",
                 default=os.getenv("AGENT_DOCKER_BUILDER_PRUNE_UNTIL", "24h"),
             )
-            cmd.add_argument(
-                "--image-until",
-                default=os.getenv("AGENT_DOCKER_IMAGE_PRUNE_UNTIL", "168h"),
-            )
     args = parser.parse_args()
 
     if args.action == "prune":
         report = prune(args)
-        code = 0
+        code = 0 if not report.get("applied") or report.get("healthy") else 1
     else:
         report = status(args)
         code = 0 if args.action == "status" or report["healthy"] else 1
