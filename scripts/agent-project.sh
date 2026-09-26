@@ -9,6 +9,8 @@ if (($# > 0)); then shift; fi
 TARGET="$(cd "$TARGET" && pwd)"
 CONFIG_REL="${AGENT_PROJECT_RUNNER:-.github/agent-lab/runner.sh}"
 CONFIG="$TARGET/$CONFIG_REL"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONTRACT_TOOL="$SELF_DIR/lab_project_contract.py"
 CACHE_ROOT="${AGENT_PROJECT_CACHE_ROOT:-$HOME/.cache/agent-projects}"
 export AGENT_PROJECT_CACHE_ROOT="$CACHE_ROOT"
 
@@ -39,9 +41,9 @@ if [[ ! -f "$CONFIG" ]]; then
 fi
 
 if [[ -z "${AGENT_JOB_ID:-}" ]]; then
-  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   job_args=(start --cwd "$TARGET" --timeout "${AGENT_JOB_TIMEOUT:-1800}" --grace-seconds "${AGENT_JOB_GRACE_SECONDS:-10}" --pass-env AGENT_PROJECT_CACHE_ROOT)
   [[ -n "${AGENT_PROJECT_RUNNER:-}" ]] && job_args+=(--pass-env AGENT_PROJECT_RUNNER)
+  [[ -n "${AGENT_PROJECT_CONTRACT:-}" ]] && job_args+=(--pass-env AGENT_PROJECT_CONTRACT)
   [[ -n "${AGENT_LEGACY_LOCK_WAIT:-}" ]] && job_args+=(--pass-env AGENT_LEGACY_LOCK_WAIT)
   [[ -n "${AGENT_VALIDATION_LOG_MAX_MB:-}" ]] && job_args+=(--pass-env AGENT_VALIDATION_LOG_MAX_MB)
   job="$(python3 "$SELF_DIR/lab_jobs.py" "${job_args[@]}" -- bash "$SELF_DIR/agent-project.sh" "$ACTION" "$TARGET" "$@")"
@@ -55,8 +57,25 @@ if grep -q '/app/node_modules' "$CONFIG"; then
   exec 7>"$CACHE_ROOT/legacy-app-node-modules.lock"
   flock -w "${AGENT_LEGACY_LOCK_WAIT:-900}" 7
 fi
+
+bootstrap_required="$(python3 "$CONTRACT_TOOL" bootstrap-required "$TARGET")"
+project_bootstrap() {
+  if [[ "$bootstrap_required" == "true" ]]; then
+    bash "$CONFIG" bootstrap
+  fi
+  python3 "$CONTRACT_TOOL" check "$TARGET"
+}
+
+if [[ "$ACTION" == "bootstrap" ]]; then
+  project_bootstrap
+  exit 0
+fi
+
+if [[ "$ACTION" != "clean-materialized" ]]; then
+  project_bootstrap
+fi
+
 if [[ "$ACTION" == "validate" ]]; then
-  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   exec python3 "$SELF_DIR/lab_validate.py" "$TARGET" "$@"
 fi
 exec bash "$CONFIG" "$ACTION" "$@"
