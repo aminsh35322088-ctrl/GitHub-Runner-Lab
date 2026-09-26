@@ -4,6 +4,19 @@
 AGENT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT_TOOLSET_CLI="$AGENT_LIB_DIR/lab_toolset.py"
 
+# ~/.local/bin holds manifest-installed shims such as the fd -> fdfind link
+# created by agent-bootstrap.sh. Only login shells source ~/.profile, so
+# non-interactive callers (SSH exec, cron, CI) would miss every command
+# installed there and report a healthy toolchain as missing or outdated.
+AGENT_LOCAL_BIN="${HOME}/.local/bin"
+if [[ -d "$AGENT_LOCAL_BIN" ]]; then
+  case ":$PATH:" in
+    *":$AGENT_LOCAL_BIN:"*) ;;
+    *) PATH="$AGENT_LOCAL_BIN:$PATH" ;;
+  esac
+  export PATH
+fi
+
 agent_toolchain_version() {
   python3 "$AGENT_TOOLSET_CLI" toolchain-version
 }

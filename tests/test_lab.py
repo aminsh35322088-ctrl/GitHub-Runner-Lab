@@ -124,6 +124,24 @@ class LabTest(unittest.TestCase):
         self.assertIn('Git 2.42', message)
         self.assertNotIn('Corrupt ref', message)
 
+    def test_agent_lib_exposes_local_bin_shims_in_non_login_shells(self):
+        home = self.base / 'nonlogin-home'
+        local_bin = home / '.local' / 'bin'
+        local_bin.mkdir(parents=True)
+        shim = local_bin / 'agent-lab-path-probe'
+        shim.write_text('#!/bin/sh\necho shim-ok\n')
+        shim.chmod(0o755)
+        env = {'HOME': str(home), 'PATH': '/usr/bin:/bin'}
+        probe = 'command -v agent-lab-path-probe'
+        self.assertNotEqual(
+            command(['/bin/bash', '-c', probe], env=env).returncode, 0,
+            'probe must start out of reach')
+        result = command(
+            ['/bin/bash', '-c', f'source scripts/agent-lib.sh && {probe}'],
+            env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(shim))
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
