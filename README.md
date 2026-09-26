@@ -78,6 +78,13 @@ The one-call status check is:
 ./scripts/agent-run.sh status
 ```
 
+For a machine-readable readiness snapshot (runtime, disk/inodes, RAM/swap, Docker/BuildKit storage, toolchain, RDC, GitHub auth, and optional target contract), use:
+
+```bash
+./scripts/agent-run.sh ready
+./scripts/agent-run.sh ready --workspace /path/to/workspace
+```
+
 A typical project-aware workspace preparation is:
 
 ```bash
