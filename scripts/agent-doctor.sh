@@ -30,6 +30,11 @@ while IFS= read -r cmd; do
   printf 'tool.%s=%s\n' "$cmd" "${path:-missing}"
 done < <(agent_required_full_commands)
 
+if command -v docker >/dev/null 2>&1; then
+  echo "--- docker storage ---"
+  python3 "$SELF_DIR/lab_docker_storage.py" status || true
+fi
+
 if [[ -d "$TARGET/.git" ]] || git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   echo "--- git ---"
   printf 'remote=%s\n' "$(git -C "$TARGET" remote get-url origin 2>/dev/null || echo none)"
