@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 20
 
     concurrency:
-      group: rdc-account-switch
+      group: rdc-runner-lab
       cancel-in-progress: true
 
     steps:
@@ -102,7 +102,14 @@ jobs:
           SELF_RUN_ID: ${{ github.run_id }}
           REF: ${{ github.ref_name }}
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
-        run: bash .github/scripts/ensure-rdc-lab.sh
+        shell: bash
+        run: |
+          code=0
+          bash .github/scripts/ensure-rdc-lab.sh || code=$?
+          case "$code" in
+            0|20|21) exit 0 ;;
+            *) exit "$code" ;;
+          esac
 
       - name: Restore service with the previous account after a failed switch
         if: failure()
@@ -115,7 +122,12 @@ jobs:
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         run: |
           ./scripts/stop-rdc.sh || true
-          bash .github/scripts/ensure-rdc-lab.sh
+          code=0
+          bash .github/scripts/ensure-rdc-lab.sh || code=$?
+          case "$code" in
+            0|20|21) exit 0 ;;
+            *) exit "$code" ;;
+          esac
 
   runner-lab:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.action != 'Connect a new RDC account' }}
