@@ -84,6 +84,8 @@ A typical project-aware workspace preparation is:
 ./scripts/agent-run.sh work --repo https://github.com/OWNER/REPO.git --ref main
 ```
 
+The target repository is always explicit unless the operator sets `AGENT_DEFAULT_REPO`; the Lab does not contain a built-in project repository.
+
 Official Lab workspaces are registered automatically for checkpoint continuity. If a task must use a scratch repository outside `~/agent-workspaces`, explicitly adopt it before doing valuable uncommitted work:
 
 ```bash
@@ -131,11 +133,14 @@ job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)
 
 Each job gets a clean environment, durable JSON result with an artifact index, capped combined output, timeout/cancellation, a configurable termination grace window (`--grace-seconds`, default 10), approximate process-group peak RSS, and one active job per workspace. Environment variables cross the boundary only through repeated `--pass-env NAME`; project jobs automatically preserve the persistent project-cache root and explicitly configured project-runner/validation settings. Host managed jobs preserve only the non-secret GitHub auth paths (`GH_CONFIG_DIR` plus a dedicated credential-helper-only Git config), so normal `gh` and HTTPS `git` keep working without token environment variables even though each job has an isolated HOME. Container jobs do not inherit host GitHub credentials; they add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
 
-For this project's default OpenCode Telegram bot repository:
+Prepare any target repository explicitly:
 
 ```bash
-./scripts/agent-run.sh prepare --pr 99
+./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --ref main
+./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --pr 123
 ```
+
+For installations that intentionally use one default target, set `AGENT_DEFAULT_REPO` instead of baking a repository URL into the Lab.
 
 The automatic full prewarm covers the common coding/debugging stack: Git/GitHub CLI, Node/npm, Python, ripgrep/fd/fzf, jq/yq, C/C++ build tools, CMake, Ninja, Clang, GDB, Git LFS, SQLite, diagnostics/network tools, FFmpeg, and ImageMagick. GitHub-hosted tools such as Docker remain available when provided by the runner image.
 
