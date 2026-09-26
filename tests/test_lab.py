@@ -142,6 +142,17 @@ class LabTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(shim))
 
+    def test_agent_run_establishes_toolchain_path_before_dispatch(self):
+        script = (SCRIPTS / 'agent-run.sh').read_text()
+        sourced_at = script.find('agent-lib.sh')
+        self.assertNotEqual(
+            sourced_at, -1,
+            'agent-run.sh must source agent-lib.sh so non-login dispatch '
+            'inherits the toolchain PATH')
+        self.assertLess(
+            sourced_at, script.find('exec '),
+            'agent-lib.sh must be sourced before the first dispatch')
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
@@ -727,6 +738,26 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('command -v git',rendered)
         self.assertIn('node --version',rendered)
         self.assertNotIn('pkg-config --exists',rendered)
+
+    def test_runner_validation_node_check_pins_major_not_patch(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['node']={'expected':'22.14.0'}
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base/'cache',require_rdc=False)
+        check=hard['command']['node_version']['exec']
+        fake_node=self.base/'node'
+        fake_node.write_text("#!/bin/sh\necho v22.99.99\n")
+        fake_node.chmod(0o755)
+        env={**self.env,'PATH':f"{self.base}{os.pathsep}{os.environ['PATH']}"}
+        self.assertEqual(
+            command(['/bin/bash','-c',check],env=env).returncode,0,
+            'a newer patch on the pinned major must not fail validation')
+        fake_node.write_text("#!/bin/sh\necho v20.0.0\n")
+        self.assertNotEqual(
+            command(['/bin/bash','-c',check],env=env).returncode,0,
+            'a different major must still fail validation')
+
 
     def test_runner_validation_reports_degraded_advisory_without_failing(self):
         fake=self.base/'fake-goss'
