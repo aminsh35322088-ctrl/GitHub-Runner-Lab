@@ -31,6 +31,15 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 <!-- RDC-LAB-STATUS:END -->
 
+## Quick start
+
+1. Add repository secret `RDC_STATE_KEY` with at least 32 random characters (for example, generate one with `openssl rand -base64 48`).
+2. Add `AGENT_GITHUB_TOKEN` if the Agent should have authenticated GitHub access.
+3. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
+4. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
+
+To move the Lab to another Desktop Commander account, run the same workflow and choose **Connect a new RDC account**. The workflow safely stops the old runner, verifies the new account before replacing encrypted state, and starts a fresh runner automatically. No branch deletion, state cleanup, kill-switch toggling, or `bootstrap=true` is required. If the new authorization fails, the previous encrypted account state is kept and the Lab attempts to restore service with it.
+
 ## Lifecycle
 
 The lifecycle clock targets handoff 330 minutes after runner initialization, while the job hard timeout is 350 minutes. Normal agent work remains SAFE until the final 20 minutes. At that point the keepalive path checkpoints work, confirms/queues a successor, ends cleanly, and lets workflow finalizers persist RDC state before the fresh runner starts. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
@@ -47,9 +56,11 @@ Heavy package installation therefore never blocks initial RDC connectivity.
 
 ## RDC state
 
-The only required persistence secret is `RDC_STATE_KEY` (at least 32 random characters). The encrypted `device.json` is stored on the dedicated `rdc-state` branch; plaintext credentials are never committed.
+The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random characters). The encrypted `device.json` is stored on the dedicated `rdc-state` branch; plaintext credentials are never committed. This branch is an implementation detail and users do not need to create, edit, or delete it.
 
-For first setup or recovery, manually dispatch `rdc-lab.yml` with `bootstrap=true` and complete the RDC browser authorization. Normal successor runs restore state unattended.
+**Start / Resume** automatically detects whether saved RDC state exists. If it does, the runner restores it unattended. If it does not, the same run enters first-time browser authorization automatically.
+
+**Connect a new RDC account** performs an atomic account rotation: it settles the current long-lived runner, authorizes and health-checks the replacement identity locally, and only then writes the new encrypted state. A failed switch leaves the previous encrypted state untouched and triggers a recovery start.
 
 The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
 
@@ -156,6 +167,7 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
 - `scripts/agent-run.sh` — one-call entry point for workspace, jobs, checkpoints, GitHub access, readiness, cache cleanup, and toolchain operations.
+- `scripts/prepare-rdc-account-switch.sh` — safely settles the current/queued RDC Lab runs before an account rotation so encrypted state cannot race.
 - RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
 
 Canonical prewarm files:
