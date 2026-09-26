@@ -61,6 +61,24 @@ def capture(argv, timeout=30):
     }
 
 
+def parse_size(value):
+    if isinstance(value, (int, float)):
+        return int(value)
+    if not isinstance(value, str):
+        raise ValueError("invalid size")
+    match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B)\s*", value, re.I)
+    if not match:
+        raise ValueError(f"invalid size: {value}")
+    number = float(match.group(1))
+    unit = match.group(2).upper()
+    decimal = {"B": 1, "KB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4, "PB": 1000**5, "EB": 1000**6}
+    binary = {"KIB": 1024, "MIB": 1024**2, "GIB": 1024**3, "TIB": 1024**4, "PIB": 1024**5, "EIB": 1024**6}
+    factor = decimal.get(unit, binary.get(unit))
+    if factor is None:
+        raise ValueError(f"unsupported size unit: {unit}")
+    return int(number * factor)
+
+
 def buildx_usage():
     raw = capture(["docker", "buildx", "du", "--format=json"], timeout=30)
     if not raw.get("ok"):
@@ -72,7 +90,7 @@ def buildx_usage():
             continue
         try:
             item = json.loads(line)
-            size = int(item.get("Size", 0))
+            size = parse_size(item.get("Size", 0))
         except (json.JSONDecodeError, TypeError, ValueError):
             invalid += 1
             continue
