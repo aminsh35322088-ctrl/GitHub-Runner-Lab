@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Loopback-only deterministic Telegram/OpenCode/provider fixtures; no real API calls."""
+"""Loopback-only deterministic HTTP/provider fault fixtures; no real API calls."""
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
