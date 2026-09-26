@@ -121,7 +121,7 @@ class LabTest(unittest.TestCase):
         finally:
             lab_git.git_supports_show_ref_exists = original
         message = str(caught.exception)
-        self.assertIn('Git 2.42', message)
+        self.assertIn('Git 2.43', message)
         self.assertNotIn('Corrupt ref', message)
 
     def test_agent_lib_exposes_local_bin_shims_in_non_login_shells(self):
