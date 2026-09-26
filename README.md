@@ -102,7 +102,7 @@ For a missing or corrupt remote-tracking ref, use the non-destructive sync helpe
 
 It verifies the remote branch first, repairs only a broken loose tracking ref, fetches the verified object, and refuses to move `HEAD` or edit `packed-refs` directly.
 
-Project-specific setup/test policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
+Project-specific setup/test/dependency policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The Runner toolset stays project-agnostic; target repositories expose their own `status`, `prepare`, `check`, `full`, `test`, and cleanup behavior through that contract. `agent-run.sh doctor WORKSPACE` includes the target contract's `status` output automatically. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
 Run the project-owned full validation contract as one managed job:
 
@@ -118,6 +118,20 @@ The Lab can validate the runner independently of any target repository:
 ./scripts/agent-run.sh validate runner quick
 ./scripts/agent-run.sh validate runner full
 ./scripts/agent-run.sh validate full /path/to/workspace
+```
+
+Docker/BuildKit storage pressure can be checked against the actual Docker backing filesystem with:
+
+```bash
+./scripts/agent-run.sh docker-storage status
+./scripts/agent-run.sh docker-storage check
+```
+
+Cleanup is deliberately opt-in and refuses to run while managed jobs are active:
+
+```bash
+./scripts/agent-run.sh docker-storage prune          # dry-run/report only
+./scripts/agent-run.sh docker-storage prune --apply  # prune unused old cache/images
 ```
 
 `runner quick` checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub DNS/HTTPS, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests. `runner full` additionally performs Docker and FFmpeg/ImageMagick functional smoke tests. Docker validation builds a local `FROM scratch` image and runs it with no network, dropped capabilities, a read-only root filesystem, and tight CPU/memory/PID limits, so registry availability cannot false-fail the engine test. Runner reports are emitted as Markdown, JSON, and JUnit with stable failure categories: `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, and `MEDIA`; project validation uses `PROJECT` and `CLEANUP`.
