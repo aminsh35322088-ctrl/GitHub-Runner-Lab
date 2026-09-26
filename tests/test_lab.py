@@ -835,6 +835,24 @@ agent_missing_full_commands() {{ :; }}
         self.assertEqual(passed.returncode,0,passed.stderr)
         self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
 
+    def test_doctor_includes_target_project_status_contract(self):
+        workspace=self.base/'workspaces'/'doctor-contract';init_repo(workspace)
+        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+        hook.write_text('''#!/usr/bin/env bash
+set -eu
+if [ "$1" = status ]; then
+  echo PROJECT_CONTRACT_STATUS=READY
+  exit 0
+fi
+exit 0
+''');hook.chmod(0o755)
+        cache=self.base/'project-cache';cache.mkdir()
+        env={**self.env,'AGENT_PROJECT_CACHE_ROOT':cache}
+        result=command([SCRIPTS/'agent-doctor.sh',workspace],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('--- project contract ---',result.stdout)
+        self.assertIn('PROJECT_CONTRACT_STATUS=READY',result.stdout)
+
     def test_doctor_uses_manifest_as_toolchain_source_of_truth(self):
         content=(SCRIPTS/'agent-doctor.sh').read_text()
         self.assertIn('lab_toolset.py',content)
