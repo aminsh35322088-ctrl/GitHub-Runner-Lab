@@ -461,10 +461,12 @@ class LabTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertFalse(dependency.exists());self.assertFalse(finished.exists())
 
-    def test_legacy_project_hook_is_serialized_instead_of_rejected(self):
+    def test_shared_resource_serialization_is_contract_driven(self):
         script=(SCRIPTS/'agent-project.sh').read_text()
-        self.assertNotIn('must use workspace-local dependencies',script)
-        self.assertIn('legacy-app-node-modules.lock',script)
+        self.assertIn('exclusive-group',script)
+        self.assertIn('exclusive-locks',script)
+        self.assertNotIn('/app/node_modules',script)
+        self.assertNotIn('legacy-app-node-modules',script)
 
     def test_workspace_routes_remote_git_through_optional_auth_helper(self):
         workspace=(SCRIPTS/'lab_workspace.py').read_text()
@@ -583,14 +585,16 @@ if [ "$1" = prepare ]; then python3 -c 'print("x"*200000)'; fi
         self.assertLessEqual((output/'prepare.log').stat().st_size,summary['log_max_bytes'])
         self.assertIn('clean-materialized',(output/'summary.md').read_text())
 
-    def test_validate_holds_legacy_dependency_lock_for_entire_contract(self):
-        workspace=self.base/'workspaces'/'legacy';init_repo(workspace)
-        hook=workspace/'.github/agent-lab/runner.sh';hook.parent.mkdir(parents=True)
+    def test_validate_holds_contract_exclusive_group_lock_for_entire_contract(self):
+        workspace=self.base/'workspaces'/'exclusive';init_repo(workspace)
+        contract=workspace/'.github/agent-lab/contract.json';contract.parent.mkdir(parents=True)
+        contract.write_text(json.dumps({'schema_version':1,'exclusive_group':'shared-fixture'}))
+        hook=workspace/'.github/agent-lab/runner.sh'
         hook.write_text('''#!/usr/bin/env bash
 set -eu
-# compatibility marker: /app/node_modules
+mkdir -p "$AGENT_PROJECT_CACHE_ROOT/exclusive-locks"
 (
-  exec 9>"$AGENT_PROJECT_CACHE_ROOT/legacy-app-node-modules.lock"
+  exec 9>"$AGENT_PROJECT_CACHE_ROOT/exclusive-locks/shared-fixture.lock"
   if flock -n 9; then exit 41; else exit 0; fi
 )
 ''');hook.chmod(0o755)
@@ -598,6 +602,14 @@ set -eu
         env={**self.env,'AGENT_JOB_ID':'direct','AGENT_PROJECT_CACHE_ROOT':cache}
         result=command([SCRIPTS/'agent-project.sh','validate',workspace],env=env)
         self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_project_contract_reports_exclusive_group(self):
+        workspace=self.base/'workspaces'/'contract-group';init_repo(workspace)
+        contract=workspace/'.github/agent-lab/contract.json';contract.parent.mkdir(parents=True)
+        contract.write_text(json.dumps({'schema_version':1,'exclusive_group':'gpu-slot'}))
+        result=command([sys.executable,SCRIPTS/'lab_project_contract.py','exclusive-group',workspace],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.strip(),'gpu-slot')
 
     def test_project_job_preserves_persistent_cache_root_across_clean_boundary(self):
         workspace=self.base/'workspaces'/'cache-root';init_repo(workspace)
