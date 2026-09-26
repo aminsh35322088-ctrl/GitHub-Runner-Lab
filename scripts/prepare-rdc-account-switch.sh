@@ -42,7 +42,7 @@ echo "Preparing a safe RDC account switch. Existing encrypted account state will
 # Require two consecutive empty polls so both the old run and any late successor
 # are settled before interactive authorization begins.
 empty_polls=0
-for attempt in $(seq 1 24); do
+for _ in $(seq 1 24); do
   others="$(fetch_others)"
   count="$(jq 'length' <<<"$others")"
 
