@@ -6,19 +6,20 @@ from pathlib import Path
 import os
 import re
 import sys
-from lab_common import git, lock, run, runtime, workspace_root
+from lab_common import git, lock, run, runtime, workspace_lock_path, workspace_root
 from lab_git import ensure_repo_identity, fetch_with_tracking_repair, remote_git
 from lab_workspace_registry import adopt
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--repo', default='https://github.com/aminsh35322088-ctrl/opencode-telegram-bot.git')
+    p.add_argument('--repo', default=os.getenv('AGENT_DEFAULT_REPO'))
     p.add_argument('--ref', default='main'); p.add_argument('--pr', type=int)
     p.add_argument('--dir'); p.add_argument('--deps', action='store_true')
     a = p.parse_args()
     if runtime()['state'] not in ('SAFE', 'UNKNOWN'):
         raise RuntimeError('Workspace preparation refused during handoff')
+    if not a.repo: raise ValueError('--repo is required (or set AGENT_DEFAULT_REPO)')
     if a.pr is not None and a.pr < 1: raise ValueError('Invalid PR')
     if a.repo.startswith('-') or a.ref.startswith('-'): raise ValueError('Invalid repository/ref')
     if re.search(r'https?://[^/]*@', a.repo): raise ValueError('Credentials must not be embedded in repository URLs')
@@ -27,7 +28,7 @@ def main():
     name = Path(a.repo.removesuffix('.git')).name
     root = workspace_root(); root.mkdir(parents=True, exist_ok=True)
     dest = Path(a.dir).resolve() if a.dir else root / f'{name}-{key}-{label}'
-    with lock(root / '.locks' / (hashlib.sha256(str(dest).encode()).hexdigest() + '.lock')):
+    with lock(workspace_lock_path(dest)):
         if not (dest / '.git').exists():
             if dest.exists(): raise RuntimeError('Destination exists and is not a Git workspace')
             remote_git('clone', '--no-tags', '--', a.repo, dest)
