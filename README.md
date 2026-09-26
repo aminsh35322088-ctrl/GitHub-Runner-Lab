@@ -104,6 +104,20 @@ It verifies the remote branch first, repairs only a broken loose tracking ref, f
 
 Project-specific setup/test/dependency policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The Runner toolset stays project-agnostic; target repositories expose their own `status`, `prepare`, `check`, `full`, `test`, and cleanup behavior through that contract. `agent-run.sh doctor WORKSPACE` includes the target contract's `status` output automatically. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
 
+Target repositories can also add an optional `.github/agent-lab/contract.json` for declarative admission requirements. Schema v1 supports `bootstrap`, `required_commands`, `required_pkg_config_modules`, `minimum_lifecycle_seconds`, `minimum_free_disk_gb`, and `exclusive_group`. The Lab validates this contract before managed work; `exclusive_group` serializes repositories that intentionally share a host resource without teaching the Lab what that resource is.
+
+Example:
+
+```json
+{
+  "schema_version": 1,
+  "required_commands": ["cargo"],
+  "minimum_lifecycle_seconds": 1800,
+  "minimum_free_disk_gb": 20,
+  "exclusive_group": "shared-build-resource"
+}
+```
+
 Run the project-owned full validation contract as one managed job:
 
 ```bash
