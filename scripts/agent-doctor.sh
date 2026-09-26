@@ -38,7 +38,7 @@ fi
 PROJECT_HOOK_REL="${AGENT_PROJECT_RUNNER:-.github/agent-lab/runner.sh}"
 PROJECT_HOOK="$TARGET/$PROJECT_HOOK_REL"
 if [[ -f "$PROJECT_HOOK" ]]; then
-  echo "--- project contract ---"
+  echo "--- project requirements ---"
   python3 "$SELF_DIR/lab_project_contract.py" show "$TARGET" || true
   echo "--- project hook status ---"
   AGENT_PROJECT_ROOT="$TARGET" "$SELF_DIR/agent-project.sh" status "$TARGET" || true
