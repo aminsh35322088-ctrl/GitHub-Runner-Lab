@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "toolchain_version": "2026-09-26.1",
+  "toolchain_version": "2026-09-26.2",
   "profile_groups": {
     "core": [
       "core"
@@ -67,7 +67,6 @@
       "libsqlite3-dev",
       "zlib1g-dev",
       "libffi-dev",
-      "libasound2-dev",
       "libunwind-dev"
     ],
     "media": [
