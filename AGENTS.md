@@ -11,7 +11,7 @@ The machine is temporary. Durable code belongs in GitHub, not only on the runner
 1. Read this file before using the Lab.
 2. Before changing or testing another repository, read that target repository's own `AGENTS.md`, `CLAUDE.md`, or equivalent instructions.
 3. The target repository's explicit policy overrides this Lab's defaults.
-4. Example: `opencode-telegram-bot` intentionally runs its **full test suite in GitHub Actions CI** because Railway production is resource-constrained. Do not move that full-suite validation onto Railway or this Lab unless its own instructions are changed. The Lab can still be used for source inspection, targeted debugging, reproduction, compilation, and other heavy local work allowed by that repository.
+4. Never infer a target repository's CI, deployment, dependency, or test policy from this Lab. Follow the target repository's own instructions and Agent Lab contract.
 
 ## Startup model
 
@@ -102,7 +102,7 @@ or, for a PR with one or more targeted tests:
 
 Project-specific setup and test commands do **not** belong in this Lab repository. The target branch owns them in `.github/agent-lab/runner.sh`. The Lab exports a persistent, secret-free `AGENT_PROJECT_CACHE_DIR` outside the workspace; the workflow restores/saves that cache plus the npm download cache between ephemeral runners. This keeps dependency/test harness preparation branch-specific while avoiding repeated downloads and repeated RDC setup calls.
 
-For full validation, use `./scripts/agent-run.sh validate <workspace>`. The target hook must implement `prepare`, `check`, `full`, `test`, and `clean-materialized`. On a failed `full`, it may write newline-delimited failing selectors to `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt`; the Lab reruns only those selectors for diagnosis, preserves the original failure, stores bounded stage logs plus machine/human summaries, and requests cleanup after normal completion or caught `SIGINT`/`SIGTERM`. A forced `SIGKILL` cannot run cleanup. Legacy `/app/node_modules` hooks remain serialized for the entire validation.
+For full validation, use `./scripts/agent-run.sh validate <workspace>`. The target hook must implement `prepare`, `check`, `full`, `test`, and `clean-materialized`. On a failed `full`, it may write newline-delimited failing selectors to `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt`; the Lab reruns only those selectors for diagnosis, preserves the original failure, stores bounded stage logs plus machine/human summaries, and requests cleanup after normal completion or caught `SIGINT`/`SIGTERM`. A forced `SIGKILL` cannot run cleanup. Shared resources are serialized only when the target repository declares an `exclusive_group` in its Agent Lab contract.
 
 Validate the Lab runner separately from project policy:
 
