@@ -29,7 +29,24 @@ def _tracking_ref(remote, branch):
     return f'refs/remotes/{remote}/{branch}'
 
 
+def git_supports_show_ref_exists(repo):
+    """Probe `git show-ref --exists`, which Git 2.43 added.
+
+    Older Git answers 129 (usage error) for the unknown option, which would
+    otherwise be indistinguishable from a genuine reference problem. The probe
+    runs inside the target repository so repo discovery cannot mask it.
+    """
+    result = run(['git', '-C', repo, 'show-ref', '--exists',
+                  'refs/heads/__lab_capability_probe__'], check=False)
+    return result.returncode != 129
+
+
 def tracking_ref_state(repo, remote, branch):
+    if not git_supports_show_ref_exists(repo):
+        raise RuntimeError(
+            'Reference inspection requires Git 2.43 or newer '
+            '(`git show-ref --exists`). Upgrade Git, then retry.'
+        )
     ref = _tracking_ref(remote, branch)
     exists = run(['git', '-C', repo, 'show-ref', '--exists', ref], check=False)
     if exists.returncode == 2:

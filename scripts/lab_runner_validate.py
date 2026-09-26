@@ -60,8 +60,13 @@ def build_specs(toolset, *, home: Path, cache: Path, require_rdc: bool):
 
     expected_node = toolset.get("node", {}).get("expected")
     if expected_node:
+        # agent-bootstrap.sh picks the newest Node under /opt/hostedtoolcache,
+        # so an exact match would go red every time the runner image bumps its
+        # bundled version. Pin the supported major instead; TOOLCHAIN_VERSION
+        # is the signal that tracks whole-toolchain freshness.
+        node_major = str(expected_node).split(".")[0]
         hard["command"]["node_version"] = _command(
-            f'test "$(node --version)" = "v{expected_node}"'
+            f'test "$(node --version 2>/dev/null | cut -d. -f1)" = "v{node_major}"'
         )
 
     if require_rdc:

@@ -2,6 +2,13 @@
 set -Eeuo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Establish the toolchain PATH once, before dispatching. The shell subcommands
+# source this library themselves, but the Python entrypoints do not, and
+# validate -> goss runs `command -v` against whatever it inherits. The file is
+# optional because agent-run.sh also ships as a standalone router bundle.
+if [[ -f "$SELF_DIR/agent-lib.sh" ]]; then
+  source "$SELF_DIR/agent-lib.sh"
+fi
 cmd="${1:-prepare}"
 if (($# > 0)); then
   shift

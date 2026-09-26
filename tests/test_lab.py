@@ -109,6 +109,50 @@ class LabTest(unittest.TestCase):
         self.assertEqual(git(dest, 'rev-parse', 'HEAD').stdout.strip(), head)
         self.assertEqual(git(dest, 'rev-parse', 'refs/remotes/origin/main').stdout.strip(), head)
 
+    def test_tracking_ref_state_reports_unsupported_git_instead_of_corrupt_ref(self):
+        repo = self.base / 'cap-repo'
+        init_repo(repo)
+        import lab_git
+        original = lab_git.git_supports_show_ref_exists
+        lab_git.git_supports_show_ref_exists = lambda repo: False
+        try:
+            with self.assertRaises(RuntimeError) as caught:
+                lab_git.tracking_ref_state(repo, 'origin', 'main')
+        finally:
+            lab_git.git_supports_show_ref_exists = original
+        message = str(caught.exception)
+        self.assertIn('Git 2.43', message)
+        self.assertNotIn('Corrupt ref', message)
+
+    def test_agent_lib_exposes_local_bin_shims_in_non_login_shells(self):
+        home = self.base / 'nonlogin-home'
+        local_bin = home / '.local' / 'bin'
+        local_bin.mkdir(parents=True)
+        shim = local_bin / 'agent-lab-path-probe'
+        shim.write_text('#!/bin/sh\necho shim-ok\n')
+        shim.chmod(0o755)
+        env = {'HOME': str(home), 'PATH': '/usr/bin:/bin'}
+        probe = 'command -v agent-lab-path-probe'
+        self.assertNotEqual(
+            command(['/bin/bash', '-c', probe], env=env).returncode, 0,
+            'probe must start out of reach')
+        result = command(
+            ['/bin/bash', '-c', f'source scripts/agent-lib.sh && {probe}'],
+            env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(shim))
+
+    def test_agent_run_establishes_toolchain_path_before_dispatch(self):
+        script = (SCRIPTS / 'agent-run.sh').read_text()
+        sourced_at = script.find('agent-lib.sh')
+        self.assertNotEqual(
+            sourced_at, -1,
+            'agent-run.sh must source agent-lib.sh so non-login dispatch '
+            'inherits the toolchain PATH')
+        self.assertLess(
+            sourced_at, script.find('exec '),
+            'agent-lib.sh must be sourced before the first dispatch')
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
@@ -694,6 +738,26 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('command -v git',rendered)
         self.assertIn('node --version',rendered)
         self.assertNotIn('pkg-config --exists',rendered)
+
+    def test_runner_validation_node_check_pins_major_not_patch(self):
+        spec=importlib.util.spec_from_file_location('lab_runner_validate',SCRIPTS/'lab_runner_validate.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        toolset['node']={'expected':'22.14.0'}
+        hard,_=module.build_specs(toolset,home=self.base,cache=self.base/'cache',require_rdc=False)
+        check=hard['command']['node_version']['exec']
+        fake_node=self.base/'node'
+        fake_node.write_text("#!/bin/sh\necho v22.99.99\n")
+        fake_node.chmod(0o755)
+        env={**self.env,'PATH':f"{self.base}{os.pathsep}{os.environ['PATH']}"}
+        self.assertEqual(
+            command(['/bin/bash','-c',check],env=env).returncode,0,
+            'a newer patch on the pinned major must not fail validation')
+        fake_node.write_text("#!/bin/sh\necho v20.0.0\n")
+        self.assertNotEqual(
+            command(['/bin/bash','-c',check],env=env).returncode,0,
+            'a different major must still fail validation')
+
 
     def test_runner_validation_reports_degraded_advisory_without_failing(self):
         fake=self.base/'fake-goss'

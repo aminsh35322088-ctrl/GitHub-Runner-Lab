@@ -228,6 +228,16 @@ A failed prewarm does not take RDC offline. READY state is versioned and is writ
 
 This Lab can run heavy local builds and tests when the target repository permits it. Validation runs inside the same engineered runner environment users receive, while the target repository's own policy and Agent Lab contract remain authoritative for which checks are allowed and which prerequisites are required.
 
+The Lab's own regression suite lives in `tests/` and uses only the Python standard library, so it runs on a stock interpreter with no dependency installation:
+
+```bash
+./scripts/agent-run.sh selftest
+```
+
+For Lab changes, follow the direct validation contract in `AGENTS.md`: run the regression suite, shell/Python syntax checks, `git diff --check`, and `./scripts/agent-run.sh validate runner quick` on the Runner itself. This keeps validation deterministic without introducing a separate CI workflow solely for tests.
+
+Workspace reference inspection requires **Git 2.43 or newer**, because it probes references with `git show-ref --exists`. On an older Git the suite fails with an explicit version message rather than a misleading reference-corruption error.
+
 ## Isolation
 
 This repository is independent from `GitHub-Tailscale-Exit-Node`. Do not modify that stable exit-node system from this Lab unless explicitly requested.
