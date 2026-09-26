@@ -34,7 +34,7 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 ## Quick start
 
 1. Add repository secret `RDC_STATE_KEY` with at least 32 random characters (for example, generate one with `openssl rand -base64 48`).
-2. Add `AGENT_GITHUB_TOKEN` if the Agent should have authenticated GitHub access.
+2. Add `AGENT_GITHUB_TOKEN` for the Agent's authenticated GitHub access. The current Runner startup verifies this credential and fails closed if it is missing or unusable.
 3. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
 4. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
 
@@ -60,7 +60,7 @@ The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random 
 
 **Start / Resume** automatically detects whether saved RDC state exists. If it does, the runner restores it unattended. If it does not, the same run enters first-time browser authorization automatically.
 
-**Connect a new RDC account** performs an atomic account rotation: it settles the current long-lived runner, authorizes and health-checks the replacement identity locally, and only then writes the new encrypted state. A failed switch leaves the previous encrypted state untouched and triggers a recovery start.
+**Connect a new RDC account** performs an atomic account rotation: the switch owns the same Runner concurrency group so a watchdog/successor cannot overlap the login window, settles the current long-lived runner, authorizes and health-checks the replacement identity locally, and only then writes the new encrypted state. Cancellation is requested once per old run; if GitHub accepts the request but the run does not settle, the helper waits and escalates once to force-cancel instead of spamming repeated cancel requests. A failed switch leaves the previous encrypted state untouched and triggers a recovery start.
 
 The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
 
@@ -152,7 +152,7 @@ Cleanup is deliberately opt-in and refuses to run while managed jobs are active:
 
 ```bash
 ./scripts/agent-run.sh docker-storage prune          # dry-run/report only
-./scripts/agent-run.sh docker-storage prune --apply  # prune unused old cache/images
+./scripts/agent-run.sh docker-storage prune --apply  # prune unused old BuildKit cache
 ```
 
 `runner quick` checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub DNS/HTTPS, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests. `runner full` additionally performs Docker and FFmpeg/ImageMagick functional smoke tests. Docker validation builds a local `FROM scratch` image and runs it with no network, dropped capabilities, a read-only root filesystem, and tight CPU/memory/PID limits, so registry availability cannot false-fail the engine test. Runner reports are emitted as Markdown, JSON, and JUnit with stable failure categories: `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, and `MEDIA`; project validation uses `PROJECT` and `CLEANUP`.
@@ -207,7 +207,7 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
 - `scripts/agent-run.sh` — one-call entry point for workspace, jobs, checkpoints, GitHub access, readiness, cache cleanup, and toolchain operations.
-- `scripts/prepare-rdc-account-switch.sh` — safely settles the current/queued RDC Lab runs before an account rotation so encrypted state cannot race.
+- `scripts/prepare-rdc-account-switch.sh` — safely settles current/queued RDC Lab runs before account rotation with one normal cancel request per run, bounded wait/force-cancel fallback, and no repeated cancel spam.
 - RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
 
 Canonical prewarm files:
