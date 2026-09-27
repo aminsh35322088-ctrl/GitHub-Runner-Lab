@@ -1043,4 +1043,18 @@ printf corrupt > "$out"
         self.assertEqual(summary['failure_categories'],['RDC'])
 
 
+    def test_existing_heartbeat_workflow_automates_regressions_with_least_privilege(self):
+        workflow=(ROOT/'.github/workflows/repository-heartbeat.yml').read_text()
+        self.assertIn('push:',workflow)
+        self.assertIn('branches: [main]',workflow)
+        self.assertIn('pull_request:',workflow)
+        self.assertIn('run: ./scripts/agent-run.sh selftest',workflow)
+        self.assertIn('name: Check shell script syntax',workflow)
+        self.assertIn('python3 -m compileall -q scripts tests .github/scripts',workflow)
+        self.assertIn('permissions:\n  contents: read',workflow)
+        heartbeat=workflow.split('  heartbeat:',1)[1]
+        self.assertIn('contents: write',heartbeat)
+        self.assertIn("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",heartbeat)
+
+
 if __name__=='__main__': unittest.main()
