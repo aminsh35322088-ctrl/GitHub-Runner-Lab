@@ -1,20 +1,58 @@
 name: Repository Heartbeat
 
 on:
+  push:
+    branches: [main]
+
+  pull_request:
+
   schedule:
     - cron: '41 3 * * 0'
+
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: repository-heartbeat
-  cancel-in-progress: false
+  group: repository-automation-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
-  heartbeat:
+  regression:
+    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Run Lab regression suite
+        run: ./scripts/agent-run.sh selftest
+
+      - name: Check shell script syntax
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          for file in scripts/*.sh .github/scripts/*.sh; do
+            echo "bash -n ${file}"
+            bash -n "${file}" || status=1
+          done
+          exit "${status}"
+
+      - name: Byte-compile Python
+        run: python3 -m compileall -q scripts tests .github/scripts
+
+  heartbeat:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
