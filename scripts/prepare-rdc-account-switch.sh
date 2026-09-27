@@ -7,7 +7,7 @@ set -Eeuo pipefail
 
 WORKFLOW="${WORKFLOW:-rdc-lab.yml}"
 POLL_SECONDS="${RDC_SWITCH_POLL_SECONDS:-3}"
-FORCE_AFTER_SECONDS="${RDC_SWITCH_FORCE_AFTER_SECONDS:-15}"
+FORCE_AFTER_SECONDS="${RDC_SWITCH_FORCE_AFTER_SECONDS:-30}"
 MAX_POLLS="${RDC_SWITCH_MAX_POLLS:-60}"
 for value in "$POLL_SECONDS" "$FORCE_AFTER_SECONDS" "$MAX_POLLS"; do
   [[ "$value" =~ ^[0-9]+$ ]] || { echo "RDC switch timing values must be non-negative integers." >&2; exit 2; }
