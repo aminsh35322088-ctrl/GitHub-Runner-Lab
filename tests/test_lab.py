@@ -486,6 +486,14 @@ class LabTest(unittest.TestCase):
         self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | ./scripts/agent-github.sh install",workflow)
         self.assertIn('./scripts/agent-github.sh verify',workflow)
 
+    def test_tailscale_hostname_is_run_scoped_not_a_shared_literal(self):
+        workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
+        declared=[line for line in workflow.splitlines() if 'TAILSCALE_HOSTNAME:' in line]
+        self.assertEqual(len(declared),1,'TAILSCALE_HOSTNAME must be declared exactly once')
+        value=declared[0].split(':',1)[1].strip()
+        self.assertNotEqual(value,'GitHub-Lab','a shared literal collides with every other run')
+        self.assertIn('${{',value,'hostname must be computed per run, not shared across runs')
+
     def test_every_workflow_action_is_pinned_to_a_commit(self):
         for path in (ROOT/'.github/workflows').glob('*.yml'):
             for line in path.read_text().splitlines():
