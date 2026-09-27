@@ -486,13 +486,21 @@ class LabTest(unittest.TestCase):
         self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | ./scripts/agent-github.sh install",workflow)
         self.assertIn('./scripts/agent-github.sh verify',workflow)
 
-    def test_tailscale_hostname_is_run_scoped_not_a_shared_literal(self):
+    def test_tailscale_handoff_keeps_stable_name_and_disconnects_before_successor(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
         declared=[line for line in workflow.splitlines() if 'TAILSCALE_HOSTNAME:' in line]
         self.assertEqual(len(declared),1,'TAILSCALE_HOSTNAME must be declared exactly once')
-        value=declared[0].split(':',1)[1].strip()
-        self.assertNotEqual(value,'GitHub-Lab','a shared literal collides with every other run')
-        self.assertIn('${{',value,'hostname must be computed per run, not shared across runs')
+        self.assertEqual(declared[0].split(':',1)[1].strip(),'GitHub-Lab')
+        cleanup=workflow.find('- name: Disconnect Tailscale before handoff')
+        queue=workflow.find('- name: Queue Successor Run')
+        self.assertGreaterEqual(cleanup,0,'explicit Tailscale cleanup step is required')
+        self.assertGreater(queue,cleanup,'Tailscale must disconnect before successor handoff')
+        self.assertIn('./scripts/stop-tailscale.sh',workflow[cleanup:queue])
+        keepalive=(SCRIPTS/'keepalive.sh').read_text()
+        stop_at=keepalive.find('./scripts/stop-tailscale.sh')
+        queue_at=keepalive.find('bash .github/scripts/ensure-rdc-lab.sh')
+        self.assertGreaterEqual(stop_at,0)
+        self.assertGreater(queue_at,stop_at,'keepalive must logout Tailscale before pre-queueing a successor')
 
     def test_every_workflow_action_is_pinned_to_a_commit(self):
         for path in (ROOT/'.github/workflows').glob('*.yml'):
