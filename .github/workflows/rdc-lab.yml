@@ -24,7 +24,7 @@ env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
   RDC_VERSION: 0.2.51
-  TAILSCALE_HOSTNAME: GitHub-Lab-${{ github.run_id }}
+  TAILSCALE_HOSTNAME: GitHub-Lab
 
 jobs:
   account-switch:
@@ -345,11 +345,20 @@ jobs:
           ./scripts/agent-prewarm.sh --background
           ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
+      # Remove the ephemeral node before any successor is released. The action's
+      # post hook repeats logout as a second cleanup layer, but this early step
+      # protects normal handoff and cancellation from stale MagicDNS entries.
+      - name: Disconnect Tailscale before handoff
+        id: tailscale_cleanup
+        if: ${{ always() && steps.tailscale.outputs.ready == 'true' }}
+        shell: bash
+        run: ./scripts/stop-tailscale.sh
+
       # Same handover model as the proven Tailscale Exit Node: queue the successor
       # while this run still owns the concurrency group.
       - name: Queue Successor Run
         id: handover
-        if: ${{ always() && steps.verify.outputs.ready == 'true' }}
+        if: ${{ always() && steps.verify.outputs.ready == 'true' && (steps.tailscale.outputs.ready != 'true' || steps.tailscale_cleanup.outcome == 'success') }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}
