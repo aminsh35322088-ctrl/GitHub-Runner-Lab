@@ -19,6 +19,14 @@ class RdcTailscaleIntegrationTest(unittest.TestCase):
         self.assertIn("secrets.TS_OAUTH_SECRET", self.runner)
         self.assertIn("Validate Tailscale OAuth secrets", self.runner)
 
+    def test_runner_uses_stable_hostname_and_early_logout(self):
+        self.assertIn("TAILSCALE_HOSTNAME: GitHub-Lab", self.text)
+        self.assertNotIn("GitHub-Lab-${{ github.run_id }}", self.text)
+        cleanup = self.runner.index("- name: Disconnect Tailscale before handoff")
+        handoff = self.runner.index("- name: Queue Successor Run")
+        self.assertLess(cleanup, handoff)
+        self.assertIn("./scripts/stop-tailscale.sh", self.runner[cleanup:handoff])
+
     def test_runner_joins_tailnet_without_becoming_exit_node(self):
         self.assertIn("tags: tag:ssh", self.runner)
         self.assertIn("hostname: ${{ env.TAILSCALE_HOSTNAME }}", self.runner)
