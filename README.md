@@ -55,7 +55,7 @@ Startup is intentionally ordered for fast remote access:
 
 Heavy package installation therefore never blocks initial RDC connectivity.
 
-After RDC is healthy, the workflow also connects the runner to the same Tailnet using the official Tailscale GitHub Action, enables Tailscale SSH, verifies that the node is online, and records its Tailscale IPv4 address in the GitHub job summary. These CI nodes are ephemeral and are removed automatically after the workflow finishes.
+After RDC is healthy, the workflow also connects the runner to the same Tailnet using the official Tailscale GitHub Action, enables Tailscale SSH, verifies that the node is online, and records its Tailscale IPv4 address in the GitHub job summary. The node is ephemeral, but handoff now logs it out explicitly before releasing a successor; the action post-hook repeats cleanup as a fallback. This keeps the stable `GitHub-Lab` MagicDNS name from accumulating duplicate active/stale nodes.
 
 ## RDC state
 
@@ -67,7 +67,7 @@ The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random 
 
 The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
 
-Tailscale uses the repository secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. Use a dedicated Tailscale OAuth client for this Runner with `auth_keys: write` and only `tag:ssh`. The Runner workflow never advertises exit-node routes; it joins the Tailnet as `GitHub-Lab-<run id>` so every ephemeral runner registers its own Tailscale node name instead of colliding with a previous or concurrent run, and enables Tailscale SSH explicitly after connection.
+Tailscale uses the repository secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. Use a dedicated Tailscale OAuth client for this Runner with `auth_keys: write` and only `tag:ssh`. The Runner workflow never advertises exit-node routes; it joins the Tailnet with the stable hostname `GitHub-Lab` and enables Tailscale SSH explicitly. Before a successor is released, `stop-tailscale.sh` logs out the current ephemeral node so Tailscale removes it immediately and the next runner can reuse the same MagicDNS name without duplicates.
 
 `RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For broad Agent GitHub access, store the fine-grained PAT as the `AGENT_GITHUB_TOKEN` repository secret. After RDC becomes healthy, the workflow consumes that secret once through stdin, logs the `runner` user into GitHub CLI, and configures Git to use GitHub CLI as its credential helper. Fresh RDC/Agent shells therefore use normal `gh` and `git` commands without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` environment variables. The bootstrap step verifies the GitHub API identity and an end-to-end Git credential lookup before continuing. The secret is never written to repository config, checkpoints, caches, or command-line arguments. Normal checkout and lifecycle writes continue to use the workflow `GITHUB_TOKEN` where applicable.
 
@@ -213,6 +213,7 @@ Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser 
 - `scripts/agent-doctor.sh` — compact machine/repository context report.
 - `scripts/agent-run.sh` — one-call entry point for workspace, jobs, checkpoints, GitHub access, readiness, cache cleanup, and toolchain operations.
 - `scripts/prepare-rdc-account-switch.sh` — safely settles current/queued RDC Lab runs before account rotation with one normal cancel request per run, bounded wait/force-cancel fallback, and no repeated cancel spam.
+- `scripts/stop-tailscale.sh` — idempotently logs out the ephemeral `GitHub-Lab` node before handoff so the stable MagicDNS name is released before a successor starts.
 - RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
 
 Canonical prewarm files:
