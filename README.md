@@ -234,7 +234,7 @@ The Lab's own regression suite lives in `tests/` and uses only the Python standa
 ./scripts/agent-run.sh selftest
 ```
 
-For Lab changes, follow the direct validation contract in `AGENTS.md`: run the regression suite, shell/Python syntax checks, `git diff --check`, and `./scripts/agent-run.sh validate runner quick` on the Runner itself. This keeps validation deterministic without introducing a separate CI workflow solely for tests.
+For Lab changes, follow the direct validation contract in `AGENTS.md`: run the regression suite, shell/Python syntax checks, `git diff --check`, and `./scripts/agent-run.sh validate runner quick` on the Runner itself. In addition, the existing `Repository Heartbeat` workflow runs the regression suite plus shell/Python syntax checks automatically on every pull request and push to `main`; its regression job has only `contents: read`, while the heartbeat job receives `contents: write` only on schedule/manual runs. This keeps automated regression coverage without adding a separate validation-only workflow.
 
 Workspace reference inspection requires **Git 2.43 or newer**, because it probes references with `git show-ref --exists`. On an older Git the suite fails with an explicit version message rather than a misleading reference-corruption error.
 
