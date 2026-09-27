@@ -34,6 +34,10 @@ queue_successor() {
   if [[ "$SUCCESSOR_QUEUED" == "true" ]]; then
     return 0
   fi
+  if ! ./scripts/stop-tailscale.sh; then
+    echo "::warning::Tailscale cleanup was not confirmed; refusing to pre-queue a successor."
+    return 1
+  fi
   if [[ -z "${GH_TOKEN:-}" || -z "${REPO:-}" ]]; then
     echo "::warning::GitHub Actions credentials are unavailable inside keepalive; the normal handover/watchdog step will queue the successor."
     return 0
