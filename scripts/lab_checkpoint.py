@@ -88,12 +88,22 @@ def snapshot(reason):
         try:
             for repo, recovery_name in repositories():
                 head = git(repo, 'rev-parse', 'HEAD')
+                if git(repo, 'rev-parse', '--is-shallow-repository') == 'true':
+                    raise RuntimeError(
+                        f'Shallow checkout cannot be checkpointed safely: {repo}. '
+                        'Run git fetch --unshallow in that workspace before saving.'
+                    )
                 if git(repo, 'ls-files', '-u'):
                     raise RuntimeError(f'Unmerged index in {repo}; resolve or save it explicitly first')
                 dest = out / recovery_name
                 dest.mkdir(mode=0o700)
                 # Full bundle makes recovery independent of origin availability or upstream configuration.
                 run(['git', '-C', repo, 'bundle', 'create', dest / 'repository.bundle', '--all', 'HEAD'])
+                with tempfile.TemporaryDirectory() as probe_root:
+                    probe = run(['git', 'clone', '--quiet', dest / 'repository.bundle',
+                                 Path(probe_root) / 'repository'], check=False)
+                    if probe.returncode:
+                        raise RuntimeError(f'Checkpoint bundle is incomplete for {repo}; durable save refused')
                 for filename, args in [('index.patch', ['diff', '--binary', '--cached', 'HEAD']),
                                        ('worktree.patch', ['diff', '--binary'])]:
                     patch_data = run(['git', '-C', repo, *args]).stdout
@@ -179,7 +189,18 @@ def resume(source, destination):
             if Path(name).name != name or name in ('.', '..'):
                 raise RuntimeError('Invalid repository name')
             snap, repo = source / name, stage / name
-            run(['git', 'clone', snap / 'repository.bundle', repo])
+            clone = run(['git', 'clone', snap / 'repository.bundle', repo], check=False)
+            if clone.returncode:
+                if not info.get('remote'):
+                    raise RuntimeError(f'Incomplete checkpoint bundle for {name}; no remote recovery source')
+                # Legacy shallow bundles may be incomplete. Use their authenticated
+                # manifest's remote only when the exact saved commit is reachable.
+                shutil.rmtree(repo, ignore_errors=True)
+                run(['git', 'clone', '--no-checkout', info['remote'], repo])
+                if run(['git', '-C', repo, 'cat-file', '-e', f'{info["head"]}^{{commit}}'],
+                       check=False).returncode:
+                    raise RuntimeError(f'Saved commit is unavailable from remote for {name}')
+                print(f'RECOVERY_REMOTE_FALLBACK={name}')
             run(['git', '-C', repo, 'checkout', '--detach', info['head']])
             if info['branch']:
                 run(['git', '-C', repo, 'checkout', '-B', info['branch'], info['head']])

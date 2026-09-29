@@ -9,12 +9,17 @@ mkdir -p "$CACHE"
 exec 8>"$CACHE/checkpoint-sync.lock"
 flock -w 30 8
 action="${1:-save}"
+blocked="$CACHE/recovery.blocked"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 remote="$(git -C "$LAB_ROOT" remote get-url origin)"
 
 if [[ "$action" == restore ]]; then
+  touch "$blocked"
+  printf 'RECOVERY_STATUS=FAILED\nRECOVERY_MESSAGE=Durable checkpoint restore has not completed; saving is blocked.\n' > "$CACHE/recovery.env"
   if ! git -C "$LAB_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
+    rm -f "$blocked"
+    printf 'RECOVERY_STATUS=NONE\n' > "$CACHE/recovery.env"
     echo 'No durable checkpoint branch yet.'; exit 0
   fi
   git -C "$LAB_ROOT" fetch --quiet origin "$BRANCH"
@@ -24,6 +29,7 @@ if [[ "$action" == restore ]]; then
   snapshot="$destination/snapshot"
   recovered="${AGENT_RECOVERED_WORKSPACE_ROOT:-$HOME/agent-workspaces/recovered-${GITHUB_RUN_ID:-manual}-$(date +%s)}"
   python3 "$SELF_DIR/lab_checkpoint.py" resume "$snapshot" "$recovered"
+  rm -f "$blocked"
   {
     echo "RECOVERY_STATUS=READY"
     echo "RECOVERY_SOURCE=$snapshot"
@@ -35,6 +41,10 @@ if [[ "$action" == restore ]]; then
   exit 0
 fi
 [[ "$action" == save ]] || { echo 'Usage: checkpoint-sync.sh {save|restore}' >&2; exit 2; }
+if [[ -f "$blocked" ]]; then
+  echo 'Durable checkpoint save blocked: previous recovery failed; repair it before overwriting the saved snapshot.' >&2
+  exit 1
+fi
 "$SELF_DIR/agent-checkpoint.sh" "${2:-periodic}"
 "$SELF_DIR/package-agent-checkpoints.sh"
 archive="${AGENT_CHECKPOINT_ARTIFACT_DIR:-${GITHUB_WORKSPACE:-$PWD}/.agent-artifacts}/latest.enc"

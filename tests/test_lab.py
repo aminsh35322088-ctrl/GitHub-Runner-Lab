@@ -200,6 +200,50 @@ class LabTest(unittest.TestCase):
         self.assertEqual((recovered/'feature/new.ts').read_text(),'export const x = 1\n')
         self.assertFalse((recovered/'feature/token.txt').exists())
 
+    def test_shallow_checkout_cannot_replace_durable_checkpoint(self):
+        remote=self.base/'remote.git'
+        subprocess.run(['git','init','--bare','--initial-branch=main',remote],check=True,capture_output=True)
+        seed=self.base/'seed';init_repo(seed,remote)
+        (seed/'tracked.txt').write_text('second\n');git(seed,'add','.');git(seed,'commit','-m','second');git(seed,'push')
+        shallow=Path(self.env['AGENT_WORKSPACE_ROOT'])/'shallow'
+        subprocess.run(['git','clone','--depth=1',remote.as_uri(),shallow],check=True,capture_output=True)
+        result=command([SCRIPTS/'agent-checkpoint.sh','shallow'],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('shallow',result.stderr.lower())
+        self.assertFalse((Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').exists())
+
+    def test_legacy_shallow_bundle_recovers_from_verified_remote_head(self):
+        remote=self.base/'remote.git'
+        subprocess.run(['git','init','--bare','--initial-branch=main',remote],check=True,capture_output=True)
+        seed=self.base/'seed';init_repo(seed,remote)
+        (seed/'tracked.txt').write_text('second\n');git(seed,'add','.');git(seed,'commit','-m','second');git(seed,'push')
+        shallow=self.base/'shallow'
+        subprocess.run(['git','clone','--depth=1',remote.as_uri(),shallow],check=True,capture_output=True)
+        source=self.base/'legacy';snap=source/'repo';snap.mkdir(parents=True)
+        git(shallow,'bundle','create',str(snap/'repository.bundle'),'--all','HEAD')
+        (snap/'index.patch').write_bytes(b'')
+        (snap/'worktree.patch').write_bytes(b'')
+        (snap/'untracked').mkdir()
+        (snap/'untracked/probe.txt').write_text('restored\n')
+        head=git(shallow,'rev-parse','HEAD').stdout.strip()
+        lab_checkpoint.atomic(source/'manifest.json',{'version':2,'repositories':[
+            {'name':'repo','head':head,'branch':'main','remote':remote.as_uri()}]})
+        import hashlib
+        lab_checkpoint.atomic(source/'sha256.json',{
+            str(p.relative_to(source)):hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in source.rglob('*') if p.is_file()})
+        result=command([sys.executable,SCRIPTS/'lab_checkpoint.py','resume',source,self.base/'restored'],env=self.env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual((self.base/'restored/repo/probe.txt').read_text(),'restored\n')
+
+    def test_failed_recovery_blocks_durable_checkpoint_overwrite(self):
+        marker=Path(self.env['AGENT_KIT_CACHE_DIR'])/'recovery.blocked'
+        marker.touch()
+        result=command([SCRIPTS/'checkpoint-sync.sh','save','periodic'],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('previous recovery failed',result.stderr)
+        self.assertFalse((Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').exists())
+
     def test_checkpoint_fails_closed_on_secret_in_tracked_patch(self):
         repo = Path(self.env['AGENT_WORKSPACE_ROOT'])/'secret-patch'
         init_repo(repo)
