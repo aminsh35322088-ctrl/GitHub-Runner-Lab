@@ -73,8 +73,14 @@ def start(args):
                     f'New job refused: timeout={args.timeout}s + headroom={headroom}s '
                     f'exceeds lifecycle remaining={remaining}s'
                 )
-        if any(j['state'] in ('queued', 'running') and j['cwd'] == str(cwd) for j in all_jobs()):
+        active = [j for j in all_jobs() if j['state'] in ('queued', 'running')]
+        if any(j['cwd'] == str(cwd) for j in active):
             raise ValueError('This workspace already has an active managed job')
+        maximum = int(os.getenv('AGENT_MAX_CONCURRENT_JOBS', '3'))
+        if maximum < 1:
+            raise ValueError('AGENT_MAX_CONCURRENT_JOBS must be positive')
+        if len(active) >= maximum:
+            raise ValueError(f'Maximum concurrent managed jobs reached ({maximum})')
         job = time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8]
         d = directory(job); d.mkdir(mode=0o700)
         info = {'id': job, 'cwd': str(cwd), 'command_name': Path(command[0]).name, 'created': time.time(),
@@ -116,6 +122,17 @@ def process_rss(pid):
                 total += int(values[21]) * os.sysconf('SC_PAGE_SIZE')
         except (OSError, ValueError, IndexError): pass
     return total
+
+
+def active_group_members(pgid):
+    for path in Path('/proc').glob('[0-9]*/stat'):
+        try:
+            values = path.read_text().rsplit(')', 1)[1].split()
+            if values[0] != 'Z' and int(values[2]) == pgid:
+                return True
+        except (OSError, ValueError, IndexError):
+            pass
+    return False
 
 
 def worker(job):
@@ -178,7 +195,7 @@ def _run_worker(job, d, info):
             info.update(command_pid=p.pid, command_start=identity(p.pid))
             atomic(d / 'result.json', info)
             poller = selectors.DefaultSelector(); poller.register(p.stdout, selectors.EVENT_READ)
-            written = 0; truncated = False
+            written = 0; truncated = False; exited_at = None
             while p.poll() is None or poller.get_map():
                 for key, _ in poller.select(0.2):
                     chunk = os.read(key.fd, 65536)
@@ -189,7 +206,17 @@ def _run_worker(job, d, info):
                         log.write(chunk[:room]); written += min(room, len(chunk))
                     if len(chunk) > room: truncated = True
                 peak = max(peak, process_rss(p.pid))
-                if stopping is None and ((d / 'cancel').exists() or time.time()-info['started'] >= info['timeout']):
+                if p.poll() is not None and exited_at is None:
+                    exited_at = time.monotonic()
+                    if active_group_members(p.pid):
+                        if reason == 'completed': reason = 'descendants-after-exit'
+                        terminate_group(p.pid)
+                if exited_at is not None and time.monotonic() - exited_at > 1:
+                    if poller.get_map():
+                        if reason == 'completed': reason = 'output-pipe-held'
+                        poller.close()
+                    break
+                if stopping is None and p.poll() is None and ((d / 'cancel').exists() or time.time()-info['started'] >= info['timeout']):
                     reason = 'cancelled' if (d / 'cancel').exists() else 'timeout'
                     stopping = time.time(); terminate_group(p.pid)
                     if info['image']:
@@ -199,6 +226,7 @@ def _run_worker(job, d, info):
                     except ProcessLookupError: pass
             code = p.wait()
             terminate_group(p.pid)  # Do not leave daemonized descendants in this group.
+            p.stdout.close()
         if info['image']:
             inspect = subprocess.run(['docker', 'inspect', '--format', '{{json .State}}', container], capture_output=True, text=True)
             if inspect.returncode == 0: info['container_state'] = json.loads(inspect.stdout)

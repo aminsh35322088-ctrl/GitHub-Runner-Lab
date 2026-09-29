@@ -308,6 +308,34 @@ class LabTest(unittest.TestCase):
         report=json.loads(waited.stdout)
         self.assertEqual(report['state'],'failed');self.assertEqual(report['reason'],'timeout')
 
+    def test_managed_job_rejects_unbounded_global_concurrency(self):
+        env={**self.env,'AGENT_MAX_CONCURRENT_JOBS':'1'}
+        first=Path(env['AGENT_WORKSPACE_ROOT'])/'first';init_repo(first)
+        second=Path(env['AGENT_WORKSPACE_ROOT'])/'second';init_repo(second)
+        started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',first,'--timeout','10','--',
+                         'python3','-c','import time;time.sleep(3)'],env=env)
+        self.assertEqual(started.returncode,0,started.stderr)
+        denied=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',second,'--timeout','10','--',
+                        'true'],env=env)
+        self.assertNotEqual(denied.returncode,0)
+        self.assertIn('concurrent managed jobs',denied.stderr)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','stop',started.stdout.strip()],env=env)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','wait',started.stdout.strip()],env=env)
+
+    def test_managed_job_does_not_wait_for_background_pipe_holder(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
+        started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','3','--',
+                         'sh','-c','sleep 20 &'],env=self.env)
+        self.assertEqual(started.returncode,0,started.stderr)
+        job=started.stdout.strip()
+        try:
+            waited=command([sys.executable,SCRIPTS/'lab_jobs.py','wait',job],env=self.env,timeout=8)
+            report=json.loads(waited.stdout)
+            self.assertEqual(report['state'],'failed')
+            self.assertIn(report['reason'],('descendants-after-exit','output-pipe-held'))
+        finally:
+            command([sys.executable,SCRIPTS/'lab_jobs.py','stop',job],env=self.env)
+
     def test_managed_job_caps_captured_output(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
         result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',
