@@ -125,6 +125,8 @@ job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)
 
 Managed jobs start with a clean, isolated HOME. Host managed jobs receive only the non-secret paths to GitHub CLI's stored auth and a dedicated credential-helper-only Git config, so normal `gh`/HTTPS `git` work without token environment variables. Pass other required non-secret fixtures explicitly with `--pass-env NAME`; do not pass credentials manually. Container jobs intentionally do not inherit host GitHub credentials, default to `--network none`, drop Linux capabilities, and apply CPU, memory, swap, and PID limits. Completed reports and dependency caches older than 14 days are pruned only while no managed job is active.
 
+For untrusted repository code, require `job start --untrusted --image IMAGE`: never run it directly in the RDC shell or a trusted host job. Host job CPU/RAM values are admission reservations only; use container jobs when hard limits matter. Keep GitHub commits and pushes in a separate trusted host step after reviewing isolated job output. Do not pass credential-like variables with `--pass-env`.
+
 ## Heavy workloads
 
 This Lab is the preferred place for heavy local work when the target repository permits it, including:

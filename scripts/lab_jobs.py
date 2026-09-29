@@ -2,6 +2,7 @@
 """Detached, bounded jobs with durable reports and lifecycle drain."""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -12,7 +13,38 @@ import sys
 import time
 import uuid
 
-from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path
+from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path, workspace_root
+
+
+SECRET_NAME = re.compile(r'(^|_)(TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(_|$)')
+
+
+def memory_megabytes(value):
+    match = re.fullmatch(r'([1-9][0-9]*)([kKmMgG])', value)
+    if not match:
+        raise ValueError('Memory must be a positive size with k, m, or g suffix')
+    number, unit = int(match[1]), match[2].lower()
+    return math.ceil(number / 1024) if unit == 'k' else number * (1024 if unit == 'g' else 1)
+
+
+def positive_number(value, name):
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f'{name} must be finite and positive')
+    return number
+
+
+def memory_budget_mb():
+    total_kib = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
+                     if line.startswith('MemTotal:'))
+    return positive_number(os.getenv('AGENT_JOB_MEMORY_BUDGET_MB', str(int(total_kib * 0.7 / 1024))),
+                           'AGENT_JOB_MEMORY_BUDGET_MB')
+
+
+def available_memory_mb():
+    available_kib = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
+                         if line.startswith('MemAvailable:'))
+    return available_kib / 1024
 
 
 def root():
@@ -53,13 +85,21 @@ def start(args):
     command = args.command
     if command and command[0] == '--': command = command[1:]
     if not command: raise ValueError('A command after -- is required')
+    if args.untrusted and not args.image:
+        raise ValueError('Untrusted jobs require a container image (--image)')
     for name in args.pass_env:
         if not re.fullmatch(r'[A-Z][A-Z0-9_]*', name) or name not in os.environ:
             raise ValueError(f'Explicit environment variable is unavailable or invalid: {name}')
+        if SECRET_NAME.search(name):
+            raise ValueError(f'Credential environment passthrough is refused: {name}')
+    requested_memory = memory_megabytes(args.memory)
+    requested_cpus = positive_number(args.cpus, 'CPU reservation')
     if args.image and (args.image.startswith('-') or not re.fullmatch(r'[A-Za-z0-9._/:@-]+', args.image)):
         raise ValueError('Invalid container image')
     cwd = Path(args.cwd).resolve()
     if not cwd.is_dir(): raise ValueError('Invalid working directory')
+    if args.untrusted and (cwd == workspace_root() or not cwd.is_relative_to(workspace_root())):
+        raise ValueError('Untrusted container cwd must be a repository beneath the workspace root')
     with lock(kit() / 'jobs.lock'):
         lifecycle = runtime()
         state = lifecycle['state']
@@ -81,6 +121,17 @@ def start(args):
             raise ValueError('AGENT_MAX_CONCURRENT_JOBS must be positive')
         if len(active) >= maximum:
             raise ValueError(f'Maximum concurrent managed jobs reached ({maximum})')
+        cpu_budget = positive_number(os.getenv('AGENT_JOB_CPU_BUDGET', str(max(1, len(os.sched_getaffinity(0))-1))),
+                                     'AGENT_JOB_CPU_BUDGET')
+        if requested_cpus + sum(float(j.get('cpus', 1)) for j in active) > cpu_budget:
+            raise ValueError(f'New job exceeds CPU budget ({cpu_budget:g} cores)')
+        memory_budget = memory_budget_mb()
+        if requested_memory + sum(memory_megabytes(j.get('memory', '512m')) for j in active) > memory_budget:
+            raise ValueError(f'New job exceeds memory budget ({memory_budget:g} MiB)')
+        memory_headroom = positive_number(os.getenv('AGENT_JOB_MIN_FREE_MEMORY_MB', '2048'),
+                                          'AGENT_JOB_MIN_FREE_MEMORY_MB')
+        if available_memory_mb() < requested_memory + memory_headroom:
+            raise ValueError('New job refused: insufficient available memory after reservation')
         job = time.strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8]
         d = directory(job); d.mkdir(mode=0o700)
         info = {'id': job, 'cwd': str(cwd), 'command_name': Path(command[0]).name, 'created': time.time(),
@@ -89,7 +140,9 @@ def start(args):
                 'image': args.image, 'memory': args.memory, 'cpus': args.cpus,
                 'grace_seconds': args.grace_seconds,
                 'max_log_bytes': args.max_log_mb * 1024 * 1024,
-                'passed_environment': sorted(set(args.pass_env)), 'network': args.network}
+                'passed_environment': sorted(set(args.pass_env)), 'network': args.network,
+                'resource_enforcement': 'container' if args.image else 'admission-only',
+                'untrusted': args.untrusted}
         atomic(d / 'command.json', {'argv': command})
         atomic(d / 'result.json', info)
         env = clean_environment()
@@ -173,7 +226,8 @@ def _run_worker(job, d, info):
     if info['image']:
         # No host credentials, Docker socket, published ports or privileged mode.
         command = ['docker', 'run', '--name', container, '--network=' + info['network'], '--cap-drop=ALL',
-                   '--security-opt=no-new-privileges', '--pids-limit=256',
+                   '--security-opt=no-new-privileges', '--read-only',
+                   '--tmpfs=/tmp:rw,nosuid,nodev,size=256m', '--pids-limit=256',
                    '--memory=' + info['memory'], '--memory-swap=' + info['memory'],
                    '--cpus=' + str(info['cpus']), '--user', f'{os.getuid()}:{os.getgid()}',
                    '--mount', f'type=bind,src={info["cwd"]},dst=/workspace',
@@ -270,7 +324,8 @@ def main():
     a.add_argument('--max-log-mb', type=int, default=20)
     a.add_argument('--pass-env', action='append', default=[])
     a.add_argument('--network', choices=('none','bridge'), default='none')
-    a.add_argument('--image'); a.add_argument('--memory', default='512m'); a.add_argument('--cpus', type=float, default=1)
+    a.add_argument('--image'); a.add_argument('--untrusted', action='store_true')
+    a.add_argument('--memory', default='512m'); a.add_argument('--cpus', type=float, default=1)
     a.add_argument('command', nargs=argparse.REMAINDER)
     s.add_parser('list')
     for name in ('status', 'logs', 'stop', 'wait', '_worker'):

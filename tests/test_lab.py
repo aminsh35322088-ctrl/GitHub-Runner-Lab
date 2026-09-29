@@ -322,6 +322,63 @@ class LabTest(unittest.TestCase):
         command([sys.executable,SCRIPTS/'lab_jobs.py','stop',started.stdout.strip()],env=env)
         command([sys.executable,SCRIPTS/'lab_jobs.py','wait',started.stdout.strip()],env=env)
 
+    def test_managed_job_reserves_cpu_across_workspaces(self):
+        env={**self.env,'AGENT_JOB_CPU_BUDGET':'1.5'}
+        first=Path(env['AGENT_WORKSPACE_ROOT'])/'first';init_repo(first)
+        second=Path(env['AGENT_WORKSPACE_ROOT'])/'second';init_repo(second)
+        started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',first,'--cpus','1','--timeout','10',
+                         '--','python3','-c','import time;time.sleep(3)'],env=env)
+        self.assertEqual(started.returncode,0,started.stderr)
+        denied=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',second,'--cpus','1',
+                        '--timeout','10','--','true'],env=env)
+        self.assertNotEqual(denied.returncode,0)
+        self.assertIn('CPU budget',denied.stderr)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','stop',started.stdout.strip()],env=env)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','wait',started.stdout.strip()],env=env)
+
+    def test_managed_job_reserves_memory_across_workspaces(self):
+        env={**self.env,'AGENT_JOB_MEMORY_BUDGET_MB':'512'}
+        first=Path(env['AGENT_WORKSPACE_ROOT'])/'first';init_repo(first)
+        second=Path(env['AGENT_WORKSPACE_ROOT'])/'second';init_repo(second)
+        started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',first,'--memory','384m','--timeout','10',
+                         '--','python3','-c','import time;time.sleep(3)'],env=env)
+        self.assertEqual(started.returncode,0,started.stderr)
+        denied=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',second,'--memory','256m',
+                        '--timeout','10','--','true'],env=env)
+        self.assertNotEqual(denied.returncode,0)
+        self.assertIn('memory budget',denied.stderr)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','stop',started.stdout.strip()],env=env)
+        command([sys.executable,SCRIPTS/'lab_jobs.py','wait',started.stdout.strip()],env=env)
+
+    def test_managed_job_rejects_secret_passthrough_and_invalid_budgets(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
+        for flags,env in [(['--pass-env','GH_TOKEN'],{**self.env,'GH_TOKEN':'secret'}),
+                          (['--cpus','nan'],self.env),(['--memory','invalid'],self.env)]:
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,
+                            *flags,'--','true'],env=env)
+            self.assertNotEqual(result.returncode,0,(flags,result.stdout))
+        self.assertEqual(list(Path(self.env['AGENT_JOBS_DIR']).glob('*/result.json')),[])
+
+    def test_managed_job_refuses_host_under_memory_pressure(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
+        env={**self.env,'AGENT_JOB_MIN_FREE_MEMORY_MB':'999999999'}
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--','true'],env=env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('available memory',result.stderr)
+
+    def test_untrusted_managed_job_requires_container(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,
+                        '--untrusted','--','true'],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('container image',result.stderr)
+
+    def test_untrusted_managed_job_refuses_host_home_mount(self):
+        result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',self.base,
+                        '--untrusted','--image','local:test','--','true'],env=self.env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('workspace root',result.stderr)
+
     def test_managed_job_does_not_wait_for_background_pipe_holder(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
         started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','3','--',
