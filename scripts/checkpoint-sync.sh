@@ -17,11 +17,17 @@ remote="$(git -C "$LAB_ROOT" remote get-url origin)"
 if [[ "$action" == restore ]]; then
   touch "$blocked"
   printf 'RECOVERY_STATUS=FAILED\nRECOVERY_MESSAGE=Durable checkpoint restore has not completed; saving is blocked.\n' > "$CACHE/recovery.env"
-  if ! git -C "$LAB_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null; then
-    rm -f "$blocked"
-    printf 'RECOVERY_STATUS=NONE\n' > "$CACHE/recovery.env"
-    echo 'No durable checkpoint branch yet.'; exit 0
-  fi
+  ref_status=0
+  git -C "$LAB_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null || ref_status=$?
+  case "$ref_status" in
+    0) ;;
+    2)
+      rm -f "$blocked"
+      printf 'RECOVERY_STATUS=NONE\n' > "$CACHE/recovery.env"
+      echo 'No durable checkpoint branch yet.'; exit 0 ;;
+    *) echo "Durable checkpoint lookup failed (git exit $ref_status); saving remains blocked." >&2
+       exit "$ref_status" ;;
+  esac
   git -C "$LAB_ROOT" fetch --quiet origin "$BRANCH"
   git -C "$LAB_ROOT" show FETCH_HEAD:latest.enc > "$tmp/latest.enc"
   destination="${AGENT_RECOVERY_DIR:-$HOME/agent-recovery}/${GITHUB_RUN_ID:-manual}-$(date +%s)"

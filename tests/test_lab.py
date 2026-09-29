@@ -244,6 +244,16 @@ class LabTest(unittest.TestCase):
         self.assertIn('previous recovery failed',result.stderr)
         self.assertFalse((Path(self.env['AGENT_CHECKPOINT_DIR'])/'latest').exists())
 
+    def test_remote_error_does_not_look_like_missing_checkpoint_branch(self):
+        bindir=self.base/'bin';bindir.mkdir()
+        shim=bindir/'git'
+        shim.write_text('#!/bin/sh\ncase "$*" in *"remote get-url origin"*) echo file:///missing;; *) exit 128;; esac\n')
+        shim.chmod(0o755)
+        env={**self.env,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        result=command([SCRIPTS/'checkpoint-sync.sh','restore'],env=env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertTrue((Path(self.env['AGENT_KIT_CACHE_DIR'])/'recovery.blocked').exists())
+
     def test_checkpoint_fails_closed_on_secret_in_tracked_patch(self):
         repo = Path(self.env['AGENT_WORKSPACE_ROOT'])/'secret-patch'
         init_repo(repo)
