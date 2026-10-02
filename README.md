@@ -10,22 +10,22 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-02 06:51:21 UTC |
-| Last checked | 2026-10-02 06:51:21 UTC |
-| Runner/job started | 2026-10-02 05:59:38 UTC |
-| Keepalive started | 2026-10-02 06:00:28 UTC |
-| Runner age | 51 min |
-| Runner lifecycle remaining | 278 min |
+| Status freshness | ✅ current as of 2026-10-02 11:11:23 UTC |
+| Last checked | 2026-10-02 11:11:23 UTC |
+| Runner/job started | 2026-10-02 11:10:26 UTC |
+| Keepalive started | 2026-10-02 11:11:24 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-02 11:29:38 UTC |
-| Hard job timeout | 2026-10-02 11:49:38 UTC |
+| Nominal handoff | 2026-10-02 16:40:26 UTC |
+| Hard job timeout | 2026-10-02 17:00:26 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 100% (11 samples) |
 | Keepalive completion | 100% (7 samples) |
 | Handoff ≤15 min | 100% (10 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/36971382617) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/36971431226) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
