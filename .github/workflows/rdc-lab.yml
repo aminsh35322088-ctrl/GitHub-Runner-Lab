@@ -256,7 +256,7 @@ jobs:
       - name: Normalize root SSH sessions to runner
         if: steps.verify.outputs.ready == 'true'
         shell: bash
-        run: ./scripts/configure-ssh-user-alias.sh
+        run: bash ./scripts/configure-ssh-user-alias.sh
 
       - name: Enable and verify Tailscale SSH
         id: tailscale
