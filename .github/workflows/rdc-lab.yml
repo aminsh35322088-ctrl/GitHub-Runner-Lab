@@ -253,6 +253,11 @@ jobs:
           use-cache: "false"
           args: --accept-dns=false
 
+      - name: Normalize root SSH sessions to runner
+        if: steps.verify.outputs.ready == 'true'
+        shell: bash
+        run: ./scripts/configure-ssh-user-alias.sh
+
       - name: Enable and verify Tailscale SSH
         id: tailscale
         if: steps.verify.outputs.ready == 'true'
@@ -289,6 +294,7 @@ jobs:
             echo "- Hostname: `$TAILSCALE_HOSTNAME`"
             echo "- IPv4: `$TS_IPV4`"
             echo "- SSH: enabled"
+            echo "- SSH root compatibility: redirects to `runner`"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"
