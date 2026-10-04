@@ -27,6 +27,14 @@ class RdcTailscaleIntegrationTest(unittest.TestCase):
         self.assertLess(cleanup, handoff)
         self.assertIn("./scripts/stop-tailscale.sh", self.runner[cleanup:handoff])
 
+    def test_root_ssh_is_normalized_to_runner_before_ssh_is_enabled(self):
+        connect = self.runner.index("- name: Connect Tailscale")
+        normalize = self.runner.index("- name: Normalize root SSH sessions to runner")
+        enable = self.runner.index("- name: Enable and verify Tailscale SSH")
+        self.assertLess(connect, normalize)
+        self.assertLess(normalize, enable)
+        self.assertIn("./scripts/configure-ssh-user-alias.sh", self.runner[normalize:enable])
+
     def test_runner_joins_tailnet_without_becoming_exit_node(self):
         self.assertIn("tags: tag:ssh", self.runner)
         self.assertIn("hostname: ${{ env.TAILSCALE_HOSTNAME }}", self.runner)
