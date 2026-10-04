@@ -33,7 +33,7 @@ class RdcTailscaleIntegrationTest(unittest.TestCase):
         enable = self.runner.index("- name: Enable and verify Tailscale SSH")
         self.assertLess(connect, normalize)
         self.assertLess(normalize, enable)
-        self.assertIn("./scripts/configure-ssh-user-alias.sh", self.runner[normalize:enable])
+        self.assertIn("bash ./scripts/configure-ssh-user-alias.sh", self.runner[normalize:enable])
 
     def test_runner_joins_tailnet_without_becoming_exit_node(self):
         self.assertIn("tags: tag:ssh", self.runner)
