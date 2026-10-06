@@ -8,24 +8,24 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 | Item | Value |
 | :--- | :--- |
-| Runner state | 🟠 Handover in progress |
+| Runner state | 🟡 Runner starting · RDC not yet verified |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-06 01:41:20 UTC |
-| Last checked | 2026-10-06 01:41:20 UTC |
-| Runner/job started | 2026-10-06 01:40:53 UTC |
+| Status freshness | ✅ current as of 2026-10-06 01:53:59 UTC |
+| Last checked | 2026-10-06 01:53:59 UTC |
+| Runner/job started | 2026-10-06 01:53:07 UTC |
 | Keepalive started | — |
 | Runner age | 0 min |
 | Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-06 07:10:53 UTC |
-| Hard job timeout | 2026-10-06 07:30:53 UTC |
+| Nominal handoff | 2026-10-06 07:23:07 UTC |
+| Hard job timeout | 2026-10-06 07:43:07 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
-| RDC verification success | 82% (11 samples) |
-| Keepalive completion | 56% (9 samples) |
-| Handoff ≤15 min | 75% (8 samples) |
+| RDC verification success | 73% (11 samples) |
+| Keepalive completion | 50% (10 samples) |
+| Handoff ≤15 min | 71% (7 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/37400355631) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/37401403870) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
