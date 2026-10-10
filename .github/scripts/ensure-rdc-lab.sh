@@ -45,6 +45,21 @@ get_runs() {
   return 1
 }
 
+runner_job_started_at() {
+  local run_id="$1" json attempt
+  for attempt in 1 2 3; do
+    json="$(curl --connect-timeout 10 --max-time 30 -fsSL "${AUTH[@]}" \
+      "${RUN_API}/${run_id}/jobs?filter=latest&per_page=100" 2>/dev/null || true)"
+    if [ -n "$json" ] && jq -e '.jobs' >/dev/null 2>&1 <<<"$json"; then
+      jq -r '[.jobs[] | select(.name == "runner-lab" and .started_at != null)] | sort_by(.started_at) | last | .started_at // empty' <<<"$json"
+      return 0
+    fi
+    log "GitHub jobs API unreachable for run ${run_id}, retry ${attempt}/3..."
+    sleep $((attempt * 2))
+  done
+  return 1
+}
+
 cancel_run() {
   local run_id="$1" code
   if [ "$DRY_RUN" = "true" ]; then
@@ -170,7 +185,14 @@ main() {
   if [ "$active_count" -gt 0 ]; then
     local id created updated age silence
     id="$(jq -r '.[0].id' <<<"$active")"
-    created="$(jq -r '.[0].run_started_at // .[0].created_at' <<<"$active")"
+    if ! created="$(runner_job_started_at "$id")"; then
+      warn "Could not inspect runner-lab job timing for run ${id}; refusing to cancel on workflow age alone."
+      return 75
+    fi
+    if [ -z "$created" ]; then
+      log "Run ${id} has no started runner-lab job yet. Nothing to do."
+      return 0
+    fi
     updated="$(jq -r '.[0].updated_at' <<<"$active")"
     age="$(minutes_since "$created")"
     silence="$(minutes_since "$updated")"

@@ -481,6 +481,57 @@ class LabTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('DRY_RUN: would dispatch',result.stderr)
 
+    def test_watchdog_uses_runner_job_start_after_long_queue_delay(self):
+        bindir=self.base/'bin';bindir.mkdir()
+        (bindir/'sleep').write_text('#!/bin/sh\nexit 0\n')
+        now=dt.datetime.now(dt.timezone.utc)
+        iso=lambda minutes: (now-dt.timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        runs=json.dumps({'workflow_runs':[{'id':123,'status':'in_progress',
+            'run_started_at':iso(525),'created_at':iso(525),'updated_at':iso(30)}]})
+        jobs=json.dumps({'jobs':[{'name':'runner-lab','status':'in_progress','started_at':iso(100)}]})
+        curl_script = '#!/bin/sh\n' + (
+            'for arg in \"$@\"; do\n'
+            '  case \"$arg\" in\n'
+            f'    */actions/runs/123/jobs*) printf \'%s\\n\' \'{jobs}\'; exit 0 ;;\n'
+            '  esac\n'
+            'done\n'
+            f'printf \'%s\\n\' \'{runs}\'\n'
+        )
+        (bindir/'curl').write_text(curl_script)
+        for p in bindir.iterdir():p.chmod(0o755)
+        env={**self.env,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],'GH_TOKEN':'dummy',
+             'REPO':'x/y','DRY_RUN':'true','STALE_AGE_MINUTES':'375','STALE_UPDATE_MINUTES':'20'}
+        result=command([ROOT/'.github/scripts/ensure-rdc-lab.sh'],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('age=100m',result.stderr)
+        self.assertIn('RDC Lab is healthy. Nothing to do.',result.stderr)
+        self.assertNotIn('is stuck',result.stderr)
+
+    def test_watchdog_retries_runner_job_timing_api(self):
+        bindir=self.base/'bin';bindir.mkdir();marker=self.base/'jobs-marker'
+        (bindir/'sleep').write_text('#!/bin/sh\nexit 0\n')
+        now=dt.datetime.now(dt.timezone.utc)
+        iso=lambda minutes: (now-dt.timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        runs=json.dumps({'workflow_runs':[{'id':123,'status':'in_progress',
+            'run_started_at':iso(525),'created_at':iso(525),'updated_at':iso(30)}]})
+        jobs=json.dumps({'jobs':[{'name':'runner-lab','status':'in_progress','started_at':iso(100)}]})
+        curl_script = '#!/bin/sh\n' + (
+            'for arg in \"$@\"; do\n'
+            '  case \"$arg\" in\n'
+            f'    */actions/runs/123/jobs*) if [ ! -f \"{marker}\" ]; then touch \"{marker}\"; exit 7; fi; printf \'%s\\n\' \'{jobs}\'; exit 0 ;;\n'
+            '  esac\n'
+            'done\n'
+            f'printf \'%s\\n\' \'{runs}\'\n'
+        )
+        (bindir/'curl').write_text(curl_script)
+        for p in bindir.iterdir():p.chmod(0o755)
+        env={**self.env,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],'GH_TOKEN':'dummy',
+             'REPO':'x/y','DRY_RUN':'true','STALE_AGE_MINUTES':'375','STALE_UPDATE_MINUTES':'20'}
+        result=command([ROOT/'.github/scripts/ensure-rdc-lab.sh'],env=env)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('age=100m',result.stderr)
+        self.assertIn('RDC Lab is healthy. Nothing to do.',result.stderr)
+
     def test_reliability_uses_verified_ready_times_and_excludes_pending(self):
         spec=importlib.util.spec_from_file_location('readme_status',ROOT/'.github/scripts/readme-status.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
