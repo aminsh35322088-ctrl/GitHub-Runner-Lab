@@ -136,8 +136,8 @@
         "host": "github.com"
       },
       {
-        "kind": "http",
-        "url": "https://api.github.com"
+        "kind": "github_api",
+        "endpoint": "/rate_limit"
       }
     ],
     "advisory": [

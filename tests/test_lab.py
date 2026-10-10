@@ -560,8 +560,8 @@ class LabTest(unittest.TestCase):
         self.assertIn('AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh restore',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh save finalizer',workflow)
-        self.assertIn('uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830',workflow)
-        self.assertIn('uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830',workflow)
+        self.assertIn('uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',workflow)
+        self.assertIn('uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',workflow)
         self.assertIn('./scripts/agent-run.sh cache --apply --days 14',workflow)
         self.assertIn('./scripts/agent-github.sh remove',workflow)
         self.assertIn('20|21)',workflow)
@@ -691,6 +691,35 @@ class LabTest(unittest.TestCase):
         queue_at=keepalive.find('bash .github/scripts/ensure-rdc-lab.sh')
         self.assertGreaterEqual(stop_at,0)
         self.assertGreater(queue_at,stop_at,'keepalive must logout Tailscale before pre-queueing a successor')
+
+    def test_checkout_uses_current_node24_release(self):
+        expected = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+        uses = []
+        for workflow in sorted((ROOT / '.github/workflows').glob('*.yml')):
+            uses.extend(line.strip().split()[1] for line in workflow.read_text().splitlines()
+                        if line.strip().startswith('uses: actions/checkout@'))
+        self.assertTrue(uses)
+        self.assertTrue(all(item == expected for item in uses), uses)
+
+    def test_first_party_actions_use_node24_generations(self):
+        expected = {
+            'actions/setup-node': '820762786026740c76f36085b0efc47a31fe5020',
+            'actions/cache/restore': '55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+            'actions/cache/save': '55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+            'actions/upload-artifact': 'cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+        }
+        found = {}
+        for workflow in sorted((ROOT / '.github/workflows').glob('*.yml')):
+            for line in workflow.read_text().splitlines():
+                stripped = line.strip()
+                if not stripped.startswith('uses: actions/'):
+                    continue
+                spec = stripped.split()[1]
+                name, sha = spec.rsplit('@', 1)
+                if name in expected:
+                    found.setdefault(name, set()).add(sha)
+        self.assertEqual(set(found), set(expected))
+        self.assertEqual(found, {name: {sha} for name, sha in expected.items()})
 
     def test_every_workflow_action_is_pinned_to_a_commit(self):
         for path in (ROOT/'.github/workflows').glob('*.yml'):
@@ -936,7 +965,10 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
         hard,advisory=module.build_specs(toolset,home=self.base,cache=self.base/'cache',require_rdc=False)
         self.assertIn('github.com',hard['dns'])
-        self.assertIn('https://api.github.com',hard['http'])
+        self.assertNotIn('https://api.github.com',hard.get('http',{}))
+        self.assertIn('network_github_api',hard['command'])
+        self.assertIn('gh api /rate_limit --silent',hard['command']['network_github_api']['exec'])
+        self.assertEqual(module._resource_category('network_github_api','Command'),'NETWORK')
         self.assertIn('https://registry.npmjs.org',advisory['http'])
         rendered=json.dumps(hard)
         self.assertIn('disk_free_gb',rendered)

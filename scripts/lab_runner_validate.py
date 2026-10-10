@@ -80,6 +80,11 @@ def build_specs(toolset, *, home: Path, cache: Path, require_rdc: bool):
             }
         elif item.get("kind") == "http":
             hard["http"][item["url"]] = {"status": 200, "timeout": 5000}
+        elif item.get("kind") == "github_api":
+            endpoint = item.get("endpoint", "/rate_limit")
+            hard["command"]["network_github_api"] = _command(
+                f"gh api {endpoint} --silent >/dev/null", timeout=10000
+            )
 
     for item in toolset.get("network", {}).get("advisory", []):
         if item.get("kind") == "http":
@@ -95,6 +100,8 @@ def _resource_category(resource_id: str, resource_type: str):
         return "RDC"
     if resource_id.startswith("tool_") or resource_id == "node_version":
         return "TOOLCHAIN"
+    if resource_id.startswith("network_"):
+        return "NETWORK"
     if resource_type in ("DNS", "HTTP"):
         return "NETWORK"
     return "HOST"
