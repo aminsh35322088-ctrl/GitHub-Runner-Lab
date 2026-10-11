@@ -9,23 +9,23 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 | Item | Value |
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
-| Agent work mode | 🟠 RESTART WINDOW — checkpoint + rotate to a fresh runner |
-| Status freshness | ✅ current as of 2026-10-11 18:21:48 UTC |
-| Last checked | 2026-10-11 18:21:48 UTC |
-| Runner/job started | 2026-10-11 13:12:18 UTC |
-| Keepalive started | 2026-10-11 13:13:15 UTC |
-| Runner age | 309 min |
-| Runner lifecycle remaining | 20 min |
+| Agent work mode | 🟢 SAFE — normal work window |
+| Status freshness | ✅ current as of 2026-10-11 18:24:12 UTC |
+| Last checked | 2026-10-11 18:24:12 UTC |
+| Runner/job started | 2026-10-11 18:23:13 UTC |
+| Keepalive started | 2026-10-11 18:24:17 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-11 18:42:18 UTC |
-| Hard job timeout | 2026-10-11 19:02:18 UTC |
+| Nominal handoff | 2026-10-11 23:53:13 UTC |
+| Hard job timeout | 2026-10-12 00:13:13 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 100% (11 samples) |
 | Keepalive completion | 86% (7 samples) |
 | Handoff ≤15 min | 100% (10 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/38142215167) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/38142519716) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
