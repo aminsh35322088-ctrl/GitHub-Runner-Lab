@@ -6,7 +6,8 @@ on:
     types: [requested, in_progress, completed]
 
   schedule:
-    - cron: '*/10 * * * *'
+    # Keep the 10-minute cadence off minute 0 to reduce GitHub scheduler contention.
+    - cron: '3,13,23,33,43,53 * * * *'
 
   workflow_dispatch:
 

@@ -919,6 +919,10 @@ esac
         self.assertEqual(stats['keepalive_rate'],100)
         self.assertEqual(stats['keepalive_sample'],1)
 
+    def test_watchdog_schedule_avoids_hour_boundary_load(self):
+        workflow = (ROOT / '.github/workflows/rdc-watchdog.yml').read_text()
+        self.assertIn("- cron: '3,13,23,33,43,53 * * * *'", workflow)
+
     def test_readme_status_marks_stale_snapshots(self):
         spec=importlib.util.spec_from_file_location('readme_status_stale',ROOT/'.github/scripts/readme-status.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
