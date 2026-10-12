@@ -112,7 +112,7 @@ Validate the Lab runner separately from project policy:
 ./scripts/agent-run.sh validate full <workspace>
 ```
 
-`runner quick` is the prewarm readiness gate and covers host/toolchain/network/RDC acceptance plus native/CMake/Node/Python/Git smoke operations. `runner full` adds isolated Docker and media smoke tests. `validate full <workspace>` requires full runner validation before invoking the target repository's project contract. Treat `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, `MEDIA`, `PROJECT`, and `CLEANUP` as stable failure categories when triaging summaries.
+`runner quick` is the prewarm readiness gate and covers host/toolchain/network/RDC acceptance plus native/CMake/Node/Python/Git smoke operations. It also compiles/runs small Go, Rust/Cargo, and Java programs and lints a sample Actions workflow with actionlint. `runner full` adds isolated Docker and media smoke tests. `validate full <workspace>` requires full runner validation before invoking the target repository's project contract. Treat `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, `MEDIA`, `PROJECT`, and `CLEANUP` as stable failure categories when triaging summaries.
 
 Use `./scripts/agent-run.sh shell-help` before dropping to a raw shell. On a healthy Runner, GitHub authentication is transparent: use normal `gh`, HTTPS `git`, and `docker` commands for `ghcr.io` from any fresh RDC/Agent shell and do not search for or depend on `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`. `agent-run.sh github` remains only as a backward-compatible wrapper. Do not run raw `npm ci` against a workspace whose `node_modules` is a shared/materialized link.
 
@@ -152,13 +152,15 @@ The standard prewarm covers:
 - Git/GitHub CLI, curl/wget, jq/yq;
 - ripgrep, fd, fzf, tree, rsync, zip/unzip;
 - Python + venv/dev tooling;
+- Go, Rust/Cargo, and a headless Java JDK;
+- actionlint pinned to an official release and SHA-256 checksum;
 - build-essential, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS and common native headers;
 - shellcheck, sqlite, network/process diagnostics;
 - FFmpeg and ImageMagick;
 - hosted Node.js/npm recovery when PATH is incomplete.
 
-Large or uncommon SDKs remain on-demand, for example Android SDK, Rust toolchains, JDK variants, Playwright browser bundles, database servers, or project-specific SDKs. Install those only when a task actually requires them.
+Large or uncommon SDKs remain on-demand, for example Android SDKs, Playwright browser bundles, database servers, or project-specific SDKs. Install those only when a task actually requires them.
 
 ## Workspace safety
 

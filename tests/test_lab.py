@@ -1029,7 +1029,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         result=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
         self.assertEqual(result.returncode,0,result.stderr)
         commands=set(result.stdout.split())
-        for name in ('git','gh','node','npm','python3','cmake','ninja','clang','ffmpeg','convert','shellcheck'):
+        for name in ('git','gh','node','npm','python3','cmake','ninja','clang','ffmpeg','convert','shellcheck','go','rustc','cargo','java','javac','actionlint'):
             self.assertIn(name,commands)
         packages=command([sys.executable,SCRIPTS/'lab_toolset.py','packages','full'])
         self.assertEqual(packages.returncode,0,packages.stderr)
@@ -1038,6 +1038,8 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('ffmpeg',package_names)
         self.assertIn('pkg-config',package_names)
         self.assertIn('libssl-dev',package_names)
+        for name in ('golang-go','rustc','cargo','default-jdk-headless'):
+            self.assertIn(name,package_names)
 
         modules=command([sys.executable,SCRIPTS/'lab_toolset.py','pkg-config-modules','full'])
         self.assertEqual(modules.returncode,0,modules.stderr)
@@ -1055,6 +1057,19 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         bad=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','mips'])
         self.assertNotEqual(bad.returncode,0)
 
+    def test_toolset_manifest_pins_actionlint_release_by_architecture(self):
+        result=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','x86_64'])
+        self.assertEqual(result.returncode,0,result.stderr)
+        meta=json.loads(result.stdout)
+        self.assertEqual(meta['version'],'1.7.12')
+        self.assertEqual(meta['filename'],'actionlint_1.7.12_linux_amd64.tar.gz')
+        self.assertEqual(meta['sha256'],'8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8')
+        arm=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','aarch64'])
+        self.assertEqual(arm.returncode,0,arm.stderr)
+        self.assertEqual(json.loads(arm.stdout)['filename'],'actionlint_1.7.12_linux_arm64.tar.gz')
+        bad=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','mips'])
+        self.assertNotEqual(bad.returncode,0)
+
     def test_agent_lib_reads_commands_from_toolset_manifest(self):
         content=(SCRIPTS/'agent-lib.sh').read_text()
         self.assertIn('lab_toolset.py',content)
@@ -1063,6 +1078,9 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
     def test_bootstrap_reads_packages_from_toolset_manifest(self):
         content=(SCRIPTS/'agent-bootstrap.sh').read_text()
         self.assertIn('lab_toolset.py',content)
+        self.assertIn('lab_toolset.py" actionlint',content)
+        self.assertIn('sha256sum -c -',content)
+        self.assertIn('GITHUB_PATH',content)
         self.assertNotIn('CORE_PACKAGES=(',content)
         self.assertNotIn('BUILD_PACKAGES=(',content)
         self.assertNotIn('MEDIA_PACKAGES=(',content)
@@ -1163,9 +1181,10 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
     def test_smoke_profiles_are_bounded_and_manifest_complete(self):
         spec=importlib.util.spec_from_file_location('lab_smoke',SCRIPTS/'lab_smoke.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-        self.assertEqual(module.stage_names('quick'),['native','cmake_ninja','node','python','git'])
+        self.assertEqual(module.stage_names('quick'),
+                         ['native','cmake_ninja','node','python','git','dev_stack'])
         self.assertEqual(module.stage_names('full'),
-                         ['native','cmake_ninja','node','python','git','docker','media'])
+                         ['native','cmake_ninja','node','python','git','dev_stack','docker','media'])
         commands=command([sys.executable,SCRIPTS/'lab_toolset.py','commands','full'])
         self.assertEqual(commands.returncode,0,commands.stderr)
         self.assertIn('ffprobe',commands.stdout.split())
@@ -1315,10 +1334,13 @@ exit 0
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         expected={
             'native':'TOOLCHAIN','cmake_ninja':'TOOLCHAIN','node':'TOOLCHAIN',
-            'python':'TOOLCHAIN','git':'TOOLCHAIN','docker':'DOCKER','media':'MEDIA',
+            'python':'TOOLCHAIN','git':'TOOLCHAIN','dev_stack':'TOOLCHAIN',
+            'docker':'DOCKER','media':'MEDIA',
         }
         for stage,category in expected.items():
             self.assertEqual(module.stage_category(stage),category)
+        self.assertIn('dev_stack',module.stage_names('quick'))
+        self.assertIn('dev_stack',module.stage_names('full'))
 
     def test_project_validation_stages_are_categorized(self):
         workspace=self.base/'workspaces'/'categories';init_repo(workspace)

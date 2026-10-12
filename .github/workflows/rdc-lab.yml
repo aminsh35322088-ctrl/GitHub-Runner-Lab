@@ -291,10 +291,10 @@ jobs:
             echo "### Tailscale"
             echo
             echo "- Status: connected"
-            echo "- Hostname: `$TAILSCALE_HOSTNAME`"
-            echo "- IPv4: `$TS_IPV4`"
+            echo "- Hostname: $TAILSCALE_HOSTNAME"
+            echo "- IPv4: $TS_IPV4"
             echo "- SSH: enabled"
-            echo "- SSH root compatibility: redirects to `runner`"
+            echo "- SSH root compatibility: redirects to runner"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"

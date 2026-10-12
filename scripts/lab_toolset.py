@@ -11,7 +11,7 @@ def load_manifest(path=DEFAULT_MANIFEST):
     data = json.loads(Path(path).read_text())
     if data.get("schema_version") != 1:
         raise ValueError("unsupported runner toolset schema")
-    for key in ("toolchain_version", "profile_groups", "packages", "commands", "pkg_config_modules", "pkg_config_path", "goss"):
+    for key in ("toolchain_version", "profile_groups", "packages", "commands", "pkg_config_modules", "pkg_config_path", "goss", "actionlint"):
         if key not in data:
             raise ValueError(f"missing manifest key: {key}")
     return data
@@ -29,17 +29,26 @@ def expand(data, section, profile):
                 out.append(item)
     return out
 
-def goss_meta(data, arch):
+def _release_asset_meta(data, tool, arch):
     aliases = {"amd64": "x86_64", "x64": "x86_64", "arm64": "aarch64"}
     arch = aliases.get(arch, arch)
-    asset = data["goss"]["assets"].get(arch)
+    asset = data[tool]["assets"].get(arch)
     if not asset:
-        raise ValueError(f"unsupported goss architecture: {arch}")
+        raise ValueError(f"unsupported {tool} architecture: {arch}")
     return {
-        "version": data["goss"]["version"],
-        "base_url": data["goss"]["base_url"],
+        "version": data[tool]["version"],
+        "base_url": data[tool]["base_url"],
         **asset,
     }
+
+
+def goss_meta(data, arch):
+    return _release_asset_meta(data, "goss", arch)
+
+
+def actionlint_meta(data, arch):
+    return _release_asset_meta(data, "actionlint", arch)
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -52,6 +61,8 @@ def main():
     sub.add_parser("pkg-config-path")
     g = sub.add_parser("goss")
     g.add_argument("arch")
+    a = sub.add_parser("actionlint")
+    a.add_argument("arch")
     sub.add_parser("validate")
     args = p.parse_args()
     data = load_manifest(args.manifest)
@@ -64,6 +75,8 @@ def main():
         print(":".join(data["pkg_config_path"]))
     elif args.command == "goss":
         print(json.dumps(goss_meta(data, args.arch), sort_keys=True))
+    elif args.command == "actionlint":
+        print(json.dumps(actionlint_meta(data, args.arch), sort_keys=True))
     elif args.command == "validate":
         for profile in data["profile_groups"]:
             expand(data, "packages", profile)

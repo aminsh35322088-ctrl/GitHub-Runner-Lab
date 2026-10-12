@@ -16,7 +16,7 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 
 - **Remote agent access** through Remote Desktop Commander (RDC) and Tailscale SSH.
 - **Fast startup** by bringing remote access online before heavy toolchain prewarm completes.
-- **Prewarmed development tooling** for common Node, Python, C/C++, Git, Docker, diagnostics, and media workflows.
+- **Prewarmed development tooling** for Node, Python, Go, Rust, Java, C/C++, GitHub Actions linting, Docker, diagnostics, and media workflows.
 - **Transparent GitHub access** for normal `gh`, HTTPS `git`, and GHCR operations from trusted host sessions.
 - **Managed jobs** with timeouts, durable results, bounded logs, cancellation, concurrency control, and resource admission.
 - **Container isolation** for untrusted code with no inherited GitHub credentials, no Docker socket, no network by default, and enforced CPU/RAM/PID limits.
@@ -296,14 +296,15 @@ Recovery materializes repositories into a fresh recovery root, verifies the snap
 The full background prewarm covers the common coding/debugging stack rather than every possible SDK:
 
 - Git and GitHub CLI;
-- Node.js/npm and Python;
+- Node.js/npm, Python, Go, Rust/Cargo, and a headless Java JDK;
+- `actionlint` pinned to a release and SHA-256 checksum;
 - ripgrep/fd/fzf, jq/yq and common shell utilities;
 - C/C++ build tools, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS, SQLite, network/process diagnostics;
 - FFmpeg and ImageMagick;
 - Docker/BuildKit when supplied by the GitHub-hosted image.
 
-Large specialized environments such as Android SDKs, Rust toolchains, uncommon JDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
+Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
 
 The canonical machine/toolchain contract is [`config/runner-toolset.json`](config/runner-toolset.json). Bootstrap, readiness, doctor, and runner validation consume the same manifest so they do not maintain independent definitions of a healthy machine.
 
@@ -317,7 +318,7 @@ The Lab validates itself separately from target-project policy.
 ./scripts/agent-run.sh validate full /path/to/workspace
 ```
 
-`runner quick` is the normal readiness gate. It checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub connectivity, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests.
+`runner quick` is the normal readiness gate. It checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub connectivity, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests. It also builds and runs small Go, Rust/Cargo, and Java programs, then lint-checks a sample GitHub Actions workflow.
 
 `runner full` adds Docker and media smoke tests. Docker validation uses an isolated local image with no registry dependency, no network, dropped capabilities, a read-only root filesystem, and bounded resources.
 

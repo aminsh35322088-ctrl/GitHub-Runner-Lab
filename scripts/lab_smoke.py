@@ -11,7 +11,7 @@ import tempfile
 import time
 import uuid
 
-QUICK_STAGES = ["native", "cmake_ninja", "node", "python", "git"]
+QUICK_STAGES = ["native", "cmake_ninja", "node", "python", "git", "dev_stack"]
 FULL_STAGES = QUICK_STAGES + ["docker", "media"]
 
 
@@ -24,7 +24,7 @@ def stage_names(profile: str):
 
 
 def stage_category(name: str):
-    if name in ("native", "cmake_ninja", "node", "python", "git"):
+    if name in ("native", "cmake_ninja", "node", "python", "git", "dev_stack"):
         return "TOOLCHAIN"
     if name == "docker":
         return "DOCKER"
@@ -124,6 +124,53 @@ def _git(work: Path, log: list[str]):
     _run(["git", "lfs", "version"], cwd=repo, log=log)
 
 
+def _dev_stack(work: Path, log: list[str]):
+    go_dir = work / "go"
+    go_dir.mkdir()
+    (go_dir / "go.mod").write_text("module runner-smoke.invalid/dev\n\ngo 1.20\n")
+    (go_dir / "main.go").write_text(
+        'package main\nimport "fmt"\nfunc main(){fmt.Print("runner-go-smoke")}\n'
+    )
+    _run(["go", "run", "."], cwd=go_dir, log=log, timeout=60,
+         expected="runner-go-smoke")
+
+    rust_dir = work / "rust"
+    (rust_dir / "src").mkdir(parents=True)
+    (rust_dir / "Cargo.toml").write_text(
+        '[package]\nname = "runner_rust_smoke"\nversion = "0.1.0"\nedition = "2021"\n'
+    )
+    (rust_dir / "src" / "main.rs").write_text(
+        'fn main(){print!("runner-rust-smoke");}\n'
+    )
+    _run(["cargo", "run", "--offline", "--quiet"], cwd=rust_dir, log=log,
+         timeout=60, expected="runner-rust-smoke")
+
+    java_dir = work / "java"
+    java_dir.mkdir()
+    (java_dir / "Main.java").write_text(
+        'public class Main { public static void main(String[] args) { '
+        'System.out.print("runner-java-smoke"); } }\n'
+    )
+    _run(["javac", "Main.java"], cwd=java_dir, log=log, timeout=45)
+    _run(["java", "-cp", java_dir, "Main"], cwd=java_dir, log=log,
+         expected="runner-java-smoke")
+
+    workflow_dir = work / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "smoke.yml").write_text(
+        "name: runner smoke\n"
+        "on:\n"
+        "  push:\n"
+        "jobs:\n"
+        "  smoke:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo actionlint-smoke\n"
+    )
+    _run(["git", "init", "--quiet"], cwd=work, log=log)
+    _run(["actionlint"], cwd=work, log=log, timeout=30)
+
+
 def _docker(work: Path, log: list[str]):
     _run(["docker", "version"], cwd=work, log=log, timeout=20)
     _run(["docker", "buildx", "version"], cwd=work, log=log, timeout=20)
@@ -198,6 +245,7 @@ STAGES = {
     "node": _node,
     "python": _python,
     "git": _git,
+    "dev_stack": _dev_stack,
     "docker": _docker,
     "media": _media,
 }
