@@ -1,4 +1,4 @@
-// Version-specific adapter for pinned RDC 0.2.51. No package files are modified.
+// Runtime adapter for the currently installed RDC package. No package files are modified.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,8 +8,7 @@ const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
 const metadata = execFileSync('node', ['-e',
   `process.stdout.write(require(${JSON.stringify(join(root, '@wonderwhy-er/desktop-commander/package.json'))}).version)`
 ], { encoding: 'utf8' }).trim();
-const expected = process.env.RDC_VERSION || '0.2.51';
-if (metadata !== expected) throw new Error(`RDC version mismatch: expected ${expected}, got ${metadata}`);
+if (!metadata) throw new Error("RDC package version could not be read");
 const { MCPDevice } = await import(pathToFileURL(join(root, '@wonderwhy-er/desktop-commander/dist/remote-device/device.js')));
 const file = process.env.RDC_HEALTH_FILE || '/tmp/rdc-health.json';
 mkdirSync(dirname(file), { recursive: true });

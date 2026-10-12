@@ -297,7 +297,7 @@ The full background prewarm covers the common coding/debugging stack rather than
 
 - Git and GitHub CLI;
 - Node.js/npm, Python, Go, Rust/Cargo, and a headless Java JDK;
-- `actionlint` pinned to a release and SHA-256 checksum;
+- Node.js and the Remote Desktop Commander npm package install the latest stable release; `actionlint` and Goss resolve GitHub’s latest release at install time and verify the release asset SHA-256 digest;
 - ripgrep/fd/fzf, jq/yq and common shell utilities;
 - C/C++ build tools, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS, SQLite, network/process diagnostics;

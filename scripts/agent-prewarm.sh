@@ -18,11 +18,6 @@ if [[ "${1:-}" == "--background" ]]; then
   version="$(agent_status_value TOOLCHAIN_VERSION)"
   pid="$(agent_status_value PID)"
 
-  if [[ "$state" == "READY" && "$version" == "$TOOLCHAIN_VERSION" ]] && agent_full_toolchain_ready; then
-    echo "[agent-prewarm] Full toolchain is already ready (version=$TOOLCHAIN_VERSION)."
-    exit 0
-  fi
-
   if [[ "$state" == "RUNNING" && "$version" == "$TOOLCHAIN_VERSION" && -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
     echo "[agent-prewarm] Already running pid=$pid version=$version."
     exit 0

@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "config" / "runner-toolset.json"
@@ -29,25 +30,43 @@ def expand(data, section, profile):
                 out.append(item)
     return out
 
-def _release_asset_meta(data, tool, arch):
-    aliases = {"amd64": "x86_64", "x64": "x86_64", "arm64": "aarch64"}
-    arch = aliases.get(arch, arch)
-    asset = data[tool]["assets"].get(arch)
-    if not asset:
+def latest_release(data, tool):
+    repo = data[tool]["latest_release"]["repo"]
+    request = Request(
+        f"https://api.github.com/repos/{repo}/releases/latest",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "github-runner-lab"},
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            return json.load(response)
+    except Exception as error:
+        raise ValueError(f"could not resolve latest {tool} release from GitHub: {error}") from error
+
+
+def release_asset_meta(data, tool, arch, release):
+    config = data[tool]["latest_release"]
+    arch_name = config["architectures"].get(arch)
+    if not arch_name:
         raise ValueError(f"unsupported {tool} architecture: {arch}")
-    return {
-        "version": data[tool]["version"],
-        "base_url": data[tool]["base_url"],
-        **asset,
-    }
+    tag = release.get("tag_name", "")
+    version = tag[1:] if tag.startswith("v") else tag
+    if not version:
+        raise ValueError(f"latest {tool} release has no tag")
+    filename = config["asset_template"].format(version=version, arch=arch_name)
+    asset = next((item for item in release.get("assets", []) if item.get("name") == filename), None)
+    digest = (asset or {}).get("digest", "")
+    if not digest.startswith("sha256:") or len(digest) != 71:
+        raise ValueError(f"latest {tool} release asset {filename} has no GitHub SHA-256 digest")
+    base_url = f"https://github.com/{config['repo']}/releases/download/{tag}"
+    return {"version": version, "base_url": base_url, "filename": filename, "sha256": digest[7:]}
 
 
 def goss_meta(data, arch):
-    return _release_asset_meta(data, "goss", arch)
+    return release_asset_meta(data, "goss", arch, latest_release(data, "goss"))
 
 
 def actionlint_meta(data, arch):
-    return _release_asset_meta(data, "actionlint", arch)
+    return release_asset_meta(data, "actionlint", arch, latest_release(data, "actionlint"))
 
 
 def main():

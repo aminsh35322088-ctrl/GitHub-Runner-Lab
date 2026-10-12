@@ -555,7 +555,7 @@ class LabTest(unittest.TestCase):
 
     def test_workflow_wires_pinned_runtime_recovery_pat_and_final_checkpoint(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
-        self.assertIn('RDC_VERSION: 0.2.51',workflow)
+        self.assertNotIn('RDC_VERSION:',workflow)
         self.assertNotIn('desktop-commander@latest',workflow)
         self.assertIn('AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh restore',workflow)
@@ -1045,30 +1045,28 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertEqual(modules.returncode,0,modules.stderr)
         self.assertEqual(modules.stdout.split(),[])
 
-    def test_toolset_manifest_pins_goss_with_checksums(self):
-        result=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','x86_64'])
-        self.assertEqual(result.returncode,0,result.stderr)
-        meta=json.loads(result.stdout)
-        self.assertEqual(meta['version'],'0.4.10')
-        self.assertEqual(meta['sha256'],'26e365428946294bcec0c61d867bb3c8349f39feb3d0e6f59084e98632785cc7')
-        arm=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','aarch64'])
-        self.assertEqual(arm.returncode,0,arm.stderr)
-        self.assertEqual(json.loads(arm.stdout)['sha256'],'90a59612b4d67d9f1a9038634c000790136bb82526a69de1e81ac075c2f6d2c6')
-        bad=command([sys.executable,SCRIPTS/'lab_toolset.py','goss','mips'])
-        self.assertNotEqual(bad.returncode,0)
+    def test_toolset_release_assets_are_resolved_from_latest_with_checksums(self):
+        data=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        for name,repo in [('goss','goss-org/goss'),('actionlint','rhysd/actionlint')]:
+            self.assertEqual(data[name]['latest_release']['repo'],repo)
+            self.assertIn('{version}',data[name]['latest_release']['asset_template'])
+        from lab_toolset import release_asset_meta
+        release={'tag_name':'v9.8.7','assets':[{'name':'actionlint_9.8.7_linux_amd64.tar.gz','digest':'sha256:'+'a'*64}]}
+        meta=release_asset_meta(data,'actionlint','x86_64',release)
+        self.assertEqual(meta['version'],'9.8.7')
+        self.assertEqual(meta['filename'],'actionlint_9.8.7_linux_amd64.tar.gz')
+        self.assertEqual(meta['sha256'],'a'*64)
+        with self.assertRaises(ValueError): release_asset_meta(data,'actionlint','mips',release)
+        with self.assertRaises(ValueError): release_asset_meta(data,'actionlint','x86_64',{'tag_name':'v1','assets':[]})
 
-    def test_toolset_manifest_pins_actionlint_release_by_architecture(self):
-        result=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','x86_64'])
-        self.assertEqual(result.returncode,0,result.stderr)
-        meta=json.loads(result.stdout)
-        self.assertEqual(meta['version'],'1.7.12')
-        self.assertEqual(meta['filename'],'actionlint_1.7.12_linux_amd64.tar.gz')
-        self.assertEqual(meta['sha256'],'8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8')
-        arm=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','aarch64'])
-        self.assertEqual(arm.returncode,0,arm.stderr)
-        self.assertEqual(json.loads(arm.stdout)['filename'],'actionlint_1.7.12_linux_arm64.tar.gz')
-        bad=command([sys.executable,SCRIPTS/'lab_toolset.py','actionlint','mips'])
-        self.assertNotEqual(bad.returncode,0)
+    def test_tool_versions_are_not_pinned_in_workflow_or_toolset(self):
+        data=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
+        self.assertNotIn('expected',data['node'])
+        self.assertNotIn('RDC_VERSION:',workflow)
+        self.assertNotIn('22.14.0',workflow)
+        self.assertIn('node-version: latest',workflow)
+        self.assertIn('npm install --global @wonderwhy-er/desktop-commander',workflow)
 
     def test_agent_lib_reads_commands_from_toolset_manifest(self):
         content=(SCRIPTS/'agent-lib.sh').read_text()
@@ -1101,10 +1099,11 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('disk_free_gb',rendered)
         self.assertIn('inode_free_percent',rendered)
         self.assertIn('command -v git',rendered)
-        self.assertIn('node --version',rendered)
+        self.assertIn('command -v node',rendered)
+        self.assertNotIn('node --version',rendered)
         self.assertNotIn('pkg-config --exists',rendered)
 
-    def test_runner_validation_node_check_pins_major_not_patch(self):
+    def test_runner_validation_supports_optional_node_major_check(self):
         spec=importlib.util.spec_from_file_location('lab_runner_validate',SCRIPTS/'lab_runner_validate.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())
@@ -1154,10 +1153,10 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         result=command([SCRIPTS/'install-goss.sh'],env={**self.env,'GOSS_ARCH':'mips'})
         self.assertNotEqual(result.returncode,0)
         self.assertIn('unsupported goss architecture',result.stderr)
-        self.assertNotIn('latest',(SCRIPTS/'install-goss.sh').read_text())
+        self.assertIn('lab_toolset.py', (SCRIPTS/'install-goss.sh').read_text())
 
 
-    def test_goss_v0410_dns_spec_uses_supported_attributes_only(self):
+    def test_latest_goss_dns_spec_uses_supported_attributes_only(self):
         spec=importlib.util.spec_from_file_location('lab_runner_validate_compat',SCRIPTS/'lab_runner_validate.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         toolset=json.loads((ROOT/'config/runner-toolset.json').read_text())

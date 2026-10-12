@@ -119,37 +119,29 @@
   },
   "pkg_config_path": [],
   "node": {
-    "expected": "22.14.0"
+    "source": "actions/setup-node latest stable"
   },
   "thresholds": {
     "disk_free_gb": 10,
     "inode_free_percent": 5
   },
   "actionlint": {
-    "version": "1.7.12",
-    "base_url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12",
-    "assets": {
-      "x86_64": {
-        "filename": "actionlint_1.7.12_linux_amd64.tar.gz",
-        "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-      },
-      "aarch64": {
-        "filename": "actionlint_1.7.12_linux_arm64.tar.gz",
-        "sha256": "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+    "latest_release": {
+      "repo": "rhysd/actionlint",
+      "asset_template": "actionlint_{version}_linux_{arch}.tar.gz",
+      "architectures": {
+        "x86_64": "amd64",
+        "aarch64": "arm64"
       }
     }
   },
   "goss": {
-    "version": "0.4.10",
-    "base_url": "https://github.com/goss-org/goss/releases/download/v0.4.10",
-    "assets": {
-      "x86_64": {
-        "filename": "goss_0.4.10_linux_x86_64.tar.gz",
-        "sha256": "26e365428946294bcec0c61d867bb3c8349f39feb3d0e6f59084e98632785cc7"
-      },
-      "aarch64": {
-        "filename": "goss_0.4.10_linux_arm64.tar.gz",
-        "sha256": "90a59612b4d67d9f1a9038634c000790136bb82526a69de1e81ac075c2f6d2c6"
+    "latest_release": {
+      "repo": "goss-org/goss",
+      "asset_template": "goss_{version}_linux_{arch}.tar.gz",
+      "architectures": {
+        "x86_64": "x86_64",
+        "aarch64": "arm64"
       }
     }
   },

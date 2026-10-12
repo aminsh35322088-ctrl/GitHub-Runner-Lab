@@ -153,7 +153,7 @@ The standard prewarm covers:
 - ripgrep, fd, fzf, tree, rsync, zip/unzip;
 - Python + venv/dev tooling;
 - Go, Rust/Cargo, and a headless Java JDK;
-- actionlint pinned to an official release and SHA-256 checksum;
+- actionlint and Goss resolve the latest official GitHub release at install time and verify the asset SHA-256 digest; Node.js and the RDC npm package use their latest stable releases; keep GitHub Actions pinned to immutable commit SHAs;
 - build-essential, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS and common native headers;
 - shellcheck, sqlite, network/process diagnostics;

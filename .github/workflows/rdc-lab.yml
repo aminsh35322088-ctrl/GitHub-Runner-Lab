@@ -23,7 +23,6 @@ permissions:
 env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
-  RDC_VERSION: 0.2.51
   TAILSCALE_HOSTNAME: GitHub-Lab
 
 jobs:
@@ -46,7 +45,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.14.0'
+          node-version: latest
 
       - name: Prepare scripts
         shell: bash
@@ -63,7 +62,7 @@ jobs:
           fi
 
       - name: Install Remote Desktop Commander
-        run: npm install --global "@wonderwhy-er/desktop-commander@$RDC_VERSION"
+        run: npm install --global @wonderwhy-er/desktop-commander
 
       - name: Safely stop the current RDC Lab
         env:
@@ -153,7 +152,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22.14.0'
+          node-version: latest
 
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
@@ -204,7 +203,7 @@ jobs:
 
       - name: Install Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
-        run: npm install --global "@wonderwhy-er/desktop-commander@$RDC_VERSION"
+        run: npm install --global @wonderwhy-er/desktop-commander
 
       - name: Authorize RDC account
         id: authorize

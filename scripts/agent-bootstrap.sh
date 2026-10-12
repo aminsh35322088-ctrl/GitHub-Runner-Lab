@@ -21,20 +21,9 @@ esac
 
 mapfile -t PACKAGES < <(python3 "$SELF_DIR/lab_toolset.py" packages "$PROFILE")
 
-missing=()
-for pkg in "${PACKAGES[@]}"; do
-  if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-    missing+=("$pkg")
-  fi
-done
-
-if (("${#missing[@]}" > 0)); then
-  echo "[agent-bootstrap] profile=$PROFILE installing: ${missing[*]}"
-  sudo apt-get update -qq
-  sudo apt-get install -y --no-install-recommends "${missing[@]}"
-else
-  echo "[agent-bootstrap] profile=$PROFILE already satisfied."
-fi
+echo "[agent-bootstrap] profile=$PROFILE updating installed tools to current distro packages."
+sudo apt-get update -qq
+sudo apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
 if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
   ln -sfn "$(command -v fdfind)" "$LOCAL_BIN/fd"
