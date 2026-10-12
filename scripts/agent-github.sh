@@ -24,10 +24,10 @@ install_docker_helper() {
   source="$(cd "$(dirname "$0")" && pwd -P)/docker-credential-github-cli"
   target="$(docker_helper_path)"
   parent="$(dirname "$target")"
-  if [[ -w "$parent" ]]; then
+  if [[ -n "${AGENT_GITHUB_DOCKER_HELPER:-}" ]]; then
     install -m 755 "$source" "$target"
   else
-    sudo install -m 755 "$source" "$target"
+    sudo install -o root -g root -m 755 "$source" "$target"
   fi
   config="$(docker_config_file)"
   python3 - "$config" <<'PYCONF'
@@ -82,7 +82,7 @@ if isinstance(helpers, dict) and helpers.get('ghcr.io') == 'github-cli':
 PYCONF
   fi
   if [[ -e "$target" ]]; then
-    if [[ -w "$(dirname "$target")" ]]; then rm -f "$target"; else sudo rm -f "$target"; fi
+    if [[ -n "${AGENT_GITHUB_DOCKER_HELPER:-}" ]]; then rm -f "$target"; else sudo rm -f "$target"; fi
   fi
 }
 

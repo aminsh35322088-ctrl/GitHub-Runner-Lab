@@ -595,14 +595,17 @@ class LabTest(unittest.TestCase):
             '  "auth setup-git") test -f "$HOME/.config/gh/authenticated"; git config --global credential.https://github.com.helper "!gh auth git-credential"; printf "ok\\n" > "$HOME/.config/gh/git-setup" ;;',
             '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
             '  "auth git-credential") test -f "$HOME/.config/gh/authenticated"; cat >/dev/null; printf "username=x-access-token\\npassword=fake-token\\n" ;;',
+            '  "auth token") test -f "$HOME/.config/gh/authenticated"; printf "fake-package-token\\n" ;;',
             '  "auth logout") rm -f "$HOME/.config/gh/authenticated" ;;',
-            '  "api user") test -f "$HOME/.config/gh/authenticated"; printf "octocat\\n" ;;',
+            '  "api user") test -f "$HOME/.config/gh/authenticated"; if printf "%s\\n" "$*" | grep -q -- "--include"; then printf "HTTP/2.0 200 OK\\r\\nx-oauth-scopes: repo, read:packages, write:packages\\r\\n\\r\\n{}\\n"; else printf "octocat\\n"; fi ;;',
             '  *) exit 0 ;;',
             "esac",
             ""
         ]))
         fake_gh.chmod(0o755)
-        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+             'AGENT_GITHUB_DOCKER_HELPER':self.base/'docker-helper-fresh',
+             'DOCKER_CONFIG':self.base/'docker-config-fresh'}
         env.pop('AGENT_GITHUB_TOKEN',None);env.pop('GH_TOKEN',None);env.pop('GITHUB_TOKEN',None)
         installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
                                  input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
@@ -623,6 +626,106 @@ class LabTest(unittest.TestCase):
         self.assertIn('auth login --hostname github.com --git-protocol https --with-token',calls)
         self.assertIn('auth setup-git --hostname github.com',calls)
 
+    def test_agent_github_install_configures_ghcr_helper_without_persisting_pat(self):
+        home=self.base/'home-ghcr';home.mkdir()
+        bindir=self.base/'fake-bin-ghcr';bindir.mkdir()
+        helper=self.base/'docker-credential-github-cli'
+        docker_config=self.base/'docker-config'
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            'case "$1 $2" in',
+            '  "auth login") cat >/dev/null; mkdir -p "$HOME/.config/gh"; printf "ok\\n" > "$HOME/.config/gh/authenticated" ;;',
+            '  "auth setup-git") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth token") test -f "$HOME/.config/gh/authenticated"; printf "fake-package-token\\n" ;;',
+            '  "api user") test -f "$HOME/.config/gh/authenticated"; if printf "%s\\n" "$*" | grep -q -- "--include"; then printf "HTTP/2.0 200 OK\\r\\nx-oauth-scopes: repo, read:packages, write:packages\\r\\n\\r\\n{}\\n"; else printf "octocat\\n"; fi ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_gh.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+             'AGENT_GITHUB_DOCKER_HELPER':helper,'DOCKER_CONFIG':docker_config}
+        installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
+                                 input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
+        self.assertEqual(installed.returncode,0,installed.stderr)
+        config=json.loads((docker_config/'config.json').read_text())
+        self.assertEqual(config['credHelpers']['ghcr.io'],'github-cli')
+        self.assertNotIn('fake-package-token',(docker_config/'config.json').read_text())
+        self.assertNotIn('github_pat_FAKE_TEST_ONLY',(docker_config/'config.json').read_text())
+        self.assertTrue(helper.exists())
+        credential=subprocess.run([helper,'get'],input='ghcr.io\n',env=env,capture_output=True,text=True)
+        self.assertEqual(credential.returncode,0,credential.stderr)
+        parsed=json.loads(credential.stdout)
+        self.assertEqual(parsed,{'ServerURL':'ghcr.io','Username':'octocat','Secret':'fake-package-token'})
+
+    def test_agent_github_verify_requires_write_packages_and_ghcr_helper(self):
+        home=self.base/'home-ghcr-fail';home.mkdir()
+        bindir=self.base/'fake-bin-ghcr-fail';bindir.mkdir()
+        helper=self.base/'docker-credential-github-cli-fail'
+        docker_config=self.base/'docker-config-fail'
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            'case "$1 $2" in',
+            '  "auth login") cat >/dev/null; mkdir -p "$HOME/.config/gh"; printf "ok\\n" > "$HOME/.config/gh/authenticated" ;;',
+            '  "auth setup-git") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  "auth git-credential") cat >/dev/null; printf "username=x-access-token\\npassword=fake-token\\n" ;;',
+            '  "auth token") printf "fake-package-token\\n" ;;',
+            '  "api user") if printf "%s\\n" "$*" | grep -q -- "--include"; then printf "HTTP/2.0 200 OK\\r\\nx-oauth-scopes: repo, read:packages\\r\\n\\r\\n{}\\n"; else printf "octocat\\n"; fi ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_gh.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+             'AGENT_GITHUB_DOCKER_HELPER':helper,'DOCKER_CONFIG':docker_config}
+        installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
+                                 input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
+        self.assertEqual(installed.returncode,0,installed.stderr)
+        config=home/'.config/agent-lab/github-auth/gitconfig';config.parent.mkdir(parents=True,exist_ok=True)
+        config.write_text('[credential "https://github.com"]\n\thelper = !gh auth git-credential\n')
+        result=command([SCRIPTS/'agent-github.sh','verify'],env=env)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('AGENT_GITHUB_PACKAGES=FAILED',result.stderr)
+        self.assertNotIn('AGENT_GITHUB=READY',result.stdout)
+
+    def test_agent_github_default_ghcr_helper_uses_root_owned_install(self):
+        home=self.base/'home-ghcr-root';home.mkdir()
+        bindir=self.base/'fake-bin-ghcr-root';bindir.mkdir()
+        sudo_log=self.base/'sudo.log'
+        fake_gh=bindir/'gh'
+        fake_gh.write_text("\n".join([
+            "#!/usr/bin/env bash",
+            "set -eu",
+            'case "$1 $2" in',
+            '  "auth login") cat >/dev/null; mkdir -p "$HOME/.config/gh"; printf "ok\\n" > "$HOME/.config/gh/authenticated" ;;',
+            '  "auth setup-git") exit 0 ;;',
+            '  "auth status") test -f "$HOME/.config/gh/authenticated" ;;',
+            '  *) exit 0 ;;',
+            "esac",
+            ""
+        ]))
+        fake_sudo=bindir/'sudo'
+        fake_sudo.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> '"+str(sudo_log)+"'\nexit 0\n")
+        fake_install=bindir/'install'
+        fake_install.write_text("#!/usr/bin/env bash\nprintf 'direct:%s\\n' \"$*\" >> '"+str(sudo_log)+"'\ncase \"$*\" in *'/usr/local/bin/docker-credential-github-cli'*) exit 0 ;; esac\nexec /usr/bin/install \"$@\"\n")
+        fake_gh.chmod(0o755);fake_sudo.chmod(0o755);fake_install.chmod(0o755)
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+             'DOCKER_CONFIG':self.base/'docker-config-root'}
+        env.pop('AGENT_GITHUB_DOCKER_HELPER',None)
+        result=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
+                              input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        logged=sudo_log.read_text()
+        self.assertIn('install -o root -g root -m 755',logged)
+        self.assertIn('/usr/local/bin/docker-credential-github-cli',logged)
+        self.assertNotIn('direct:-m 755',logged)
+
     def test_agent_github_install_writes_managed_job_git_helper_config(self):
         home=self.base/'home-job-config';home.mkdir()
         bindir=self.base/'fake-bin-job-config';bindir.mkdir()
@@ -639,7 +742,9 @@ class LabTest(unittest.TestCase):
             ""
         ]))
         fake_gh.chmod(0o755)
-        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+        env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+             'AGENT_GITHUB_DOCKER_HELPER':self.base/'docker-helper-job-config',
+             'DOCKER_CONFIG':self.base/'docker-config-job-config'}
         installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
                                  input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
         self.assertEqual(installed.returncode,0,installed.stderr)
