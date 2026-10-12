@@ -1,6 +1,69 @@
 # GitHub Runner Lab
 
-A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reachable through Remote Desktop Commander (RDC) and prewarms it for heavy development work.
+**GitHub Runner Lab is a disposable, self-healing development machine for AI coding agents.**
+
+It turns a GitHub-hosted Ubuntu Actions runner into a remotely reachable, prewarmed execution environment where an agent can inspect repositories, build software, run tests, reproduce bugs, use native/media tooling, and perform other heavy development work without pushing that load onto production infrastructure.
+
+The Lab is intentionally **project-agnostic**. It provides the machine, access, lifecycle, isolation, authentication, checkpointing, and execution primitives; the target repository remains responsible for its own build/test policy.
+
+> The runner is temporary. Durable code belongs in GitHub. The Lab is an execution environment, not a production server or a long-term source-of-truth filesystem.
+
+## Why this exists
+
+AI coding agents are often good at reasoning about a repository but constrained by the environment in which they run. Large builds, native toolchains, Docker tests, dependency-heavy debugging, media processing, and long-running diagnostics need a real machine with predictable tooling and enough resources.
+
+GitHub Runner Lab provides that machine while keeping it disposable and recoverable:
+
+- **Remote agent access** through Remote Desktop Commander (RDC) and Tailscale SSH.
+- **Fast startup** by bringing remote access online before heavy toolchain prewarm completes.
+- **Prewarmed development tooling** for common Node, Python, C/C++, Git, Docker, diagnostics, and media workflows.
+- **Transparent GitHub access** for normal `gh`, HTTPS `git`, and GHCR operations from trusted host sessions.
+- **Managed jobs** with timeouts, durable results, bounded logs, cancellation, concurrency control, and resource admission.
+- **Container isolation** for untrusted code with no inherited GitHub credentials, no Docker socket, no network by default, and enforced CPU/RAM/PID limits.
+- **Workspace checkpointing** so valuable uncommitted work can survive runner rotation.
+- **Automatic lifecycle handoff** before the GitHub-hosted job reaches its hard timeout.
+- **Project-owned contracts** so this repository never hardcodes another project's setup or test policy.
+- **Self-validation and watchdog recovery** so the Lab can detect broken host/toolchain/access state instead of silently presenting a stale green environment.
+
+## System model
+
+```text
+AI coding agent / operator
+        │
+        ├── Remote Desktop Commander
+        └── Tailscale SSH (GitHub-Lab)
+                    │
+                    ▼
+        Ephemeral GitHub-hosted Ubuntu runner
+                    │
+        ┌───────────┼────────────┐
+        │           │            │
+   Agent tooling  Workspaces  Managed jobs
+        │           │            │
+        │           │      ┌─────┴─────┐
+        │           │      │           │
+        │           │   trusted     untrusted
+        │           │   host job   container job
+        │           │
+        └───────────┼─────────────────────┐
+                    │                     │
+             encrypted checkpoint   target repository
+                    │                 contract/policy
+                    ▼
+            next runner generation
+```
+
+The runner is deliberately replaceable. Continuity comes from GitHub plus authenticated/encrypted checkpoints, not from assuming the current VM will stay alive.
+
+## Design principles
+
+1. **Remote access first.** RDC is restored, started, and health-checked before the expensive development toolchain is prewarmed.
+2. **Disposable compute, durable work.** The VM may disappear; pushed commits and verified checkpoints must not.
+3. **Target policy wins.** The Lab supplies generic execution primitives. A target repository defines how it should be prepared and validated.
+4. **Fail closed on credentials and unsafe state.** Authentication, checkpoint integrity, workspace repair, and untrusted execution prefer refusal over silent fallback.
+5. **Separate trusted and untrusted execution.** Trusted host work can use the authenticated runner identity; untrusted code must use the container path.
+6. **Rotate before failure.** The Lab hands work to a successor before the GitHub job's hard timeout instead of relying on the theoretical platform ceiling.
+7. **Minimize agent friction.** Common status, workspace, validation, job, GitHub, and recovery operations are exposed through one entry point: `scripts/agent-run.sh`.
 
 <!-- RDC-LAB-STATUS:START -->
 
@@ -31,92 +94,106 @@ A self-relaunching GitHub Actions lab that keeps an ephemeral Ubuntu runner reac
 
 <!-- RDC-LAB-STATUS:END -->
 
+## Primary workflows
+
+The repository has three GitHub Actions workflows with separate responsibilities:
+
+| Workflow | Responsibility |
+| --- | --- |
+| `.github/workflows/rdc-lab.yml` | Creates the runner generation, restores RDC state, establishes remote access, prewarms tooling, keeps the environment alive, checkpoints work, and performs clean handoff. |
+| `.github/workflows/rdc-watchdog.yml` | Recovery backstop when the long-lived Lab workflow is missing or unhealthy. |
+| `.github/workflows/repository-heartbeat.yml` | Keeps scheduled automation eligible and runs the repository's lightweight regression/syntax validation on normal code changes. |
+
 ## Quick start
 
-1. Add repository secret `RDC_STATE_KEY` with at least 32 random characters (for example, generate one with `openssl rand -base64 48`).
-2. Add `AGENT_GITHUB_TOKEN` for the Agent's authenticated GitHub access. The current Runner startup verifies this credential and fails closed if it is missing or unusable.
-3. Add `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` from the dedicated Tailscale OAuth client for this Runner. The Runner joins the Tailnet as an ephemeral tagged node and enables Tailscale SSH; it does **not** advertise itself as an Exit Node.
-4. Open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it.
-5. On the first run only, open the RDC verification URL/code shown in **Authorize RDC account**. After that, runner generations reconnect unattended.
+Repository setup requires these secrets:
 
-To move the Lab to another Desktop Commander account, run the same workflow and choose **Connect a new RDC account**. The workflow safely stops the old runner, verifies the new account before replacing encrypted state, and starts a fresh runner automatically. No branch deletion, state cleanup, kill-switch toggling, or `bootstrap=true` is required. If the new authorization fails, the previous encrypted account state is kept and the Lab attempts to restore service with it.
+| Secret | Purpose |
+| --- | --- |
+| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and Agent checkpoints. Use at least 32 random characters. |
+| `AGENT_GITHUB_TOKEN` | Bootstraps the agent's persistent GitHub CLI/Git/GHCR authentication. A classic PAT is used when package publishing is required. |
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
+| `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
 
-## Lifecycle
+Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
 
-The lifecycle clock targets handoff 330 minutes after runner initialization, while the job hard timeout is 350 minutes. Normal agent work remains SAFE until the final 20 minutes. At that point the keepalive path checkpoints work, confirms/queues a successor, ends cleanly, and lets workflow finalizers persist RDC state before the fresh runner starts. `rdc-watchdog.yml` is the recovery backstop, and `repository-heartbeat.yml` keeps scheduled workflows eligible.
+To move the Lab to another Desktop Commander account, run the same workflow with **Connect a new RDC account**. The account switch validates the replacement identity before overwriting saved state; a failed switch keeps the previous encrypted identity available for recovery.
 
-Startup is intentionally ordered for fast remote access:
+## Access model
 
-1. Checkout and restore encrypted RDC state from the private `rdc-state` branch.
-2. Install/start RDC and verify authenticated health.
-3. Enter the long-lived keepalive step and launch the full agent toolchain prewarm in its background.
-4. Keep RDC online while prewarm finishes.
-5. Persist rotated RDC state and hand off to the successor runner.
+### Remote Desktop Commander
 
-Heavy package installation therefore never blocks initial RDC connectivity.
+RDC is the primary agent-access path and has startup priority. Heavy package installation never blocks initial RDC connectivity. The workflow pins the Desktop Commander runtime and supervises its remote channel so health is reported only while the connection remains usable.
 
-After RDC is healthy, the workflow also connects the runner to the same Tailnet using the official Tailscale GitHub Action, enables Tailscale SSH, verifies that the node is online, and records its Tailscale IPv4 address in the GitHub job summary. The node is ephemeral, but handoff now logs it out explicitly before releasing a successor; the action post-hook repeats cleanup as a fallback. This keeps the stable `GitHub-Lab` MagicDNS name from accumulating duplicate active/stale nodes.
+### Tailscale SSH
 
-## RDC state
+After RDC is healthy, the runner joins the Tailnet as an **ephemeral** node named `GitHub-Lab`, tagged for SSH. It does not advertise itself as an Exit Node.
 
-The only required RDC persistence secret is `RDC_STATE_KEY` (at least 32 random characters). The encrypted `device.json` is stored on the dedicated `rdc-state` branch; plaintext credentials are never committed. This branch is an implementation detail and users do not need to create, edit, or delete it.
+The host provides compatibility for clients and agents that default to `root`:
 
-**Start / Resume** automatically detects whether saved RDC state exists. If it does, the runner restores it unattended. If it does not, the same run enters first-time browser authorization automatically.
+```bash
+ssh root@GitHub-Lab
+```
 
-**Connect a new RDC account** performs an atomic account rotation: the switch owns the same Runner concurrency group so a watchdog/successor cannot overlap the login window, settles the current long-lived runner, authorizes and health-checks the replacement identity locally, and only then writes the new encrypted state. Cancellation is requested once per old run; if GitHub accepts the request but the run does not settle, the helper waits and escalates once to force-cancel instead of spamming repeated cancel requests. A failed switch leaves the previous encrypted state untouched and triggers a recovery start.
+The Tailscale policy must authorize the requested SSH identity. Once authorized, the host-side `root` compatibility path re-executes the session as the normal GitHub runner user so files, toolchains, and credentials keep the expected ownership model.
 
-The workflow installs Desktop Commander `0.2.51` on each fresh runner. `rdc-supervisor.mjs` wraps that pinned runtime and publishes a fresh health sample only while its remote channel remains reachable.
+Before handoff, the current generation explicitly logs out of Tailscale so the successor can reuse the `GitHub-Lab` MagicDNS name without accumulating duplicate live/stale nodes.
 
-Tailscale uses the repository secrets `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. Use a dedicated Tailscale OAuth client for this Runner with `auth_keys: write` and only `tag:ssh`. The Runner workflow never advertises exit-node routes; it joins the Tailnet with the stable hostname `GitHub-Lab` and enables Tailscale SSH explicitly. Before Tailscale SSH is enabled, the workflow installs a host-side `root` compatibility alias: a request for `root@GitHub-Lab` (including clients whose local username defaults to `root`) is accepted as the local `root` account and immediately re-executes the requested login shell or remote command as `runner`. This keeps the GitHub-hosted runner ownership model intact while making both `ssh GitHub-Lab` from root-based clients and `ssh root@GitHub-Lab` land in the normal `runner` environment. The Tailnet SSH policy must permit both `root` and `runner` for the `tag:ssh` destination; authorization still remains enforced by Tailscale before the host-side alias runs. Before a successor is released, `stop-tailscale.sh` logs out the current ephemeral node so Tailscale removes it immediately and the next runner can reuse the same MagicDNS name without duplicates.
+## Agent workflow
 
-`RDC_STATE_KEY` also authenticates and encrypts Agent checkpoints. For transparent Agent GitHub **and GHCR package publishing**, store a **personal access token (classic)** as the `AGENT_GITHUB_TOKEN` repository secret. The token must include the normal GitHub CLI scopes required by this Lab and `write:packages`. After RDC becomes healthy, the workflow consumes that secret once through stdin, logs the `runner` user into GitHub CLI, configures Git to use GitHub CLI as its credential helper, and configures `ghcr.io` to use a read-only Docker credential helper backed by the same GitHub CLI login. Fresh RDC/Agent shells therefore use normal `gh`, `git`, `docker pull`, and `docker push` commands without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` environment variables. The bootstrap step fails closed unless the GitHub API identity, Git credential lookup, `write:packages` scope, and GHCR credential lookup all verify. The PAT is never copied into Docker config, repository config, checkpoints, caches, URLs, or command-line arguments. Normal checkout and lifecycle writes continue to use the workflow `GITHUB_TOKEN` where applicable.
+Agents should read [`AGENTS.md`](AGENTS.md) before using or changing the Lab. When working on another repository, that target repository's own instructions are authoritative.
 
-A practical classic PAT baseline for this Lab is `repo`, `read:org`, `gist`, and `write:packages`; add broader scopes only for tasks that actually require them. Give the token an expiry and rotate the `AGENT_GITHUB_TOKEN` repository secret before it expires. Updating the secret affects the next Lab generation; an already-running runner keeps the GitHub CLI credential that was installed when that generation started.
-
-## Agent environment
-
-Read `AGENTS.md` before using the Lab. The target repository's own agent instructions remain authoritative.
-
-The one-call status check is:
+Check the current machine and lifecycle before substantial work:
 
 ```bash
 ./scripts/agent-run.sh status
 ```
 
-For a machine-readable readiness snapshot (runtime, disk/inodes, RAM/swap, Docker/BuildKit storage, toolchain, RDC, GitHub auth, and optional target contract), use:
+Get a machine-readable readiness snapshot:
 
 ```bash
 ./scripts/agent-run.sh ready
 ./scripts/agent-run.sh ready --workspace /path/to/workspace
 ```
 
-A typical project-aware workspace preparation is:
+Prepare a target repository in one call:
 
 ```bash
 ./scripts/agent-run.sh work --repo https://github.com/OWNER/REPO.git --ref main
 ```
 
-The target repository is always explicit unless the operator sets `AGENT_DEFAULT_REPO`; the Lab does not contain a built-in project repository.
-
-Official Lab workspaces are registered automatically for checkpoint continuity. If a task must use a scratch repository outside `~/agent-workspaces`, explicitly adopt it before doing valuable uncommitted work:
+or prepare an explicit branch/PR workspace:
 
 ```bash
-./scripts/agent-run.sh workspace adopt /path/to/scratch-repo
+./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --ref main
+./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --pr 123
 ```
 
-Checkpoint restore now materializes verified repositories into a fresh recovery root and registers them for subsequent checkpoints. `agent-run.sh status` reports that recovery root when one exists. Workspace preparation and recovery also install a repository-local Git author identity from `AGENT_GIT_NAME`/`AGENT_GIT_EMAIL`, the GitHub workflow actor, or the authenticated GitHub account; credentials are never written into Git configuration.
+The Lab has no built-in target project. An installation that intentionally uses one default repository may set `AGENT_DEFAULT_REPO`; otherwise the target must be explicit.
 
-For a missing or corrupt remote-tracking ref, use the non-destructive sync helper:
+## Project contract
+
+Project-specific setup, validation, dependency, and cleanup policy belongs in the **target repository**, not here.
+
+A target branch can expose:
+
+```text
+.github/agent-lab/runner.sh
+```
+
+The hook owns project-level actions such as `status`, `prepare`, `check`, `full`, `test`, and cleanup. The Lab can then run the target's validation as one managed operation:
 
 ```bash
-./scripts/agent-run.sh git-sync /path/to/workspace --branch main
+./scripts/agent-run.sh validate /path/to/workspace
 ```
 
-It verifies the remote branch first, repairs only a broken loose tracking ref, fetches the verified object, and refuses to move `HEAD` or edit `packed-refs` directly.
+Targets may also provide an optional declarative contract:
 
-Project-specific setup/test/dependency policy lives in the target branch at `.github/agent-lab/runner.sh`, not in this Lab. The Runner toolset stays project-agnostic; target repositories expose their own `status`, `prepare`, `check`, `full`, `test`, and cleanup behavior through that contract. `agent-run.sh doctor WORKSPACE` includes the target contract's `status` output automatically. The workflow persists `~/.cache/agent-projects` and `~/.npm` between runner generations so branch-owned setup scripts can reuse dependency environments and package downloads.
+```text
+.github/agent-lab/contract.json
+```
 
-Target repositories can also add an optional `.github/agent-lab/contract.json` for declarative admission requirements. Schema v1 supports `bootstrap`, `required_commands`, `required_pkg_config_modules`, `minimum_lifecycle_seconds`, `minimum_free_disk_gb`, and `exclusive_group`. The Lab validates this contract before managed work; `exclusive_group` serializes repositories that intentionally share a host resource without teaching the Lab what that resource is.
+Schema v1 can declare bootstrap requirements, required commands/pkg-config modules, minimum lifecycle and disk headroom, and an `exclusive_group` for host resources that must be serialized.
 
 Example:
 
@@ -130,15 +207,109 @@ Example:
 }
 ```
 
-Run the project-owned full validation contract as one managed job:
+This boundary is intentional: changing a project's build/test policy should not require changing the Lab itself.
+
+## Managed execution
+
+Long-running builds/tests should use managed jobs when they need timeout control, cancellation, durable output, process-tree handling, or continuity across a disconnected interactive shell.
 
 ```bash
-./scripts/agent-run.sh validate /path/to/workspace
+job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)"
+./scripts/agent-run.sh job wait "$job"
 ```
 
-The hook receives `prepare`, `check`, and `full`; after a failed `full`, newline-delimited selectors in `$AGENT_JOB_OUTPUT_DIR/failed-tests.txt` are retried with `test` to diagnose flaky/order-dependent failures. `clean-materialized` runs after normal completion and is also attempted after caught `SIGINT`/`SIGTERM` during the managed-job grace window; forced `SIGKILL` cannot be intercepted. The job directory retains `summary.md`, `summary.json`, and bounded per-stage logs (10 MiB per stage by default, configurable with `--log-max-mb` or `AGENT_VALIDATION_LOG_MAX_MB`). A diagnostic retry never turns a failed full run green.
+Managed jobs provide a clean environment, durable JSON results, artifact indexing, bounded output, a termination grace window, approximate peak process-group RSS, per-workspace exclusion, and global concurrency/resource admission.
 
-The Lab can validate the runner independently of any target repository:
+Trusted **host jobs** can use the authenticated GitHub CLI/Git credential paths, but their CPU/RAM values are admission reservations rather than kernel-enforced limits.
+
+For untrusted target code, require a container job:
+
+```bash
+./scripts/agent-run.sh job start --untrusted --image IMAGE --cwd "$PWD" -- COMMAND
+```
+
+Untrusted containers default to no network, no inherited GitHub credentials, no Docker socket, dropped capabilities, a read-only root filesystem, bounded temporary storage, and enforced CPU/RAM/swap/PID limits. Credential-like variables are rejected from `--pass-env`.
+
+## GitHub and GHCR authentication
+
+`AGENT_GITHUB_TOKEN` is consumed during bootstrap rather than exposed as a normal agent environment variable. The runner configures:
+
+- GitHub CLI authentication;
+- HTTPS Git through the GitHub CLI credential helper;
+- a `ghcr.io` Docker credential helper backed by the same stored GitHub CLI identity.
+
+Fresh trusted RDC/Agent shells therefore use normal commands such as `gh`, `git fetch`, `git push`, `docker pull`, and `docker push` without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in their environment.
+
+For GHCR publishing, the classic PAT must include `write:packages` in addition to the repository/organization scopes required by the intended work. The bootstrap path fails closed if the GitHub API identity, Git credential lookup, required package scope, or GHCR credential lookup cannot be verified.
+
+The PAT is not intentionally copied into Docker config, repository config, checkpoints, caches, URLs, or command-line arguments.
+
+## Lifecycle and handoff
+
+The Lab does not try to stretch a GitHub-hosted job to the theoretical maximum runtime.
+
+- Nominal runner handoff: **330 minutes after initialization**.
+- Workflow hard timeout: **350 minutes**.
+- Reserved cleanup/handoff headroom: **20 minutes**.
+
+Runtime states are intentionally simple:
+
+| State | Meaning |
+| --- | --- |
+| `SAFE` | More than 20 minutes remain; normal work is allowed. |
+| `RESTART_WINDOW` | Final 1–20 minutes; finish the current atomic operation, make work durable, and rotate. |
+| `RESTART_REQUESTED` | A clean rotation has already been requested; do not start new work. |
+| `HANDOFF_DUE` | Stop using the current generation and move to its successor. |
+
+During the final window the keepalive path checkpoints registered workspaces, confirms/queues a successor, ends cleanly, persists remote-access state, and lets the next runner generation take over.
+
+An agent can request the same guarded path with:
+
+```bash
+./scripts/agent-run.sh restart
+```
+
+Early restart is refused while the runner is still `SAFE` unless an explicit force option is used.
+
+## Checkpoint and recovery
+
+Checkpoints protect valuable **uncommitted** work across runner replacement, but they are not a substitute for pushing durable commits to GitHub.
+
+Lab-managed clones/worktrees are registered automatically. Valuable repositories outside the normal workspace root must be explicitly adopted:
+
+```bash
+./scripts/agent-run.sh workspace adopt /path/to/scratch-repo
+```
+
+A manual checkpoint can be requested with:
+
+```bash
+./scripts/agent-run.sh checkpoint manual
+```
+
+The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, authenticates/encrypts the snapshot with `RDC_STATE_KEY`, and persists the latest encrypted state outside the disposable VM.
+
+Recovery materializes repositories into a fresh recovery root, verifies the snapshot before use, and re-registers restored workspaces for later checkpoints.
+
+## Toolchain and readiness
+
+The full background prewarm covers the common coding/debugging stack rather than every possible SDK:
+
+- Git and GitHub CLI;
+- Node.js/npm and Python;
+- ripgrep/fd/fzf, jq/yq and common shell utilities;
+- C/C++ build tools, CMake, Ninja, pkg-config, Clang and GDB;
+- Git LFS, SQLite, network/process diagnostics;
+- FFmpeg and ImageMagick;
+- Docker/BuildKit when supplied by the GitHub-hosted image.
+
+Large specialized environments such as Android SDKs, Rust toolchains, uncommon JDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
+
+The canonical machine/toolchain contract is [`config/runner-toolset.json`](config/runner-toolset.json). Bootstrap, readiness, doctor, and runner validation consume the same manifest so they do not maintain independent definitions of a healthy machine.
+
+## Validation
+
+The Lab validates itself separately from target-project policy.
 
 ```bash
 ./scripts/agent-run.sh validate runner quick
@@ -146,103 +317,92 @@ The Lab can validate the runner independently of any target repository:
 ./scripts/agent-run.sh validate full /path/to/workspace
 ```
 
-Docker/BuildKit storage pressure can be checked against the actual Docker backing filesystem with:
+`runner quick` is the normal readiness gate. It checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub connectivity, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests.
+
+`runner full` adds Docker and media smoke tests. Docker validation uses an isolated local image with no registry dependency, no network, dropped capabilities, a read-only root filesystem, and bounded resources.
+
+Validation reports are emitted in human- and machine-readable forms with stable failure categories:
+
+`HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, `MEDIA`, `PROJECT`, and `CLEANUP`.
+
+The Lab's regression suite lives under `tests/` and uses the Python standard library. For changes to this repository, [`AGENTS.md`](AGENTS.md) defines the authoritative validation procedure.
+
+## Storage and cleanup
+
+Docker/BuildKit pressure can be inspected without immediately deleting data:
 
 ```bash
 ./scripts/agent-run.sh docker-storage status
 ./scripts/agent-run.sh docker-storage check
 ```
 
-Cleanup is deliberately opt-in and refuses to run while managed jobs are active:
+Cleanup is opt-in and refuses to run while managed jobs are active:
 
 ```bash
-./scripts/agent-run.sh docker-storage prune          # dry-run/report only
-./scripts/agent-run.sh docker-storage prune --apply  # prune unused old BuildKit cache
+./scripts/agent-run.sh docker-storage prune
+./scripts/agent-run.sh docker-storage prune --apply
 ```
 
-`runner quick` checks the manifest-driven host/toolchain contract, disk/inode headroom, writable paths, GitHub DNS/HTTPS, RDC heartbeat when present, and bounded native/CMake/Node/Python/Git smoke tests. `runner full` additionally performs Docker and FFmpeg/ImageMagick functional smoke tests. Docker validation builds a local `FROM scratch` image and runs it with no network, dropped capabilities, a read-only root filesystem, and tight CPU/memory/PID limits, so registry availability cannot false-fail the engine test. Runner reports are emitted as Markdown, JSON, and JUnit with stable failure categories: `HOST`, `TOOLCHAIN`, `NETWORK`, `RDC`, `DOCKER`, and `MEDIA`; project validation uses `PROJECT` and `CLEANUP`.
+The first command is report/dry-run behavior; the second applies pruning of unused old BuildKit cache.
 
-The canonical runner contract lives in `config/runner-toolset.json`. Bootstrap, readiness, doctor, and self-validation consume it through `scripts/lab_toolset.py`. Goss is only the host-validation engine: version `0.4.10` and its per-architecture SHA256 values are pinned in the manifest, and `scripts/install-goss.sh` verifies the archive before installing it into the runner cache.
+## Security boundaries
 
-Use managed jobs for bounded builds and tests:
+The main security boundaries are deliberate:
 
-```bash
-job="$(./scripts/agent-run.sh job start --cwd "$PWD" --timeout 1800 -- npm test)"
-./scripts/agent-run.sh job wait "$job"
-```
+- The Lab runner is ephemeral and must not become the only copy of valuable source state.
+- RDC persistence and Agent checkpoints are encrypted/authenticated with `RDC_STATE_KEY`.
+- Tailscale joins as an ephemeral tagged SSH node and is **not** an Exit Node.
+- Trusted host shells/jobs can use the runner's authenticated GitHub identity.
+- Container jobs do not inherit host GitHub credentials.
+- Untrusted code must not run directly in the trusted RDC shell or trusted host-job path.
+- Secret-like values are rejected from untrusted `--pass-env` usage.
+- Workspace/ref repair helpers verify remote state and refuse destructive recovery shortcuts.
+- The Lab is independent from the separate stable Tailscale Exit Node system.
 
-Each job gets a clean environment, durable JSON result with an artifact index, capped combined output, timeout/cancellation, a configurable termination grace window (`--grace-seconds`, default 10), approximate process-group peak RSS, and one active job per workspace. The runner admits at most three managed jobs at once by default; set `AGENT_MAX_CONCURRENT_JOBS` to a positive integer to tune that limit. A command that exits while descendants or another process hold its output pipe is reported as failed, and the supervisor stops waiting for that pipe after one second. Environment variables cross the boundary only through repeated `--pass-env NAME`; project jobs automatically preserve the persistent project-cache root and explicitly configured project-runner/validation settings. Host managed jobs preserve only the non-secret GitHub auth paths (`GH_CONFIG_DIR` plus a dedicated credential-helper-only Git config), so normal `gh` and HTTPS `git` keep working without token environment variables even though each job has an isolated HOME. Container jobs do not inherit host GitHub credentials; they add `--image IMAGE` and default to no network, dropped capabilities, bounded memory/CPU/PIDs, and no Docker socket. Use `--network bridge` only when a test requires outbound access.
-
-Admission also reserves the requested `--cpus` and `--memory` across active jobs under the same lock. The default CPU budget leaves one host core free; the default memory budget is 70% of physical RAM, and new jobs require another 2 GiB of available RAM after their reservation. Tune these with `AGENT_JOB_CPU_BUDGET`, `AGENT_JOB_MEMORY_BUDGET_MB`, and `AGENT_JOB_MIN_FREE_MEMORY_MB`. Reservations protect admission but **do not enforce CPU/RAM limits on trusted host commands**. Container jobs enforce Docker CPU, memory, swap, and PID limits. Job reports identify the mode as `resource_enforcement: container` or `admission-only`.
-
-For untrusted target code, use `job start --untrusted --image IMAGE ...`; this refuses host execution. The container starts with a read-only root, bounded temporary filesystem, no inherited GitHub credentials, no Docker socket, and no network by default. Secrets cannot be passed using `--pass-env` names that identify tokens, passwords, keys, or credentials. The workspace is still writable inside the container and must be reviewed before use. Host jobs and direct RDC shells run as the authenticated runner user and can access that user's GitHub login; do not run untrusted code in them. GitHub writes from an isolated job should be reviewed and pushed from a trusted host step after the job finishes.
-
-Prepare any target repository explicitly:
-
-```bash
-./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --ref main
-./scripts/agent-run.sh prepare --repo https://github.com/OWNER/REPO.git --pr 123
-```
-
-For installations that intentionally use one default target, set `AGENT_DEFAULT_REPO` instead of baking a repository URL into the Lab.
-
-The automatic full prewarm covers the common coding/debugging stack: Git/GitHub CLI, Node/npm, Python, ripgrep/fd/fzf, jq/yq, C/C++ build tools, CMake, Ninja, Clang, GDB, Git LFS, SQLite, diagnostics/network tools, FFmpeg, and ImageMagick. GitHub-hosted tools such as Docker remain available when provided by the runner image.
-
-Large specialized SDKs such as Android, Rust, uncommon JDKs, Playwright browser bundles, or database servers remain on-demand.
-
-## Helper scripts
-
-- `config/runner-toolset.json` — canonical package, command, threshold, network, Node, and pinned Goss contract.
-- `scripts/lab_toolset.py` — validates and queries the canonical runner manifest.
-- `scripts/agent-lib.sh` — shell bridge to manifest-driven toolchain readiness.
-- `scripts/agent-bootstrap.sh` — idempotent core/build/media/full prerequisite installer driven by the manifest.
-- `scripts/agent-prewarm.sh` — full prewarm whose READY state is gated by quick runner self-validation.
-- `scripts/agent-status.sh` — compact toolchain + exact local runner countdown report.
-- `scripts/agent-runtime.sh` — initializes and reports the local 330-minute handoff timer.
-- `scripts/agent-checkpoint.sh` — creates verified Git bundles, staged/unstaged patches, and filtered untracked source snapshots; secret-like data in tracked dirty patches fails closed.
-- `scripts/package-agent-checkpoints.sh` — authenticates and encrypts the latest snapshot before persistence.
-- `scripts/checkpoint-sync.sh` — restores/saves the encrypted snapshot through the dedicated `agent-checkpoints` branch and materializes verified recovery workspaces after a runner restart.
-- `scripts/agent-workspace.sh` — prepares and auto-registers branch/PR workspaces, or explicitly adopts/forgets scratch repositories for checkpoint continuity.
-- `scripts/lab_workspace_registry.py` — keeps the explicit, secret-free registry of checkpointed workspace paths.
-- `scripts/lab_git.py` — manages repo-local Git identity and verified remote-tracking-ref repair without moving `HEAD`.
-- `scripts/agent-project.sh` — invokes the target branch's project-specific Agent Lab runner using an external persistent cache.
-- `scripts/lab_jobs.py` — starts, observes, stops, drains, and reports bounded detached jobs.
-- `scripts/lab_ready.py` — emits a read-only JSON readiness report.
-- `scripts/agent-github.sh` — bootstraps persistent per-runner GitHub CLI authentication from stdin, configures the Git credential helper, verifies API/Git access, and keeps legacy `gh`/`git` wrapper entry points compatible.
-- `scripts/install-goss.sh` — installs the manifest-pinned Goss release with SHA256 verification.
-- `scripts/lab_runner_validate.py` — Goss host acceptance, advisory network checks, smoke orchestration, and Markdown/JSON/JUnit reports.
-- `scripts/lab_smoke.py` — bounded native/runtime/Git/Docker/media functional smoke suite.
-- `scripts/lab_fault_server.py` — provides loopback-only delay, error, streaming, and disconnect fixtures.
-- `scripts/agent-handoff.sh` — requests the guarded clean restart path in the final 20-minute window.
-- `scripts/agent-doctor.sh` — compact machine/repository context report.
-- `scripts/agent-run.sh` — one-call entry point for workspace, jobs, checkpoints, GitHub access, readiness, cache cleanup, and toolchain operations.
-- `scripts/prepare-rdc-account-switch.sh` — safely settles current/queued RDC Lab runs before account rotation with one normal cancel request per run, bounded wait/force-cancel fallback, and no repeated cancel spam.
-- `scripts/stop-tailscale.sh` — idempotently logs out the ephemeral `GitHub-Lab` node before handoff so the stable MagicDNS name is released before a successor starts.
-- RDC lifecycle scripts — bootstrap, restore, start, health, keepalive, stop and persist.
-
-Canonical prewarm files:
+## Repository map
 
 ```text
-~/.cache/agent-runner-kit/prewarm.env
-~/.cache/agent-runner-kit/prewarm.log
+.github/workflows/        runner lifecycle, watchdog, repository heartbeat
+config/runner-toolset.json canonical host/toolchain acceptance contract
+scripts/                  lifecycle, access, workspace, job, validation and recovery tooling
+tests/                    Lab regression suite
+AGENTS.md                  authoritative instructions for AI agents working in this Lab
+README.md                  architecture, purpose and operator-facing overview
 ```
 
-A failed prewarm does not take RDC offline. READY state is versioned and is written only after the required command set and quick runner self-validation pass, so toolchain or host regressions cannot leave a stale green marker. The lifecycle clock starts during early workflow setup. It stays SAFE until 20 minutes remain, then switches to the restart window and rotates to a fresh runner instead of making the agent abandon work 30–60 minutes early.
-
-## Test policy
-
-This Lab can run heavy local builds and tests when the target repository permits it. Validation runs inside the same engineered runner environment users receive, while the target repository's own policy and Agent Lab contract remain authoritative for which checks are allowed and which prerequisites are required.
-
-The Lab's own regression suite lives in `tests/` and uses only the Python standard library, so it runs on a stock interpreter with no dependency installation:
+The main operator/agent entry point is:
 
 ```bash
-./scripts/agent-run.sh selftest
+./scripts/agent-run.sh
 ```
 
-For Lab changes, follow the direct validation contract in `AGENTS.md`: run the regression suite, shell/Python syntax checks, `git diff --check`, and `./scripts/agent-run.sh validate runner quick` on the Runner itself. In addition, the existing `Repository Heartbeat` workflow runs the regression suite plus shell/Python syntax checks automatically on every pull request and push to `main`; its regression job has only `contents: read`, while the heartbeat job receives `contents: write` only on schedule/manual runs. This keeps automated regression coverage without adding a separate validation-only workflow.
+Key implementation areas include workspace preparation/registration, Git repair, lifecycle timing, encrypted checkpoint sync, managed jobs, GitHub auth, runner readiness, Docker storage checks, smoke validation, account switching, and clean Tailscale teardown.
 
-Workspace reference inspection requires **Git 2.43 or newer**, because it probes references with `git show-ref --exists`. On an older Git the suite fails with an explicit version message rather than a misleading reference-corruption error.
+## Non-goals
 
-## Isolation
+GitHub Runner Lab is **not**:
 
-This repository is independent from `GitHub-Tailscale-Exit-Node`. Do not modify that stable exit-node system from this Lab unless explicitly requested.
+- a production application host;
+- a persistent VM;
+- a generic Tailscale Exit Node;
+- a place to hardcode one target repository's build/test commands;
+- a replacement for pushing durable Git history;
+- a safe host-execution environment for arbitrary untrusted code;
+- an excuse to run development builds/tests on production Railway services.
+
+## Reviewing this project
+
+For an architecture/code review, the most important questions are:
+
+1. Can the Lab reliably establish remote access before expensive prewarm work?
+2. Can a runner rotate without losing registered dirty workspace state?
+3. Are credentials usable by trusted agent workflows without being unnecessarily exposed to jobs, containers, logs, caches, checkpoints, or command lines?
+4. Are trusted host execution and untrusted container execution clearly separated and enforced?
+5. Can lifecycle races create overlapping generations, duplicate Tailscale nodes, or broken RDC state?
+6. Are watchdog/recovery paths idempotent and safe under cancellation or partial failure?
+7. Does the target-repository contract keep project-specific policy out of the Lab core?
+8. Do managed jobs correctly bound process lifetime, output, concurrency, cancellation, and resource admission?
+9. Do readiness/self-tests detect stale or partially configured environments without producing false-green state?
+10. Are GitHub Actions permissions, state branches, secret handling, and recovery mechanisms using the minimum practical privilege?
+
+For agent-specific operating constraints and the exact self-validation procedure, continue with [`AGENTS.md`](AGENTS.md).
