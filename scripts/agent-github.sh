@@ -11,6 +11,100 @@ job_git_config() {
   printf '%s\n' "${AGENT_GITHUB_JOB_GIT_CONFIG:-$HOME/.config/agent-lab/github-auth/gitconfig}"
 }
 
+docker_config_file() {
+  printf '%s\n' "${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+}
+
+docker_helper_path() {
+  printf '%s\n' "${AGENT_GITHUB_DOCKER_HELPER:-/usr/local/bin/docker-credential-github-cli}"
+}
+
+install_docker_helper() {
+  local source target parent config
+  source="$(cd "$(dirname "$0")" && pwd -P)/docker-credential-github-cli"
+  target="$(docker_helper_path)"
+  parent="$(dirname "$target")"
+  if [[ -w "$parent" ]]; then
+    install -m 755 "$source" "$target"
+  else
+    sudo install -m 755 "$source" "$target"
+  fi
+  config="$(docker_config_file)"
+  python3 - "$config" <<'PYCONF'
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.exists():
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise SystemExit('Docker config root must be an object')
+else:
+    data = {}
+helpers = data.setdefault('credHelpers', {})
+if not isinstance(helpers, dict):
+    raise SystemExit('Docker credHelpers must be an object')
+helpers['ghcr.io'] = 'github-cli'
+fd, name = tempfile.mkstemp(prefix='.config.', dir=path.parent)
+try:
+    with os.fdopen(fd, 'w') as handle:
+        json.dump(data, handle, separators=(',', ':'))
+        handle.write('\n')
+    os.chmod(name, 0o600)
+    os.replace(name, path)
+finally:
+    if os.path.exists(name): os.unlink(name)
+PYCONF
+}
+
+remove_docker_helper() {
+  local target config
+  target="$(docker_helper_path)"
+  config="$(docker_config_file)"
+  if [[ -e "$config" ]]; then
+    python3 - "$config" <<'PYCONF'
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text())
+helpers = data.get('credHelpers')
+if isinstance(helpers, dict) and helpers.get('ghcr.io') == 'github-cli':
+    helpers.pop('ghcr.io', None)
+    if not helpers:
+        data.pop('credHelpers', None)
+    fd, name = tempfile.mkstemp(prefix='.config.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(data, handle, separators=(',', ':'))
+            handle.write('\n')
+        os.chmod(name, 0o600)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name): os.unlink(name)
+PYCONF
+  fi
+  if [[ -e "$target" ]]; then
+    if [[ -w "$(dirname "$target")" ]]; then rm -f "$target"; else sudo rm -f "$target"; fi
+  fi
+}
+
+package_write_scope_ready() {
+  local scopes
+  scopes="$(gh api user --include 2>/dev/null | awk 'BEGIN{IGNORECASE=1} /^x-oauth-scopes:/ {sub(/^[^:]+:[[:space:]]*/, ""); gsub(/\r/, ""); print; exit}')"
+  printf '%s\n' "$scopes" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -Fxq 'write:packages'
+}
+
+ghcr_helper_ready() {
+  local target config
+  target="$(docker_helper_path)"
+  config="$(docker_config_file)"
+  [[ -x "$target" && -s "$config" ]] || return 1
+  python3 - "$config" <<'PYCONF' >/dev/null || return 1
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+raise SystemExit(0 if data.get('credHelpers',{}).get('ghcr.io') == 'github-cli' else 1)
+PYCONF
+  printf 'ghcr.io\n' | "$target" get | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("Username") and d.get("Secret") and d.get("ServerURL")=="ghcr.io" else 1)'
+}
+
 write_job_git_config() {
   local file
   file="$(job_git_config)"
@@ -41,6 +135,7 @@ case "${1:-status}" in
     fi
     gh auth setup-git --hostname "$HOST"
     write_job_git_config
+    install_docker_helper
     if ! configured; then
       echo 'AGENT_GITHUB=FAILED' >&2
       exit 4
@@ -73,10 +168,20 @@ case "${1:-status}" in
       echo 'AGENT_GITHUB_GIT_CREDENTIAL=FAILED' >&2
       exit 4
     fi
+    if ! package_write_scope_ready; then
+      echo 'AGENT_GITHUB_PACKAGES=FAILED' >&2
+      exit 4
+    fi
+    if ! ghcr_helper_ready; then
+      echo 'AGENT_GITHUB_GHCR_CREDENTIAL=FAILED' >&2
+      exit 4
+    fi
     echo 'AGENT_GITHUB=READY'
     echo "AGENT_GITHUB_LOGIN=$login"
     echo 'AGENT_GITHUB_API=READY'
     echo 'AGENT_GITHUB_GIT_CREDENTIAL=READY'
+    echo 'AGENT_GITHUB_PACKAGES=READY'
+    echo 'AGENT_GITHUB_GHCR_CREDENTIAL=READY'
     echo 'AGENT_GITHUB_MANAGED_JOB=READY'
     ;;
   remove)
@@ -84,6 +189,7 @@ case "${1:-status}" in
       gh auth logout --hostname "$HOST" >/dev/null 2>&1 || true
     fi
     rm -f "$(job_git_config)"
+    remove_docker_helper
     echo 'AGENT_GITHUB=REMOVED'
     ;;
   gh)
