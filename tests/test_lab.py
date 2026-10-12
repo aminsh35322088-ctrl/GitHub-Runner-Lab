@@ -656,7 +656,7 @@ class LabTest(unittest.TestCase):
         self.assertNotIn('fake-package-token',(docker_config/'config.json').read_text())
         self.assertNotIn('github_pat_FAKE_TEST_ONLY',(docker_config/'config.json').read_text())
         self.assertTrue(helper.exists())
-        credential=subprocess.run([helper,'get'],input='ghcr.io\n',env=env,capture_output=True,text=True)
+        credential=subprocess.run([helper,'get'],input='ghcr.io',env=env,capture_output=True,text=True)
         self.assertEqual(credential.returncode,0,credential.stderr)
         parsed=json.loads(credential.stdout)
         self.assertEqual(parsed,{'ServerURL':'ghcr.io','Username':'octocat','Secret':'fake-package-token'})
