@@ -24,3 +24,17 @@ through the connector; execute validation on RDC; preserve unrelated work.
 
 Review focus: secrets in reports; network failure mistaken for no duplicates;
 ambiguous POST timeouts; cache loss after rotation; recovery failure falsely READY.
+
+## Verification checkpoint
+
+- Implemented environment evidence, onboarding CLI, incident reporting, recovery
+  readiness gates, runtime cache keys and encrypted pending-report recovery.
+- Existing Ubuntu CI run 38401818448 passed regression, shell syntax and Python compile.
+- Local full suite had one baseline-only process visibility failure, reproduced on
+  unchanged main; mounted /proc did not expose the child PID. Ubuntu CI passed it.
+- Live RDC commands timed out three times, including pwd. Live quick/full acceptance,
+  actual rotation/cache restore and reporter submission from the runner remain pending.
+- Follow-up regression excludes advisory degradation from automatic Issue creation.
+
+References: GitHub dependency caching reference (immutable keys, cache eviction),
+and REST Issues API documentation; no new workflow added.

@@ -116,7 +116,8 @@ def publish(report, dry_run=False):
 
 def observe_validation(summary):
     """Report only repeated real default-profile failures, never raw validation logs."""
-    categories = sorted(set(summary.get('failure_categories', [])) & set(CATEGORIES))
+    categories = (sorted(set(summary.get('failure_categories', [])) & set(CATEGORIES))
+                  if summary.get('classification') == 'failed' else [])
     path = kit() / 'validation-incidents.json'
     with lock(kit() / 'validation-incidents.lock'):
         previous = json.loads(path.read_text()) if path.exists() else {}

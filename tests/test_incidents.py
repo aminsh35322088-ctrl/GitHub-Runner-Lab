@@ -87,7 +87,7 @@ class IncidentTests(unittest.TestCase):
 
     def test_automatic_reporting_requires_consecutive_failures(self):
         mod = self.module()
-        fail = {'failure_categories': ['NETWORK'], 'profile': 'quick'}
+        fail = {'classification': 'failed', 'failure_categories': ['NETWORK'], 'profile': 'quick'}
         good = {'failure_categories': [], 'profile': 'quick'}
         sent = []
         with patch.object(mod, 'publish', lambda report: sent.append(report)):
@@ -109,6 +109,13 @@ class IncidentTests(unittest.TestCase):
         with patch.object(mod, 'api', return_value=[existing]):
             self.assertEqual(mod.publish(report)['status'], 'duplicate')
         self.assertEqual(list((Path(self.tmp.name) / 'incidents').glob('*.json')), [])
+
+    def test_advisory_degradation_never_publishes_incident(self):
+        mod = self.module()
+        summary = {'classification': 'degraded', 'failure_categories': ['NETWORK'], 'profile': 'quick'}
+        with patch.object(mod, 'publish', side_effect=AssertionError('advisory published')):
+            mod.observe_validation(summary)
+            mod.observe_validation(summary)
 
 
 if __name__ == '__main__':
