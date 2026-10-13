@@ -71,22 +71,22 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 
 | Item | Value |
 | :--- | :--- |
-| Runner state | 🟠 Handover in progress |
-| Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-13 23:01:11 UTC |
-| Last checked | 2026-10-13 23:01:11 UTC |
-| Runner/job started | 2026-10-13 22:59:42 UTC |
+| Runner state | 🔴 Latest run failed · no active run observed |
+| Agent work mode | ⚪ UNKNOWN |
+| Status freshness | ✅ current as of 2026-10-13 23:01:29 UTC |
+| Last checked | 2026-10-13 23:01:29 UTC |
+| Runner/job started | — |
 | Keepalive started | — |
-| Runner age | 1 min |
-| Runner lifecycle remaining | 328 min |
+| Runner age | — |
+| Runner lifecycle remaining | — |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-14 04:29:42 UTC |
-| Hard job timeout | 2026-10-14 04:49:42 UTC |
+| Nominal handoff | — |
+| Hard job timeout | — |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
-| RDC verification success | 75% (12 samples) |
+| RDC verification success | 67% (12 samples) |
 | Keepalive completion | 67% (12 samples) |
-| Handoff ≤15 min | 88% (8 samples) |
+| Handoff ≤15 min | 86% (7 samples) |
 | Median handoff gap | 0.8 min |
 | Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/38481414830) |
 
