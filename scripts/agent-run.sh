@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 # Establish the toolchain PATH once, before dispatching. The shell subcommands
 # source this library themselves, but the Python entrypoints do not, and
 # validate -> goss runs `command -v` against whatever it inherits. The file is
@@ -15,6 +15,9 @@ if (($# > 0)); then
 fi
 
 case "$cmd" in
+  onboard) exec python3 "$SELF_DIR/lab_environment.py" --onboard "$@" ;;
+  environment) exec python3 "$SELF_DIR/lab_environment.py" "$@" ;;
+  issue) exec python3 "$SELF_DIR/lab_incidents.py" "$@" ;;
   job) exec python3 "$SELF_DIR/lab_jobs.py" "$@" ;;
   resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
   decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
@@ -59,7 +62,10 @@ case "$cmd" in
     esac
     ;;
   shell-help)
-    echo "Use agent-run.sh github ... for authenticated GitHub operations."
+    echo "Use normal gh/git commands for authenticated GitHub operations."
+    echo "Use agent-lab onboard for capabilities, recovery state and safe work time."
+    echo "Use agent-lab environment --workspace PATH --output FILE to record exact tool versions and lockfile hashes."
+    echo "Use agent-lab issue --help to report reproducible Lab failures; issue --flush retries pending reports."
     echo "Use agent-run.sh workspace adopt PATH for scratch repositories that must survive runner rotation."
     echo "Use agent-run.sh git-sync WORKSPACE --branch BRANCH to repair/refresh remote-tracking state without moving HEAD."
     echo "Use agent-run.sh validate runner quick|full for host validation, or validate WORKSPACE for project validation."
@@ -157,7 +163,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

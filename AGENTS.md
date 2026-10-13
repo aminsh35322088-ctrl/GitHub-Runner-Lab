@@ -13,6 +13,48 @@ The machine is temporary. Durable code belongs in GitHub, not only on the runner
 3. The target repository's explicit policy overrides this Lab's defaults.
 4. Never infer a target repository's CI, deployment, dependency, or test policy from this Lab. Follow the target repository's own instructions and Agent Lab contract.
 
+## Agent entrypoint and incident reporting
+
+At every connection run `agent-lab onboard` (or `./scripts/agent-run.sh onboard`
+from the Lab checkout), then read the indicated instructions. This prints the
+live lifecycle, `safe_work_seconds`, recovery state and supported commands.
+The workflow installs `agent-lab` in `~/.local/bin` and copies this guide to
+`~/AGENTS.md` for clients that discover home instructions. Clients that ignore
+instructions cannot be forced to read them; shell/SSH/RDC agents share the CLI.
+
+Before a long operation compare its expected duration with `safe_work_seconds`.
+The nominal handoff time includes a 20-minute drain window; do not interpret all
+`remaining` seconds as time available to start new work.
+
+Report reproducible **Lab** defects to this repository using:
+
+```bash
+agent-lab issue --category TOOLCHAIN --key missing-cmake \
+  --title 'CMake unavailable after prewarm' \
+  --steps 'Run cmake --version after READY; reproduce in a fresh shell' \
+  --expected 'A version is printed' --actual 'Command not found' --occurrences 2
+```
+
+Use `--dry-run` to inspect the sanitized report. Do not paste raw logs, source,
+credentials, private project names or personal information into public Issues.
+Summarize relevant evidence. The helper redacts common credentials but cannot
+recognize every secret. Project test failures belong to their project, not Lab.
+The stable category/key deduplicates open Issues; repeated identical evidence is
+suppressed and new evidence becomes a comment. API errors preserve a local pending
+report, included in encrypted checkpoints. `agent-lab issue --flush` retries via a
+fresh duplicate check. Keepalive also retries pending reports. No blind POST retry.
+The local lock serializes agents on this runner; independent runners can still race.
+Repeated default runner-validation failures are reported automatically; custom
+fault-injection manifests/binaries are excluded. Validation results never depend
+on successful Issue delivery.
+
+Capture reproduction evidence with `agent-lab environment --workspace PATH
+--output FILE`, and compare on a replacement runner with `--compare FILE`.
+Differences return a nonzero exit code. Latest stable installation remains the
+default: this detects drift, it does not claim byte-identical reconstruction of
+old hosted images or download availability of old tools. Commit the evidence file
+with the task when exact historical comparison is needed.
+
 ## Startup model
 
 RDC availability has priority over development-environment preparation.

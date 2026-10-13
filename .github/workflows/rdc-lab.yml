@@ -159,6 +159,9 @@ jobs:
         run: |
           chmod +x scripts/*.sh .github/scripts/*.sh
           ./scripts/agent-runtime.sh start "$ONLINE_MINUTES"
+          mkdir -p "$HOME/.local/bin"
+          ln -sfn "$GITHUB_WORKSPACE/scripts/agent-run.sh" "$HOME/.local/bin/agent-lab"
+          cp AGENTS.md "$HOME/AGENTS.md"
 
       - name: Validate RDC persistence secret
         env:
@@ -315,6 +318,11 @@ jobs:
       # Restore dependency/download caches only after RDC is already reachable.
       # Target-repository setup scripts own the cache contents; the Lab only
       # persists this generic, secret-free cache between ephemeral runners.
+      - name: Identify Agent cache runtime
+        id: cache-runtime
+        if: steps.mode.outputs.ready == 'true'
+        run: echo "key=$(python3 scripts/lab_environment.py --cache-key)" >> "$GITHUB_OUTPUT"
+
       - name: Restore Agent Project Cache
         id: project-cache
         if: steps.mode.outputs.ready == 'true'
@@ -323,9 +331,9 @@ jobs:
           path: |
             ~/.cache/agent-projects
             ~/.npm
-          key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
+          key: agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            agent-lab-projects-${{ runner.os }}-node22-
+            agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-
 
       - name: Restore latest encrypted Agent checkpoint
         if: steps.mode.outputs.ready == 'true'
@@ -427,7 +435,7 @@ jobs:
           path: |
             ~/.cache/agent-projects
             ~/.npm
-          key: agent-lab-projects-${{ runner.os }}-node22-${{ github.run_id }}
+          key: agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Remove optional Agent GitHub token
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}

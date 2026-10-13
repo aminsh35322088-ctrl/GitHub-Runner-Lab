@@ -14,7 +14,7 @@ import tempfile
 import time
 import uuid
 
-from lab_common import atomic, git, lock, path_env, run, workspace_root
+from lab_common import atomic, git, kit, lock, path_env, run, workspace_root
 from lab_git import ensure_repo_identity
 from lab_workspace_registry import adopt as adopt_workspace, registered_repositories
 
@@ -146,6 +146,17 @@ def snapshot(reason):
                         atomic(target, report)
                     except (OSError, ValueError, TypeError):
                         continue
+            # Preserve only structured sanitized incident reports, never arbitrary logs.
+            incident_root = kit() / 'incidents'
+            with lock(incident_root / '.lock'):
+                for pending in incident_root.glob('*.json'):
+                    report = json.loads(pending.read_text())
+                    if (report.get('schema_version') == 1
+                            and re.fullmatch(r'[0-9a-f]{24}', pending.stem)
+                            and report.get('fingerprint') == pending.stem):
+                        atomic(out / '_incidents' / pending.name, report)
+            if (kit() / 'environment.json').is_file():
+                shutil.copy2(kit() / 'environment.json', out / 'environment.json')
             atomic(out / 'manifest.json', manifest)
             hashes = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in out.rglob('*') if p.is_file()}
@@ -225,6 +236,12 @@ def resume(source, destination):
         if (source / '_jobs').exists():
             shutil.copytree(source / '_jobs', stage / '_previous-job-reports')
         stage.rename(destination)
+        with lock(kit() / 'incidents' / '.lock'):
+            for pending in (source / '_incidents').glob('*.json'):
+                if re.fullmatch(r'[0-9a-f]{24}', pending.stem):
+                    target = kit() / 'incidents' / pending.name
+                    if not target.exists():
+                        atomic(target, json.loads(pending.read_text()))
         for info in manifest['repositories']:
             recovered_repo = destination / info['name']
             adopt_workspace(recovered_repo, quiet=True)

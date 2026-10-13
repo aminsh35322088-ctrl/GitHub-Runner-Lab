@@ -67,7 +67,7 @@ def lock(path, blocking=True, shared=False):
 def runtime():
     file = kit() / 'runtime.env'
     if not file.exists():
-        return {'state': 'UNKNOWN', 'remaining': 0}
+        return {'state': 'UNKNOWN', 'remaining': 0, 'safe_work_seconds': 0}
     values = dict(line.split('=', 1) for line in file.read_text().splitlines() if '=' in line)
     remaining = int(values['HANDOFF_EPOCH']) - time.time()
     state = 'SAFE'
@@ -77,7 +77,12 @@ def runtime():
         state = 'RESTART_REQUESTED'
     elif remaining <= int(values.get('AUTO_HANDOFF_MINUTES', 20)) * 60:
         state = 'RESTART_WINDOW'
-    return {'state': state, 'remaining': max(0, remaining)}
+    return {'state': state, 'remaining': max(0, remaining),
+            'safe_work_seconds': max(0, remaining - int(values.get('AUTO_HANDOFF_MINUTES', 20)) * 60)
+            if state == 'SAFE' else 0,
+            'handoff_epoch': int(values['HANDOFF_EPOCH']),
+            'restart_epoch': int(values['HANDOFF_EPOCH']) - int(values.get('AUTO_HANDOFF_MINUTES', 20)) * 60,
+            'run_id': values.get('RUN_ID', 'unknown')}
 
 
 def clean_environment():

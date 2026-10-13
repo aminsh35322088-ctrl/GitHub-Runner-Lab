@@ -897,7 +897,7 @@ esac
         self.assertIn('validate)',script)
         self.assertIn('lab_runner_validate.py',script)
         self.assertIn('shell-help)',script)
-        self.assertIn('Use agent-run.sh github',script)
+        self.assertIn('Use normal gh/git commands',script)
         self.assertIn('git-sync)',script)
         self.assertIn('workspace adopt',script)
 
@@ -1262,6 +1262,7 @@ agent_missing_full_commands() {{ :; }}
             "pathlib.Path(os.environ['VALIDATE_RECORD']).write_text(' '.join(sys.argv[1:]))\n"
             "raise SystemExit(int(os.environ.get('VALIDATE_EXIT','0')))\n"
         )
+        (bindir/'lab_environment.py').write_text('import sys\n')
         record=self.base/'validate-args'
         failed=command([prewarm,'--foreground'],
                        env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'})
