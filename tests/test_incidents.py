@@ -117,6 +117,50 @@ class IncidentTests(unittest.TestCase):
             mod.observe_validation(summary)
             mod.observe_validation(summary)
 
+    def test_network_delivery_does_not_hold_checkpoint_state_lock(self):
+        mod = self.module()
+        report = self.report()
+        root = Path(self.tmp.name) / 'incidents'
+        def api(method, endpoint, payload=None):
+            # Checkpoint snapshots must be able to read pending state during I/O.
+            with mod.lock(root / '.lock', blocking=False):
+                self.assertTrue((root / (report['fingerprint'] + '.json')).exists())
+            # Publishers still serialize their lookup/write transaction.
+            with self.assertRaises(BlockingIOError):
+                with mod.lock(root / '.publish.lock', blocking=False):
+                    pass
+            return [] if method == 'GET' else {'html_url': 'https://github.com/a/b/issues/10'}
+        with patch.object(mod, 'api', api):
+            self.assertEqual(mod.publish(report)['status'], 'created')
+
+    def test_delivery_does_not_remove_newer_pending_evidence(self):
+        mod = self.module()
+        report = self.report()
+        newer = dict(report, body=report['body'] + '\nAdditional evidence')
+        def api(method, endpoint, payload=None):
+            if method == 'GET':
+                return []
+            mod.queue_report(newer)
+            return {'html_url': 'https://github.com/a/b/issues/10'}
+        with patch.object(mod, 'api', api):
+            mod.publish(report)
+        pending = Path(self.tmp.name) / 'incidents' / (report['fingerprint'] + '.json')
+        self.assertEqual(json.loads(pending.read_text()), newer)
+
+    def test_offline_validation_queues_every_repeated_failure_category(self):
+        mod = self.module()
+        summary = {'classification': 'failed',
+                   'failure_categories': ['NETWORK', 'DOCKER'], 'profile': 'quick'}
+        mod.observe_validation(summary)
+        with patch.object(mod, 'api', side_effect=RuntimeError('offline')) as api:
+            mod.observe_validation(summary)
+        pending = [json.loads(path.read_text())
+                   for path in (Path(self.tmp.name) / 'incidents').glob('*.json')]
+        self.assertEqual(len(pending), 2)
+        self.assertEqual({report['title'].split(']')[0] for report in pending},
+                         {'[NETWORK', '[DOCKER'})
+        self.assertEqual(api.call_count, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

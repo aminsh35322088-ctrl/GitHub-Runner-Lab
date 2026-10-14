@@ -87,13 +87,28 @@ def pages(endpoint):
     raise RuntimeError('Pagination limit reached; refusing unverified duplicate lookup')
 
 
+def queue_report(report):
+    root = kit() / 'incidents'
+    with lock(root / '.lock'):
+        atomic(root / f'{report["fingerprint"]}.json', report)
+
+
+def acknowledge_report(report):
+    root = kit() / 'incidents'
+    with lock(root / '.lock'):
+        pending = root / f'{report["fingerprint"]}.json'
+        # A concurrent reporter may have queued newer evidence during delivery.
+        if pending.exists() and json.loads(pending.read_text()) == report:
+            pending.unlink()
+
+
 def publish(report, dry_run=False):
     if dry_run:
         return {'status': 'dry-run', 'title': report['title'], 'body': report['body']}
     root = kit() / 'incidents'
-    with lock(root / '.lock'):
-        pending = root / f'{report["fingerprint"]}.json'
-        atomic(pending, report)
+    queue_report(report)
+    # Network serialization must never hold the state lock used by checkpoints.
+    with lock(root / '.publish.lock'):
         endpoint = f'repos/{REPOSITORY}/issues'
         for issue in pages(endpoint + '?state=open'):
             if 'pull_request' in issue or report['marker'] not in (issue.get('body') or ''):
@@ -107,10 +122,10 @@ def publish(report, dry_run=False):
             else:
                 response = api('POST', comments, {'body': report['body']})
                 result = {'status': 'commented', 'url': response['html_url']}
-            pending.unlink()
+            acknowledge_report(report)
             return result
         response = api('POST', endpoint, {'title': report['title'], 'body': report['body']})
-        pending.unlink()
+        acknowledge_report(report)
         return {'status': 'created', 'url': response['html_url']}
 
 
@@ -123,6 +138,7 @@ def observe_validation(summary):
         previous = json.loads(path.read_text()) if path.exists() else {}
         current = {category: previous.get(category, 0) + 1 for category in categories}
         atomic(path, current)
+    reports = []
     for category, count in current.items():
         if count < 2:
             continue
@@ -132,7 +148,14 @@ def observe_validation(summary):
                              'Runner validation passes',
                              'Validation repeatedly reports ' + category +
                              '. Inspect local runner validation reports for details.', count)
-        publish(report)
+        queue_report(report)
+        reports.append(report)
+    # Queue every category before a transport failure can interrupt delivery.
+    for report in reports:
+        try:
+            publish(report)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            print('Incident delivery unavailable; report remains pending.', file=sys.stderr)
 
 
 def main():
