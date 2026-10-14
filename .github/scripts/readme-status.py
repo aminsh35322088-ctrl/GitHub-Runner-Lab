@@ -113,7 +113,7 @@ def collect(repo, branch, now):
     query = urlencode({"per_page": 50, "branch": branch})
     runs = api(f"/repos/{repo}/actions/workflows/{WORKFLOW}/runs?{query}")["workflow_runs"]
     runs = [r for r in runs if r.get("head_repository", {}).get("full_name") == repo
-            and r.get("event") in ("workflow_dispatch", "schedule")]
+            and r.get("event") in ("workflow_dispatch", "schedule", "push")]
     runs.sort(key=lambda r: (r.get("created_at", ""), r["id"]), reverse=True)
     stats = reliability(repo, runs)
     active = [r for r in runs if r.get("status") == "in_progress"]
