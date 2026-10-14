@@ -1,6 +1,14 @@
 name: Remote Desktop Commander Lab
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/start-rdc.sh
+      - scripts/install-rdc.sh
+      - scripts/rdc-supervisor.mjs
+      - scripts/health.sh
+      - .github/workflows/rdc-lab.yml
   # Proven Exit-Node continuity model: self-handover is primary, schedule is only a backstop.
   schedule:
     - cron: '31 */6 * * *'
@@ -62,7 +70,7 @@ jobs:
           fi
 
       - name: Install Remote Desktop Commander
-        run: npm install --global @wonderwhy-er/desktop-commander
+        run: ./scripts/install-rdc.sh
 
       - name: Safely stop the current RDC Lab
         env:
@@ -203,7 +211,7 @@ jobs:
 
       - name: Install Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
-        run: npm install --global @wonderwhy-er/desktop-commander
+        run: ./scripts/install-rdc.sh
 
       - name: Authorize RDC account
         id: authorize

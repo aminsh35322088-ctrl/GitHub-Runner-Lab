@@ -15,6 +15,8 @@ STALE_AGE_MINUTES="${STALE_AGE_MINUTES:-375}"
 STALE_UPDATE_MINUTES="${STALE_UPDATE_MINUTES:-20}"
 MIN_HEALTHY_MINUTES="${MIN_HEALTHY_MINUTES:-15}"
 MAX_SHORT_FAILURES="${MAX_SHORT_FAILURES:-3}"
+CRASH_COOLDOWN_MINUTES="${CRASH_COOLDOWN_MINUTES:-60}"
+[[ "$CRASH_COOLDOWN_MINUTES" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid crash cooldown" >&2; exit 2; }
 DISABLED="${DISABLED:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 
@@ -251,8 +253,15 @@ main() {
   streak="$(short_failure_streak "$others_json")"
   if [ "$streak" -ge "$MAX_SHORT_FAILURES" ]; then
     warn "The last ${MAX_SHORT_FAILURES} RDC Lab runs all failed in under ${MIN_HEALTHY_MINUTES}m."
-    warn "Refusing to dispatch to avoid a crash loop."
-    return 21
+    local latest_finished failure_age
+    latest_finished="$(jq -r '[.[] | select(.status == "completed")]
+      | sort_by(.created_at) | last | .updated_at' <<<"$others_json")"
+    failure_age="$(minutes_since "$latest_finished")"
+    if (( failure_age < CRASH_COOLDOWN_MINUTES )); then
+      warn "Refusing to dispatch during crash cooldown (${failure_age}/${CRASH_COOLDOWN_MINUTES}m)."
+      return 21
+    fi
+    log "Crash cooldown expired; allowing one bounded recovery probe."
   fi
 
   log "No RDC Lab run is active or queued. Dispatching a new run."

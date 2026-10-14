@@ -1066,7 +1066,8 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertNotIn('RDC_VERSION:',workflow)
         self.assertNotIn('22.14.0',workflow)
         self.assertIn('node-version: latest',workflow)
-        self.assertIn('npm install --global @wonderwhy-er/desktop-commander',workflow)
+        self.assertIn('./scripts/install-rdc.sh',workflow)
+        self.assertIn('npm install --global @wonderwhy-er/desktop-commander@latest', (SCRIPTS/'install-rdc.sh').read_text())
 
     def test_agent_lib_reads_commands_from_toolset_manifest(self):
         content=(SCRIPTS/'agent-lib.sh').read_text()

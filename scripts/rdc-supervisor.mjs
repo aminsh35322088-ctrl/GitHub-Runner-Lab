@@ -4,6 +4,8 @@ import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Upstream may correct Date.now for server skew; health timestamps must use host time.
+const hostNow = Date.now.bind(Date);
 const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
 const metadata = execFileSync('node', ['-e',
   `process.stdout.write(require(${JSON.stringify(join(root, '@wonderwhy-er/desktop-commander/package.json'))}).version)`
@@ -20,8 +22,10 @@ function sample() {
   const reachable = channel?.isReachable?.() === true;
   const fresh = typeof last === 'number' && performance.now() - last < 90000;
   const healthy = reachable && fresh && !device.isShuttingDown;
-  if (healthy) lastReady = Date.now();
-  const state = { pid: process.pid, sampled_at: Date.now(), healthy, reachable,
+  if (healthy) lastReady = hostNow();
+  const state = { package_version: metadata, local_executor_ready: device.desktop?.ready === true,
+    channel_joined: channel?.channel?.state === 'joined',
+    presence_tracked: channel?.presenceTracked === true, pid: process.pid, sampled_at: hostNow(), healthy, reachable,
     heartbeat_age_ms: typeof last === 'number' ? performance.now() - last : null,
     last_ready_at: lastReady };
   writeFileSync(file + '.tmp', JSON.stringify(state), { mode: 0o600 });
