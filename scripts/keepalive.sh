@@ -97,6 +97,7 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
   now="$(date +%s)"
   if (( now - LAST_CHECKPOINT >= ${AGENT_CHECKPOINT_INTERVAL_SECONDS:-900} )); then
     ./scripts/checkpoint-sync.sh save periodic || echo '::warning::Periodic durable checkpoint failed.'
+    timeout 90 python3 scripts/lab_incidents.py --flush || echo '::warning::Pending Lab incidents could not be delivered.'
     LAST_CHECKPOINT=$now
   fi
 

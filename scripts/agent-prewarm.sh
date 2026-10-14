@@ -86,5 +86,6 @@ trap finish EXIT
   rm -rf "$validation_dir"
   echo "[agent-prewarm] Running quick self-validation."
   python3 "$SELF_DIR/lab_runner_validate.py" quick --output-dir "$validation_dir"
+  python3 "$SELF_DIR/lab_environment.py" --output "$CACHE_DIR/environment.json" >/dev/null
   echo "[agent-prewarm] completed=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 } >> "$LOG_FILE" 2>&1

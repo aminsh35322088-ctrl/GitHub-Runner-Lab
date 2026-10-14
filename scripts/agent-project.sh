@@ -73,6 +73,8 @@ fi
 
 if [[ "$ACTION" != "clean-materialized" ]]; then
   project_bootstrap
+  python3 "$SELF_DIR/lab_environment.py" --workspace "$TARGET" \
+    --output "${AGENT_JOB_OUTPUT_DIR:-$AGENT_PROJECT_CACHE_DIR}/environment.json" >/dev/null
 fi
 
 if [[ "$ACTION" == "validate" ]]; then

@@ -407,3 +407,28 @@ For an architecture/code review, the most important questions are:
 10. Are GitHub Actions permissions, state branches, secret handling, and recovery mechanisms using the minimum practical privilege?
 
 For agent-specific operating constraints and the exact self-validation procedure, continue with [`AGENTS.md`](AGENTS.md).
+
+## Durable work, reproduction evidence and agent incidents
+
+Run `agent-lab onboard` after connecting. All shell-capable models can discover
+commands, recovery status and the usable time before the drain window. The guide
+is also installed at `~/AGENTS.md`; automatic reading depends on the client.
+
+Encrypted checkpoints preserve registered Git workspaces and pending incident
+reports. Caches only accelerate preparation and can be evicted; after recovery use
+the target repository's `prepare` hook to reconstruct dependencies. Never assume
+an old `node_modules` symlink is usable after rotation. Cache keys now include the
+actual Node version, OS/architecture and workflow attempt instead of a fixed Node
+major. Project hooks still own lockfile-aware dependency materialization.
+
+`agent-lab environment --workspace PATH --output FILE` records Lab/project SHAs,
+actual tool versions and root lockfile/hook hashes. `--compare FILE` detects drift.
+Project managed setup also writes `environment.json` alongside job output. Latest
+tools remain the default; exact historical OS reconstruction is not promised.
+
+`agent-lab issue --help` documents reproducible Lab defect reporting. Reports use
+stable keys, suppress identical duplicates and attach new evidence to open Issues.
+Only repeated default runner-validation failures are automatically published.
+Pending reports survive encrypted recovery and are retried from keepalive. Raw logs
+are never automatically published. This repository is public: manually summarize
+sensitive evidence instead of relying solely on redaction.

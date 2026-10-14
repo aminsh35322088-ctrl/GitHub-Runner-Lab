@@ -81,6 +81,16 @@ def json_probe(command, timeout=20):
         return {"ok": False, "error": f"invalid JSON: {error}", "raw": result["summary"][-2000:]}
 
 
+def persistence_status():
+    recovery = kit() / "recovery.env"
+    values = dict(line.split("=", 1) for line in recovery.read_text().splitlines() if "=" in line) if recovery.exists() else {}
+    blocked = (kit() / "recovery.blocked").exists()
+    state = values.get("RECOVERY_STATUS", "UNKNOWN")
+    return {"ok": not blocked and state != "FAILED", "recovery_status": state,
+            "blocked": blocked, "recovered_root": values.get("RECOVERED_ROOT"),
+            "cache_policy": "Disposable; run project prepare after recovery or cache eviction"}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path)
@@ -96,6 +106,7 @@ def main():
     disk = shutil.disk_usage(home)
     report = {
         "runtime": runtime(),
+        "persistence": persistence_status(),
         "disk": {
             "path": str(home),
             "total_bytes": disk.total,
@@ -159,6 +170,10 @@ def main():
     )
     report["ready"] = (
         report["runtime"]["state"] == "SAFE"
+        and report["persistence"]["ok"]
+        and report["github"]["verified"]
+        and (not args.workspace or (report["project_contract"].get("ok") is True
+             and report["project_contract"].get("data", {}).get("ready") is True))
         and report["rdc"]["ok"]
         and report["docker"]["ok"]
         and docker_storage_ready

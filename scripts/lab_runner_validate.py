@@ -307,6 +307,15 @@ def main():
         "stages": stages,
     }
     _write_reports(output, summary)
+    # Fault-injection/custom manifests must never create real GitHub incidents.
+    if (args.manifest == DEFAULT_MANIFEST and args.goss_bin is None
+            and args.smoke_script == ROOT / "scripts" / "lab_smoke.py"
+            and not args.skip_smoke):
+        try:
+            from lab_incidents import observe_validation
+            observe_validation(summary)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            print("Incident reporting unavailable; validation result is unchanged.", file=sys.stderr)
     print((output / "summary.md").read_text(), end="")
     return 1 if classification == "failed" else 0
 
