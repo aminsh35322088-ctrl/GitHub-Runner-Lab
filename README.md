@@ -71,24 +71,24 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 
 | Item | Value |
 | :--- | :--- |
-| Runner state | 🟢 RDC verified · keepalive running |
+| Runner state | 🟡 Runner starting · RDC not yet verified |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-16 05:06:17 UTC |
-| Last checked | 2026-10-16 05:06:17 UTC |
-| Runner/job started | 2026-10-16 01:02:54 UTC |
-| Keepalive started | 2026-10-16 01:03:40 UTC |
-| Runner age | 243 min |
-| Runner lifecycle remaining | 86 min |
+| Status freshness | ✅ current as of 2026-10-16 06:15:02 UTC |
+| Last checked | 2026-10-16 06:15:02 UTC |
+| Runner/job started | 2026-10-16 06:14:05 UTC |
+| Keepalive started | — |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-16 06:32:54 UTC |
-| Hard job timeout | 2026-10-16 06:52:54 UTC |
+| Nominal handoff | 2026-10-16 11:44:05 UTC |
+| Hard job timeout | 2026-10-16 12:04:05 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 100% (10 samples) |
 | Keepalive completion | 100% (9 samples) |
 | Handoff ≤15 min | 100% (9 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/38811181928) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/38852525953) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
