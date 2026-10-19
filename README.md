@@ -71,24 +71,24 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 
 | Item | Value |
 | :--- | :--- |
-| Runner state | 🟡 Runner starting · RDC not yet verified |
+| Runner state | 🟠 Handover in progress |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-19 21:29:48 UTC |
-| Last checked | 2026-10-19 21:29:48 UTC |
-| Runner/job started | 2026-10-19 21:28:54 UTC |
+| Status freshness | ✅ current as of 2026-10-19 22:33:54 UTC |
+| Last checked | 2026-10-19 22:33:54 UTC |
+| Runner/job started | 2026-10-19 22:32:58 UTC |
 | Keepalive started | — |
 | Runner age | 0 min |
 | Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-20 02:58:54 UTC |
-| Hard job timeout | 2026-10-20 03:18:54 UTC |
+| Nominal handoff | 2026-10-20 04:02:58 UTC |
+| Hard job timeout | 2026-10-20 04:22:58 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
 | RDC verification success | 100% (12 samples) |
-| Keepalive completion | 58% (12 samples) |
-| Handoff ≤15 min | 100% (11 samples) |
+| Keepalive completion | 42% (12 samples) |
+| Handoff ≤15 min | 91% (11 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/39327814036) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/39335723873) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
