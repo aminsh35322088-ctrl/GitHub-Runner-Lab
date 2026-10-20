@@ -257,7 +257,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ssh
+          tags: tag:ssh,tag:co-admin
           hostname: ${{ env.TAILSCALE_HOSTNAME }}
           version: latest
           use-cache: "false"
