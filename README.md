@@ -73,22 +73,22 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-21 17:31:25 UTC |
-| Last checked | 2026-10-21 17:31:25 UTC |
-| Runner/job started | 2026-10-21 14:08:00 UTC |
-| Keepalive started | 2026-10-21 14:08:42 UTC |
-| Runner age | 203 min |
-| Runner lifecycle remaining | 126 min |
+| Status freshness | ✅ current as of 2026-10-21 19:19:50 UTC |
+| Last checked | 2026-10-21 19:19:50 UTC |
+| Runner/job started | 2026-10-21 19:19:02 UTC |
+| Keepalive started | 2026-10-21 19:19:45 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-21 19:38:00 UTC |
-| Hard job timeout | 2026-10-21 19:58:00 UTC |
+| Nominal handoff | 2026-10-22 00:49:02 UTC |
+| Hard job timeout | 2026-10-22 01:09:02 UTC |
 | Planned timeout headroom | 20 min |
-| Successor already queued | ✅ yes |
+| Successor already queued | — |
 | RDC verification success | 100% (11 samples) |
-| Keepalive completion | 64% (11 samples) |
+| Keepalive completion | 73% (11 samples) |
 | Handoff ≤15 min | 80% (10 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/39597490105) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/39644521802) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
