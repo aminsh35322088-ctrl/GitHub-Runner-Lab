@@ -71,24 +71,24 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 
 | Item | Value |
 | :--- | :--- |
-| Runner state | ⚪ No active Runner Lab run observed |
-| Agent work mode | ⚪ UNKNOWN |
-| Status freshness | ✅ current as of 2026-10-22 16:03:43 UTC |
-| Last checked | 2026-10-22 16:03:43 UTC |
-| Runner/job started | — |
-| Keepalive started | — |
-| Runner age | — |
-| Runner lifecycle remaining | — |
+| Runner state | 🟢 RDC verified · keepalive running |
+| Agent work mode | 🟢 SAFE — normal work window |
+| Status freshness | ✅ current as of 2026-10-22 16:04:22 UTC |
+| Last checked | 2026-10-22 16:04:22 UTC |
+| Runner/job started | 2026-10-22 16:03:12 UTC |
+| Keepalive started | 2026-10-22 16:03:48 UTC |
+| Runner age | 1 min |
+| Runner lifecycle remaining | 328 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | — |
-| Hard job timeout | — |
+| Nominal handoff | 2026-10-22 21:33:12 UTC |
+| Hard job timeout | 2026-10-22 21:53:12 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
-| RDC verification success | — |
-| Keepalive completion | — |
-| Handoff ≤15 min | — |
-| Median handoff gap | — |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions) |
+| RDC verification success | 100% (11 samples) |
+| Keepalive completion | 100% (11 samples) |
+| Handoff ≤15 min | 100% (10 samples) |
+| Median handoff gap | 0.8 min |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/39776694785) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
