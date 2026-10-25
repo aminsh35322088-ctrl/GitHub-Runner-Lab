@@ -73,22 +73,22 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-25 06:18:23 UTC |
-| Last checked | 2026-10-25 06:18:23 UTC |
-| Runner/job started | 2026-10-25 06:16:07 UTC |
-| Keepalive started | 2026-10-25 06:17:02 UTC |
-| Runner age | 2 min |
-| Runner lifecycle remaining | 327 min |
+| Status freshness | ✅ current as of 2026-10-25 11:27:29 UTC |
+| Last checked | 2026-10-25 11:27:29 UTC |
+| Runner/job started | 2026-10-25 11:26:46 UTC |
+| Keepalive started | 2026-10-25 11:27:25 UTC |
+| Runner age | 0 min |
+| Runner lifecycle remaining | 329 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-10-25 11:46:07 UTC |
-| Hard job timeout | 2026-10-25 12:06:07 UTC |
+| Nominal handoff | 2026-10-25 16:56:46 UTC |
+| Hard job timeout | 2026-10-25 17:16:46 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
 | RDC verification success | 100% (12 samples) |
 | Keepalive completion | 100% (12 samples) |
 | Handoff ≤15 min | 100% (11 samples) |
 | Median handoff gap | 0.7 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/40164192102) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/40188865831) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
