@@ -230,6 +230,19 @@ For untrusted target code, require a container job:
 
 Untrusted containers default to no network, no inherited GitHub credentials, no Docker socket, dropped capabilities, a read-only root filesystem, bounded temporary storage, and enforced CPU/RAM/swap/PID limits. Credential-like variables are rejected from `--pass-env`.
 
+## One-shot credential injection
+
+For credentials needed by a trusted interactive tool, inject a value into exactly one foreground command without putting it in shell history, command arguments, repository files, checkpoints, or the runner's persistent environment:
+
+```bash
+agent-lab secret run TGCLOUD_TOKEN -- npx tgcloud push
+agent-lab secret run TELEGRAM_BOT_TOKEN -- ./scripts/a-trusted-tool-that-reads-env
+```
+
+The CLI prompts with hidden input and does not save the value. The credential exists in the child process environment only; it is not forwarded to managed jobs or untrusted containers. The command runs as a **trusted host command**, so use it only with tools and scripts you trust: a child process can intentionally print, transmit, or persist any environment variable it receives. Avoid debug/verbose modes while handling secrets. For a tool that requires its own interactive secret prompt (rather than an environment variable), use that tool's prompt directly in a private terminal.
+
+This is intentionally one-shot rather than a persistent secret vault: credentials must be re-entered after runner rotation. For secrets required by future GitHub Actions runs, use the repository's **Settings → Secrets and variables → Actions** interface instead; do not commit secrets or include them in checkpointed workspaces.
+
 ## GitHub and GHCR authentication
 
 `AGENT_GITHUB_TOKEN` is consumed during bootstrap rather than exposed as a normal agent environment variable. The runner configures:

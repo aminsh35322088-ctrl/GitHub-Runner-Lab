@@ -169,6 +169,10 @@ Managed jobs start with a clean, isolated HOME. Host managed jobs receive only t
 
 For untrusted repository code, require `job start --untrusted --image IMAGE`: never run it directly in the RDC shell or a trusted host job. Host job CPU/RAM values are admission reservations only; use container jobs when hard limits matter. Keep GitHub commits and pushes in a separate trusted host step after reviewing isolated job output. Do not pass credential-like variables with `--pass-env`.
 
+## Credential injection
+
+For a one-off credential needed by a trusted foreground tool, use `agent-lab secret run NAME -- COMMAND`. It prompts with hidden input and injects the value into that command's environment only; it does not save credentials or pass them to managed jobs/untrusted containers. Never put a secret in shell arguments, source files, logs, checkpoints, issues, or chat. Treat the child command as trusted because it can still disclose its environment. For persistent future workflow configuration, use GitHub Actions repository secrets through the GitHub UI. Credentials must be re-entered after runner rotation when using one-shot injection.
+
 ## Heavy workloads
 
 This Lab is the preferred place for heavy local work when the target repository permits it, including:

@@ -19,6 +19,7 @@ case "$cmd" in
   environment) exec python3 "$SELF_DIR/lab_environment.py" "$@" ;;
   issue) exec python3 "$SELF_DIR/lab_incidents.py" "$@" ;;
   job) exec python3 "$SELF_DIR/lab_jobs.py" "$@" ;;
+  secret) exec python3 "$SELF_DIR/lab_secrets.py" "$@" ;;
   resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
   decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
   github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
@@ -64,6 +65,7 @@ case "$cmd" in
   shell-help)
     echo "Use normal gh/git commands for authenticated GitHub operations."
     echo "Use agent-lab onboard for capabilities, recovery state and safe work time."
+    echo "Use agent-lab secret run NAME -- COMMAND to inject one credential into a trusted foreground command without saving it."
     echo "Use agent-lab environment --workspace PATH --output FILE to record exact tool versions and lockfile hashes."
     echo "Use agent-lab issue --help to report reproducible Lab failures; issue --flush retries pending reports."
     echo "Use agent-run.sh workspace adopt PATH for scratch repositories that must survive runner rotation."
@@ -163,7 +165,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|secret|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac
