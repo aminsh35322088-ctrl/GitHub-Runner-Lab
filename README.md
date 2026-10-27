@@ -73,12 +73,12 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-27 22:28:51 UTC |
-| Last checked | 2026-10-27 22:28:51 UTC |
+| Status freshness | ✅ current as of 2026-10-27 23:07:47 UTC |
+| Last checked | 2026-10-27 23:07:47 UTC |
 | Runner/job started | 2026-10-27 20:30:47 UTC |
 | Keepalive started | 2026-10-27 20:31:35 UTC |
-| Runner age | 118 min |
-| Runner lifecycle remaining | 211 min |
+| Runner age | 157 min |
+| Runner lifecycle remaining | 172 min |
 | Auto restart threshold | 20 min remaining |
 | Nominal handoff | 2026-10-28 02:00:47 UTC |
 | Hard job timeout | 2026-10-28 02:20:47 UTC |
