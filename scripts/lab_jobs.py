@@ -21,6 +21,20 @@ SECRET_NAME = re.compile(
     r'|(TOKEN|SECRET|PASSWORD|APIKEY)$|^DATABASE_URL$')
 GRANTS = ('github',)
 GITHUB_ENV_KEYS = ('GH_CONFIG_DIR', 'AGENT_GITHUB_JOB_GIT_CONFIG')
+# These variables can override Git's configuration/authentication path without
+# looking like secrets. Never let --pass-env reintroduce them into a managed job.
+PROTECTED_ENV_NAMES = frozenset({
+    *GITHUB_ENV_KEYS,
+    'GIT_CONFIG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM',
+    'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_DIR', 'GIT_WORK_TREE',
+    'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_ASKPASS', 'SSH_ASKPASS',
+})
+
+
+def protected_environment_name(name):
+    return (name in PROTECTED_ENV_NAMES or name.startswith('GIT_CONFIG_')
+            or bool(SECRET_NAME.search(name)))
 
 
 def github_enforcement():
@@ -125,8 +139,8 @@ def start(args):
     for name in args.pass_env:
         if not re.fullmatch(r'[A-Z][A-Z0-9_]*', name) or name not in os.environ:
             raise ValueError(f'Explicit environment variable is unavailable or invalid: {name}')
-        if SECRET_NAME.search(name):
-            raise ValueError(f'Credential environment passthrough is refused: {name}')
+        if protected_environment_name(name):
+            raise ValueError(f'Credential or Git configuration environment passthrough is refused: {name}')
     grants = sorted(set(args.grant))
     if grants and args.image:
         raise ValueError('Container jobs never receive host credentials; --grant is only for host jobs')
@@ -263,8 +277,11 @@ def _run_worker(job, d, info):
         for key in GITHUB_ENV_KEYS:
             env.pop(key, None)
     info['github_access'] = access
+    # Defense in depth: old/malformed job metadata must not bypass start-time
+    # validation and restore protected authentication/configuration variables.
     for name in info.get('passed_environment', []):
-        if name in os.environ: env[name] = os.environ[name]
+        if name in os.environ and not protected_environment_name(name):
+            env[name] = os.environ[name]
     command_file = d / 'command.json'
     command = json.loads(command_file.read_text())['argv']
     container = 'agent-lab-' + job
