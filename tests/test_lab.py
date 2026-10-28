@@ -416,6 +416,38 @@ class LabTest(unittest.TestCase):
             self.assertEqual(result.returncode,0,(name,result.stderr))
             command([sys.executable,SCRIPTS/'lab_jobs.py','wait',result.stdout.strip()],env=self.env)
 
+    def test_pass_env_refuses_github_auth_routing_and_git_config_overrides(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'protected-env';init_repo(workspace)
+        home=self.base/'protected-home'; ghdir=home/'.config/gh'; ghdir.mkdir(parents=True)
+        gitconfig=home/'.config/agent-lab/github-auth/gitconfig'
+        gitconfig.parent.mkdir(parents=True); gitconfig.write_text('[credential]\\n\\thelper = !gh auth git-credential\\n')
+        blocked=(
+            'GH_CONFIG_DIR', 'AGENT_GITHUB_JOB_GIT_CONFIG', 'GIT_CONFIG_GLOBAL',
+            'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_PARAMETERS',
+            'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0',
+            'GIT_DIR', 'GIT_WORK_TREE', 'GIT_ASKPASS', 'SSH_ASKPASS',
+        )
+        env={**self.env,'HOME':home,'GH_CONFIG_DIR':ghdir,
+             'AGENT_GITHUB_JOB_GIT_CONFIG':gitconfig}
+        for name in blocked:
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,
+                            '--pass-env',name,'--timeout','10','--','true'],
+                           env={**env,name:str(gitconfig)})
+            self.assertNotEqual(result.returncode,0,name)
+            self.assertIn('refused',result.stderr,name)
+
+    def test_worker_defensively_ignores_protected_names_in_old_job_metadata(self):
+        # The public start path rejects these already. This exercises the worker-side
+        # defense-in-depth helper against stale or malformed passed_environment lists.
+        from importlib.util import spec_from_file_location, module_from_spec
+        spec=spec_from_file_location('lab_jobs_test_module',SCRIPTS/'lab_jobs.py')
+        module=module_from_spec(spec);spec.loader.exec_module(module)
+        for name in ('GH_CONFIG_DIR','AGENT_GITHUB_JOB_GIT_CONFIG','GIT_CONFIG_GLOBAL',
+                     'GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0','GIT_ASKPASS'):
+            self.assertTrue(module.protected_environment_name(name),name)
+        for name in ('AGENT_PROJECT_CACHE_ROOT','REPO_URL','ALLOWED_FIXTURE'):
+            self.assertFalse(module.protected_environment_name(name),name)
+
     def test_prewarm_background_launch_scrubs_secrets(self):
         script=(SCRIPTS/'agent-prewarm.sh').read_text()
         self.assertRegex(script,r'nohup env (-u \w+ )+\\?\s*"\$SELF" --foreground')
