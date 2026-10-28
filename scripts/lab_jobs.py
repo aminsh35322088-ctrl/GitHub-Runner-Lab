@@ -16,7 +16,42 @@ import uuid
 from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path, workspace_root
 
 
-SECRET_NAME = re.compile(r'(^|_)(TOKEN|SECRET|PASSWORD|PASS|KEY|CREDENTIAL|AUTH)(_|$)')
+SECRET_NAME = re.compile(
+    r'(^|_)(TOKEN|SECRET|PASSWORD|PASSWD|PASS|KEY|APIKEY|CREDENTIAL|CREDENTIALS|AUTH|BEARER|JWT|COOKIE|DSN)(_|$)'
+    r'|(TOKEN|SECRET|PASSWORD|APIKEY)$|^DATABASE_URL$')
+GRANTS = ('github',)
+GITHUB_ENV_KEYS = ('GH_CONFIG_DIR', 'AGENT_GITHUB_JOB_GIT_CONFIG')
+
+
+def github_enforcement():
+    mode = os.getenv('AGENT_JOB_GITHUB_ENFORCE', 'warn').strip().lower()
+    if mode not in ('warn', 'enforce'):
+        raise ValueError('AGENT_JOB_GITHUB_ENFORCE must be warn or enforce')
+    return mode
+
+
+def github_paths():
+    """Non-secret paths of the runner's GitHub CLI store and credential-helper git config."""
+    runner_home = Path(os.environ.get('HOME', str(Path.home()))).expanduser().resolve()
+    gh_config_dir = Path(os.environ.get(
+        'GH_CONFIG_DIR', str(runner_home / '.config/gh'))).expanduser().resolve()
+    git_config = Path(os.environ.get(
+        'AGENT_GITHUB_JOB_GIT_CONFIG',
+        str(runner_home / '.config/agent-lab/github-auth/gitconfig'))).expanduser().resolve()
+    if gh_config_dir.is_dir() and git_config.is_file():
+        return gh_config_dir, git_config
+    return None
+
+
+def github_access(info):
+    """Decide how a job may use the runner's GitHub identity: none, granted, implicit or denied."""
+    if info.get('image') or github_paths() is None:
+        return 'none'
+    if 'github' in info.get('grants', []):
+        return 'granted'
+    # The mode is fixed when the job is created: the worker's environment is filtered.
+    mode = info.get('github_enforcement') or github_enforcement()
+    return 'implicit' if mode == 'warn' else 'denied'
 
 
 def memory_megabytes(value):
@@ -92,6 +127,12 @@ def start(args):
             raise ValueError(f'Explicit environment variable is unavailable or invalid: {name}')
         if SECRET_NAME.search(name):
             raise ValueError(f'Credential environment passthrough is refused: {name}')
+    grants = sorted(set(args.grant))
+    if grants and args.image:
+        raise ValueError('Container jobs never receive host credentials; --grant is only for host jobs')
+    if grants and args.untrusted:
+        raise ValueError('Untrusted jobs cannot be granted host credentials')
+    enforcement = github_enforcement()
     requested_memory = memory_megabytes(args.memory)
     requested_cpus = positive_number(args.cpus, 'CPU reservation')
     if args.image and (args.image.startswith('-') or not re.fullmatch(r'[A-Za-z0-9._/:@-]+', args.image)):
@@ -140,7 +181,7 @@ def start(args):
                 'image': args.image, 'memory': args.memory, 'cpus': args.cpus,
                 'grace_seconds': args.grace_seconds,
                 'max_log_bytes': args.max_log_mb * 1024 * 1024,
-                'passed_environment': sorted(set(args.pass_env)), 'network': args.network,
+                'passed_environment': sorted(set(args.pass_env)), 'grants': grants, 'github_enforcement': enforcement, 'network': args.network,
                 'resource_enforcement': 'container' if args.image else 'admission-only',
                 'untrusted': args.untrusted}
         atomic(d / 'command.json', {'argv': command})
@@ -156,6 +197,10 @@ def start(args):
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         info.update(supervisor_pid=process.pid, supervisor_start=identity(process.pid))
         atomic(d / 'result.json', info)
+    if github_access(info) == 'implicit':
+        print('agent-lab: warning: this host job can use the runner GitHub identity without an explicit grant. '
+              'Add --grant github if it needs gh/git access; a future release will require it '
+              '(see AGENT_JOB_GITHUB_ENFORCE in AGENTS.md).', file=sys.stderr)
     print(job)
     return job
 
@@ -204,20 +249,20 @@ def _run_worker(job, d, info):
     # Keep the job HOME isolated, but preserve only the non-secret paths needed
     # for transparent GitHub authentication. The token itself remains in gh's
     # runner-user credential store and is never copied into the job environment.
-    runner_home = Path(os.environ.get('HOME', str(Path.home()))).expanduser().resolve()
-    gh_config_dir = Path(os.environ.get(
-        'GH_CONFIG_DIR', str(runner_home / '.config/gh'))).expanduser().resolve()
-    github_git_config = Path(os.environ.get(
-        'AGENT_GITHUB_JOB_GIT_CONFIG',
-        str(runner_home / '.config/agent-lab/github-auth/gitconfig'))).expanduser().resolve()
-
     env = clean_environment()
     (d / 'home').mkdir(exist_ok=True); (d / 'tmp').mkdir(exist_ok=True)
     env.update(HOME=str(d / 'home'), TMPDIR=str(d / 'tmp'), AGENT_JOB_ID=job,
                AGENT_JOB_OUTPUT_DIR=str(d), RUNNER_TRACKING_ID='agent-lab-job-' + job)
-    if gh_config_dir.is_dir() and github_git_config.is_file():
-        env['GH_CONFIG_DIR'] = str(gh_config_dir)
-        env['GIT_CONFIG_GLOBAL'] = str(github_git_config)
+    access = github_access(info)
+    paths = github_paths()
+    if access in ('granted', 'implicit') and paths:
+        env['GH_CONFIG_DIR'] = str(paths[0])
+        env['GIT_CONFIG_GLOBAL'] = str(paths[1])
+    else:
+        # clean_environment() forwards these from the supervisor; drop them unless access was granted.
+        for key in GITHUB_ENV_KEYS:
+            env.pop(key, None)
+    info['github_access'] = access
     for name in info.get('passed_environment', []):
         if name in os.environ: env[name] = os.environ[name]
     command_file = d / 'command.json'
@@ -323,6 +368,8 @@ def main():
     a.add_argument('--grace-seconds', type=int, default=10)
     a.add_argument('--max-log-mb', type=int, default=20)
     a.add_argument('--pass-env', action='append', default=[])
+    a.add_argument('--grant', action='append', choices=GRANTS, default=[],
+                   help='allow this host job to use the runner GitHub identity (gh/git); never for container jobs')
     a.add_argument('--network', choices=('none','bridge'), default='none')
     a.add_argument('--image'); a.add_argument('--untrusted', action='store_true')
     a.add_argument('--memory', default='512m'); a.add_argument('--cpus', type=float, default=1)
