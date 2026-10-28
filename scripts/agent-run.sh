@@ -19,6 +19,7 @@ case "$cmd" in
   environment) exec python3 "$SELF_DIR/lab_environment.py" "$@" ;;
   issue) exec python3 "$SELF_DIR/lab_incidents.py" "$@" ;;
   job) exec python3 "$SELF_DIR/lab_jobs.py" "$@" ;;
+  cred) exec python3 "$SELF_DIR/lab_credentials.py" "$@" ;;
   resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
   decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
   github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
@@ -163,7 +164,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|cred|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

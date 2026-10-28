@@ -1,0 +1,11 @@
+{
+  "name": "cloudflare",
+  "env": "CLOUDFLARE_API_TOKEN",
+  "allowed_commands": ["wrangler"],
+  "help_url": "https://dash.cloudflare.com/profile/api-tokens",
+  "guidance": "Create an API token with only the permissions this task needs (for example Workers Scripts: Edit) and give it an expiry date. Do not use the Global API Key.",
+  "validate": {
+    "url": "https://api.cloudflare.com/client/v4/user/tokens/verify",
+    "expect": {"success": true}
+  }
+}

@@ -169,6 +169,22 @@ Managed jobs start with a clean, isolated HOME. Host managed jobs receive only t
 
 For untrusted repository code, require `job start --untrusted --image IMAGE`: never run it directly in the RDC shell or a trusted host job. Host job CPU/RAM values are admission reservations only; use container jobs when hard limits matter. Keep GitHub commits and pushes in a separate trusted host step after reviewing isolated job output. Do not pass credential-like variables with `--pass-env`.
 
+## Credentials on demand
+
+When a tool needs a token the Lab does not have (for example Cloudflare `wrangler`), never ask for it in chat and never search for it. Request it:
+
+```bash
+agent-lab cred request cloudflare --purpose "deploy the worker"
+```
+
+This prints a one-time `CRED_URL` (valid 15 minutes, reachable only from the owner's tailnet). Send that link to the user and wait; the user pastes the token there and chooses how long to keep it (this runner, 1 hour or 24 hours). Check with `agent-lab cred status cloudflare` (`CRED_STATE=READY`). Then run the tool with:
+
+```bash
+agent-lab cred run cloudflare -- wrangler deploy
+```
+
+The value is injected only into that command's environment and only for the commands the integration allows (`config/integrations/NAME.json`; unknown services use `request custom --name N --env N_TOKEN --allow CMD`). Credentials are not available inside managed jobs or containers, never appear in output, and `agent-lab cred revoke NAME` removes one (also revoke it at the provider). Install tools such as wrangler at a pinned version first, without the token; do not run `npx` with a credential.
+
 ## Heavy workloads
 
 This Lab is the preferred place for heavy local work when the target repository permits it, including:
