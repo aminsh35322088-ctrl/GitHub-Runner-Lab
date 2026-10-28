@@ -177,13 +177,13 @@ When a tool needs a token the Lab does not have (for example Cloudflare `wrangle
 agent-lab cred request cloudflare --purpose "deploy the worker"
 ```
 
-This prints a one-time `CRED_URL` (valid 15 minutes, reachable only from the owner's tailnet). Send that link to the user and wait; the user pastes the token there and chooses how long to keep it (this runner, 1 hour or 24 hours). Check with `agent-lab cred status cloudflare` (`CRED_STATE=READY`). Then run the tool with:
+This prints a one-time `CRED_URL` (valid 15 minutes, reachable only from the tailnet). Before enabling the panel, set `AGENT_CRED_ALLOWED_LOGIN` to a comma-separated allowlist of exact Tailscale login identities; the panel fails closed if this is missing and checks the `Tailscale-User-Login` header. Send the link to the user and wait; the user pastes the token there and chooses how long to keep it (this runner, 1 hour or 24 hours). Check with `agent-lab cred status cloudflare` (`CRED_STATE=READY`). Session storage requires `/dev/shm`; the broker refuses to fall back to ordinary disk. Then run the tool with:
 
 ```bash
 agent-lab cred run cloudflare -- wrangler deploy
 ```
 
-The value is injected only into that command's environment and only for the commands the integration allows (`config/integrations/NAME.json`; unknown services use `request custom --name N --env N_TOKEN --allow CMD`). Credentials are not available inside managed jobs or containers, never appear in output, and `agent-lab cred revoke NAME` removes one (also revoke it at the provider). Install tools such as wrangler at a pinned version first, without the token; do not run `npx` with a credential.
+The value is injected into a minimal environment for a single trusted executable, and output is bounded and redacted. Commands must be invoked by bare executable name; path-based wrappers, shells and interpreters are rejected. Cloudflare credentials are restricted to `wrangler deploy` with an existing project-local TOML, strict JSON, or JSONC config and no `build.command`; executable JS/TS configs, ancestor configs, ambiguous config files, and `.wrangler/deploy/config.json` redirects are refused because project-controlled code must not run while a token is present. Build artifacts before requesting the token. Custom integrations use `request custom --name N --env N_TOKEN --allow CMD`; only allow a trusted executable and never allow a command that executes project-controlled code. Credentials are unavailable inside managed jobs or containers. `agent-lab cred revoke NAME` removes one (also revoke it at the provider). This is defense-in-depth, not an OS sandbox: same-UID/root-capable agents can inspect local process or credential state, so do not use it with untrusted code.
 
 ## Heavy workloads
 

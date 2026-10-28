@@ -71,7 +71,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def identity_ok(self):
         allowed = [x.strip() for x in os.environ.get('AGENT_CRED_ALLOWED_LOGIN', '').split(',') if x.strip()]
-        return not allowed or self.headers.get('Tailscale-User-Login', '') in allowed
+        # Fail closed: an unconfigured identity allowlist must never expose token entry to all tailnet users.
+        return bool(allowed) and self.headers.get('Tailscale-User-Login', '') in allowed
 
     def locate(self):
         match = ROUTE.match(self.path)
@@ -85,41 +86,57 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return meta
 
     def do_GET(self):
-        meta = self.locate()
-        if meta:
-            meta['csrf'] = secrets.token_urlsafe(24)
-            cr.save_request(meta)
-            self.respond(200, form(meta))
+        match = ROUTE.match(self.path)
+        if not match:
+            self.locate()
+            return
+        # Serialize CSRF rotation with submissions so simultaneous tabs cannot race state.
+        with cr.request_lock(match[1]):
+            meta = self.locate()
+            if meta:
+                meta['csrf'] = secrets.token_urlsafe(24)
+                cr.save_request(meta)
+                self.respond(200, form(meta))
 
     def do_POST(self):
-        meta = self.locate()
-        if not meta:
+        match = ROUTE.match(self.path)
+        if not match:
+            self.locate()
             return
-        length = int(self.headers.get('Content-Length') or 0)
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            return self.respond(400, page('<h1>Bad request</h1>'))
         if length <= 0 or length > MAX_BODY:
             return self.respond(400, page('<h1>Bad request</h1>'))
-        fields = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8', 'replace'), keep_blank_values=True)
+        raw = self.rfile.read(length)
+        fields = urllib.parse.parse_qs(raw.decode('utf-8', 'replace'), keep_blank_values=True)
         get = lambda k: (fields.get(k) or [''])[0]
-        if not meta.get('csrf') or not hmac.compare_digest(meta['csrf'], get('csrf')):
-            return self.respond(400, page('<h1>Bad request</h1><p>Reload the page and try again.</p>'))
-        meta['attempts'] += 1
-        lifetime, value = get('lifetime'), get('value').strip()
-        if meta['attempts'] >= MAX_ATTEMPTS:
-            meta['state'] = 'locked'
+        # One request can only be fulfilled/locked once, even under parallel POSTs.
+        with cr.request_lock(match[1]):
+            meta = self.locate()
+            if not meta:
+                return
+            if not meta.get('csrf') or not hmac.compare_digest(meta['csrf'], get('csrf')):
+                return self.respond(400, page('<h1>Bad request</h1><p>Reload the page and try again.</p>'))
+            meta['attempts'] += 1
+            lifetime, value = get('lifetime'), get('value').strip()
+            if meta['attempts'] >= MAX_ATTEMPTS:
+                meta['state'] = 'locked'
+                cr.save_request(meta)
+                return self.respond(429, page('<h1>Too many attempts</h1><p>Ask for a new link.</p>'))
+            if lifetime not in cr.LIFETIMES or not VALUE.fullmatch(value):
+                cr.save_request(meta)
+                return self.respond(400, form(meta, 'Enter the token and choose how long to keep it.'))
+            ok, message = cr.validate_value(meta, value)
+            if not ok:
+                cr.save_request(meta)
+                return self.respond(400, form(meta, message))
+            cr.store_credential(meta, value, lifetime)
+            meta.update(state='fulfilled', nonce_sha256='', csrf=None)
             cr.save_request(meta)
-            return self.respond(429, page('<h1>Too many attempts</h1><p>Ask for a new link.</p>'))
-        if lifetime not in cr.LIFETIMES or not VALUE.fullmatch(value):
-            cr.save_request(meta)
-            return self.respond(400, form(meta, 'Enter the token and choose how long to keep it.'))
-        ok, message = cr.validate_value(meta, value)
-        if not ok:
-            cr.save_request(meta)
-            return self.respond(400, form(meta, message))
-        cr.store_credential(meta, value, lifetime)
-        meta.update(state='fulfilled', nonce_sha256='', csrf=None)
-        cr.save_request(meta)
-        self.respond(200, page(f'<h1>Saved</h1><p>The credential <code>{html.escape(meta["name"])}</code> is ready ({html.escape(message)}). '
-                               'You can close this page and tell the assistant to continue.</p>'))
+            self.respond(200, page(f'<h1>Saved</h1><p>The credential <code>{html.escape(meta["name"])}</code> is ready ({html.escape(message)}). '
+                                   'You can close this page and tell the assistant to continue.</p>'))
 
 
 def pending_exists():
@@ -132,7 +149,11 @@ def pending_exists():
 
 def serve():
     os.umask(0o077)
+    allowed = [x.strip() for x in os.environ.get('AGENT_CRED_ALLOWED_LOGIN', '').split(',') if x.strip()]
+    if not allowed:
+        raise ValueError('AGENT_CRED_ALLOWED_LOGIN must contain the exact allowed Tailscale login(s)')
     server = http.server.ThreadingHTTPServer(('127.0.0.1', cr.panel_port()), Handler)
+    server.daemon_threads = True
     port = server.server_address[1]
     state = cr.cred_dir() / 'panel.json'
     cr.atomic(state, {'pid': os.getpid(), 'port': port, 'started': cr.now()})
