@@ -45,19 +45,20 @@ except Exception:
 PYCONF
     )" || fail "invalid_local_config" 3
     local -a values
-    mapfile -t values < <(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())[0]); print(json.loads(sys.stdin.read())[1])' <<<"$config_json" 2>/dev/null)
-    # Parse the JSON in one process; the token is a single-line base64url value.
-    if (("${#values[@]}" != 2)); then
-      mapfile -t values < <(python3 -c 'import json,sys; x=json.load(sys.stdin); print(x[0]); print(x[1])' <<<"$config_json")
-    fi
+    local values_text
+    values_text="$(python3 -c 'import json,sys; x=json.load(sys.stdin); print(x[0]); print(x[1])' <<<"$config_json")" || fail "invalid_local_config" 3
+    mapfile -t values <<<"$values_text"
     (("${#values[@]}" == 2)) || fail "invalid_local_config" 3
     [[ -n "$VAULT_URL" ]] || VAULT_URL="${values[0]}"
     [[ -n "$VAULT_TOKEN" ]] || VAULT_TOKEN="${values[1]}"
-    unset config_json values
   fi
 
   VAULT_URL="${VAULT_URL%/}"
   [[ "$VAULT_URL" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "invalid_vault_url" 3
+  if [[ "$VAULT_URL" =~ :([0-9]{1,5})$ ]]; then
+    local port="${BASH_REMATCH[1]}"
+    ((10#$port >= 1 && 10#$port <= 65535)) || fail "invalid_vault_url" 3
+  fi
   [[ "$VAULT_TOKEN" =~ ^[A-Za-z0-9._~-]{32,256}$ ]] || fail "invalid_vault_token" 3
 }
 
