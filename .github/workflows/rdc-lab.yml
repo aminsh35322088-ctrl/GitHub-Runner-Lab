@@ -323,6 +323,49 @@ jobs:
           unset AGENT_GITHUB_TOKEN
           ./scripts/agent-github.sh verify
 
+      - name: Configure Agent Credential Vault access
+        if: steps.mode.outputs.ready == 'true'
+        env:
+          CREDENTIAL_VAULT_URL: ${{ vars.CREDENTIAL_VAULT_URL }}
+          CREDENTIAL_VAULT_TOKEN: ${{ secrets.CREDENTIAL_VAULT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - /dev/shm/agent-credential-vault.json <<'PYCONF'
+          import json
+          import os
+          import pathlib
+          import re
+          import tempfile
+          import urllib.parse
+          import sys
+
+          target = pathlib.Path(sys.argv[1])
+          url = os.environ.get("CREDENTIAL_VAULT_URL", "").rstrip("/")
+          token = os.environ.get("CREDENTIAL_VAULT_TOKEN", "")
+          parsed = urllib.parse.urlparse(url)
+          valid_url = parsed.scheme == "https" and bool(parsed.hostname) and not parsed.path and not parsed.query and not parsed.fragment
+          valid_token = bool(re.fullmatch(r"[A-Za-z0-9._~-]{32,256}", token))
+          if not valid_url or not valid_token:
+              target.unlink(missing_ok=True)
+              print("CREDENTIAL_VAULT=NOT_CONFIGURED")
+              print("::warning::Credential vault URL/token is missing or invalid; vault access remains disabled.")
+              raise SystemExit(0)
+
+          target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+          fd, tmp_name = tempfile.mkstemp(prefix=".agent-credential-vault.", dir=str(target.parent))
+          try:
+              with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                  json.dump({"url": url, "token": token}, handle, separators=(",", ":"))
+                  handle.write("\\n")
+              os.chmod(tmp_name, 0o600)
+              os.replace(tmp_name, target)
+          finally:
+              pathlib.Path(tmp_name).unlink(missing_ok=True)
+          print("CREDENTIAL_VAULT=CONFIGURED")
+          PYCONF
+          unset CREDENTIAL_VAULT_TOKEN CREDENTIAL_VAULT_URL
+
       # Restore dependency/download caches only after RDC is already reachable.
       # Target-repository setup scripts own the cache contents; the Lab only
       # persists this generic, secret-free cache between ephemeral runners.
