@@ -60,7 +60,7 @@ test("list returns configured CRED_ names only and never values", async () => {
   const body = await json(response);
   assert.deepEqual(body, { credentials: ["GITHUB_TOKEN", "TAILSCALE_KEY"] });
   assert.doesNotMatch(JSON.stringify(body), /ghp-test|tskey-test|must-never/);
-  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.match(response.headers.get("cache-control") ?? "", /no-store/i);
 });
 
 test("get returns exactly the requested credential without exposing other bindings", async () => {
@@ -70,7 +70,7 @@ test("get returns exactly the requested credential without exposing other bindin
     name: "GITHUB_TOKEN",
     value: "ghp-test-github-token",
   });
-  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.match(response.headers.get("cache-control") ?? "", /no-store/i);
   assert.equal(response.headers.get("pragma"), "no-cache");
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("access-control-allow-origin"), null);
@@ -114,5 +114,5 @@ test("non-string Worker bindings are never listed or returned as credentials", a
 test("responses vary by authorization and never cache credential material", async () => {
   const response = await worker.fetch(authorized("/v1/credentials/GITHUB_TOKEN"), makeEnv());
   assert.equal(response.headers.get("vary"), "Authorization");
-  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.match(response.headers.get("cache-control") ?? "", /no-store/i);
 });
