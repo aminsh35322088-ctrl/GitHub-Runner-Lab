@@ -1,0 +1,9 @@
+{
+  "name": "runner-credential-vault-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/index.test.js"
+  }
+}
