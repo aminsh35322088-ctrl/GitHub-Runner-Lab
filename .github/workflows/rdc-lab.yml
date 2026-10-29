@@ -8,6 +8,8 @@ on:
       - scripts/install-rdc.sh
       - scripts/rdc-supervisor.mjs
       - scripts/health.sh
+      - scripts/agent-run.sh
+      - scripts/agent-credentials.sh
       - .github/workflows/rdc-lab.yml
   # Proven Exit-Node continuity model: self-handover is primary, schedule is only a backstop.
   schedule:
