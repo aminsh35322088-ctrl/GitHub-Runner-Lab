@@ -22,6 +22,7 @@ case "$cmd" in
   resume) exec python3 "$SELF_DIR/lab_checkpoint.py" resume "$@" ;;
   decrypt) exec python3 "$SELF_DIR/lab_archive.py" decrypt "$@" ;;
   github) exec "$SELF_DIR/agent-github.sh" "$@" ;;
+  credentials) exec "$SELF_DIR/agent-credentials.sh" "$@" ;;
   git-sync) exec python3 "$SELF_DIR/lab_git.py" sync "$@" ;;
   git-identity) exec python3 "$SELF_DIR/lab_git.py" identity "$@" ;;
   ready) exec python3 "$SELF_DIR/lab_ready.py" "$@" ;;
@@ -63,6 +64,7 @@ case "$cmd" in
     ;;
   shell-help)
     echo "Use normal gh/git commands for authenticated GitHub operations."
+    echo "Use agent-lab credentials list|get NAME|exec NAME ENV -- COMMAND to fetch live credentials from the Cloudflare vault."
     echo "Use agent-lab onboard for capabilities, recovery state and safe work time."
     echo "Use agent-lab environment --workspace PATH --output FILE to record exact tool versions and lockfile hashes."
     echo "Use agent-lab issue --help to report reproducible Lab failures; issue --flush retries pending reports."
