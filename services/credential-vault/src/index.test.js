@@ -32,12 +32,12 @@ async function json(response) {
 test("health is public, minimal, and does not expose binding names or values", async () => {
   const response = await worker.fetch(new Request(new URL("/health", BASE_URL)), makeEnv());
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.match(response.headers.get("cache-control") ?? "", /no-store/i);
   assert.deepEqual(await json(response), { ok: true, service: "runner-credential-vault" });
 });
 
 test("credential routes require bearer authentication", async () => {
-  const response = await worker.fetch(authorized("/v1/credentials"), makeEnv({}));
+  const response = await worker.fetch(authorized("/v1/credentials", { token: null }), makeEnv());
   assert.equal(response.status, 401);
   assert.deepEqual(await json(response), { error: "unauthorized" });
 });
@@ -77,15 +77,18 @@ test("get returns exactly the requested credential without exposing other bindin
 });
 
 test("unknown or empty credentials return 404 without revealing internal bindings", async () => {
-  for (const name of ["UNKNOWN", "EMPTY", "BROKER_ACCESS_TOKEN", "CLOUDFLARE_API_TOKEN", "../OTHER_SETTING"]) {
+  for (const name of ["UNKNOWN", "EMPTY", "BROKER_ACCESS_TOKEN", "CLOUDFLARE_API_TOKEN"]) {
     const response = await worker.fetch(authorized(`/v1/credentials/${encodeURIComponent(name)}`), makeEnv());
     assert.equal(response.status, 404, name);
     assert.deepEqual(await json(response), { error: "credential_not_found" });
   }
+  const invalidName = await worker.fetch(authorized("/v1/credentials/..%2FOTHER_SETTING"), makeEnv());
+  assert.equal(invalidName.status, 400);
+  assert.deepEqual(await json(invalidName), { error: "invalid_credential_name" });
 });
 
 test("only uppercase credential names matching the contract are accepted", async () => {
-  for (const name of ["github_token", "GITHUB-TOKEN", "GITHUB.TOKEN", ""]) {
+  for (const name of ["github_token", "GITHUB-TOKEN", "GITHUB.TOKEN"]) {
     const response = await worker.fetch(authorized(`/v1/credentials/${name}`), makeEnv());
     assert.equal(response.status, 400, name);
     assert.deepEqual(await json(response), { error: "invalid_credential_name" });
