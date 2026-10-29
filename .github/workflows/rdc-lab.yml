@@ -357,7 +357,7 @@ jobs:
           try:
               with os.fdopen(fd, "w", encoding="utf-8") as handle:
                   json.dump({"url": url, "token": token}, handle, separators=(",", ":"))
-                  handle.write("\\n")
+                  handle.write("\n")
               os.chmod(tmp_name, 0o600)
               os.replace(tmp_name, target)
           finally:
