@@ -354,6 +354,109 @@ class LabTest(unittest.TestCase):
         self.assertIn('TOKENS=False',output)
         self.assertNotIn('HOME='+str(home)+'\n',output)
 
+    def _github_job_fixture(self, name):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/name;init_repo(workspace)
+        home=self.base/('home-'+name); ghdir=home/'.config/gh'; ghdir.mkdir(parents=True)
+        gitconfig=home/'.config/agent-lab/github-auth/gitconfig'
+        gitconfig.parent.mkdir(parents=True); gitconfig.write_text('[credential "https://github.com"]\n\thelper = !gh auth git-credential\n')
+        return workspace,{**self.env,'HOME':home},ghdir,gitconfig
+
+    def _run_github_probe(self, workspace, env, *flags):
+        code='import os;print("GH_CONFIG_DIR="+os.environ.get("GH_CONFIG_DIR",""));print("GIT_CONFIG_GLOBAL="+os.environ.get("GIT_CONFIG_GLOBAL",""))'
+        started=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',*flags,'--','python3','-c',code],env=env)
+        self.assertEqual(started.returncode,0,started.stderr)
+        job=started.stdout.strip()
+        waited=command([sys.executable,SCRIPTS/'lab_jobs.py','wait',job],env=env)
+        self.assertEqual(waited.returncode,0,waited.stderr)
+        return started,json.loads(waited.stdout),(Path(self.env['AGENT_JOBS_DIR'])/job/'output.log').read_text()
+
+    def test_host_job_without_grant_warns_but_keeps_github_access_by_default(self):
+        workspace,env,ghdir,gitconfig=self._github_job_fixture('warn-job')
+        started,report,output=self._run_github_probe(workspace,env)
+        self.assertIn('--grant github',started.stderr)
+        self.assertEqual(report['github_access'],'implicit')
+        self.assertIn('GH_CONFIG_DIR='+str(ghdir),output)
+
+    def test_host_job_with_grant_has_github_access_without_warning(self):
+        workspace,env,ghdir,gitconfig=self._github_job_fixture('grant-job')
+        started,report,output=self._run_github_probe(workspace,{**env,'AGENT_JOB_GITHUB_ENFORCE':'enforce'},'--grant','github')
+        self.assertNotIn('warning',started.stderr)
+        self.assertEqual(report['github_access'],'granted');self.assertEqual(report['grants'],['github'])
+        self.assertIn('GH_CONFIG_DIR='+str(ghdir),output)
+        self.assertIn('GIT_CONFIG_GLOBAL='+str(gitconfig),output)
+
+    def test_enforced_host_job_without_grant_has_no_github_paths(self):
+        workspace,env,ghdir,gitconfig=self._github_job_fixture('enforce-job')
+        # Even an inherited GH_CONFIG_DIR must not leak into an ungranted job.
+        env={**env,'AGENT_JOB_GITHUB_ENFORCE':'enforce','GH_CONFIG_DIR':ghdir}
+        started,report,output=self._run_github_probe(workspace,env)
+        self.assertEqual(report['github_access'],'denied')
+        self.assertIn('GH_CONFIG_DIR=\n',output)
+        self.assertIn('GIT_CONFIG_GLOBAL=/dev/null',output)
+
+    def test_grant_is_refused_for_container_and_untrusted_jobs_and_bad_mode(self):
+        workspace,env,_,_=self._github_job_fixture('grant-refused')
+        for flags,extra in [(['--grant','github','--image','local:test'],{}),
+                            (['--grant','github','--untrusted','--image','local:test'],{}),
+                            ([],{'AGENT_JOB_GITHUB_ENFORCE':'sometimes'})]:
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,*flags,'--','true'],env={**env,**extra})
+            self.assertNotEqual(result.returncode,0,(flags,extra))
+        self.assertEqual(list(Path(self.env['AGENT_JOBS_DIR']).glob('*/result.json')),[])
+
+    def test_pass_env_refuses_more_credential_shaped_names(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
+        for name in ('OPENAI_APIKEY','CLOUDFLARE_API_TOKEN','MY_BEARER','SESSION_COOKIE','SENTRY_DSN','DATABASE_URL','CFTOKEN','APP_JWT'):
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--pass-env',name,'--','true'],
+                           env={**self.env,name:'value'})
+            self.assertNotEqual(result.returncode,0,name)
+            self.assertIn('refused',result.stderr,name)
+        for name in ('ALLOWED_FIXTURE','AGENT_PROJECT_CACHE_ROOT','REPO_URL'):
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--pass-env',name,'--timeout','10','--','true'],
+                           env={**self.env,name:'value'})
+            self.assertEqual(result.returncode,0,(name,result.stderr))
+            command([sys.executable,SCRIPTS/'lab_jobs.py','wait',result.stdout.strip()],env=self.env)
+
+    def test_pass_env_refuses_github_auth_routing_and_git_config_overrides(self):
+        workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'protected-env';init_repo(workspace)
+        home=self.base/'protected-home'; ghdir=home/'.config/gh'; ghdir.mkdir(parents=True)
+        gitconfig=home/'.config/agent-lab/github-auth/gitconfig'
+        gitconfig.parent.mkdir(parents=True); gitconfig.write_text('[credential]\\n\\thelper = !gh auth git-credential\\n')
+        blocked=(
+            'GH_CONFIG_DIR', 'AGENT_GITHUB_JOB_GIT_CONFIG', 'GIT_CONFIG_GLOBAL',
+            'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_PARAMETERS',
+            'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0',
+            'GIT_DIR', 'GIT_WORK_TREE', 'GIT_ASKPASS', 'SSH_ASKPASS',
+        )
+        env={**self.env,'HOME':home,'GH_CONFIG_DIR':ghdir,
+             'AGENT_GITHUB_JOB_GIT_CONFIG':gitconfig}
+        for name in blocked:
+            result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,
+                            '--pass-env',name,'--timeout','10','--','true'],
+                           env={**env,name:str(gitconfig)})
+            self.assertNotEqual(result.returncode,0,name)
+            self.assertIn('refused',result.stderr,name)
+
+    def test_worker_defensively_ignores_protected_names_in_old_job_metadata(self):
+        # The public start path rejects these already. This exercises the worker-side
+        # defense-in-depth helper against stale or malformed passed_environment lists.
+        from importlib.util import spec_from_file_location, module_from_spec
+        spec=spec_from_file_location('lab_jobs_test_module',SCRIPTS/'lab_jobs.py')
+        module=module_from_spec(spec);spec.loader.exec_module(module)
+        for name in ('GH_CONFIG_DIR','AGENT_GITHUB_JOB_GIT_CONFIG','GIT_CONFIG_GLOBAL',
+                     'GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0','GIT_ASKPASS'):
+            self.assertTrue(module.protected_environment_name(name),name)
+        for name in ('AGENT_PROJECT_CACHE_ROOT','REPO_URL','ALLOWED_FIXTURE'):
+            self.assertFalse(module.protected_environment_name(name),name)
+
+    def test_prewarm_background_launch_scrubs_secrets(self):
+        script=(SCRIPTS/'agent-prewarm.sh').read_text()
+        launch = script.split('nohup env', 1)[1].split('"$SELF" --foreground', 1)[0]
+        for name in (
+            'RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','AGENT_GITHUB_TOKEN',
+            'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+        ):
+            self.assertIn('-u '+name,launch)
+
     def test_managed_job_times_out_and_cleans_descendant(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
         result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','1','--',
