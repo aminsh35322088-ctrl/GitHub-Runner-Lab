@@ -1,0 +1,177 @@
+name: Deploy private Runner Credential Vault
+run-name: Deploy Runner Credential Vault (${{ inputs.worker_name }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_name:
+        description: New Cloudflare Worker name (defaults to a fresh v2 instance)
+        required: true
+        default: runner-vault-v2
+        type: string
+      owner_github_username:
+        description: GitHub account that will own the Vault
+        required: true
+        default: aminsh35322088-ctrl
+        type: string
+      runner_repository:
+        description: Exact repository allowed to obtain runner sessions
+        required: true
+        default: aminsh35322088-ctrl/GitHub-Runner-Lab
+        type: string
+      runner_branch:
+        description: Exact allowed runner branch
+        required: true
+        default: main
+        type: string
+      runner_workflow_file:
+        description: Exact trusted workflow path
+        required: true
+        default: .github/workflows/rdc-lab.yml
+        type: string
+      allowed_events:
+        description: Comma-separated GitHub Actions events (PR events are always rejected)
+        required: true
+        default: workflow_dispatch,schedule,push
+        type: string
+      public_origin:
+        description: Optional canonical HTTPS Worker origin (leave blank to use request origin)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and deploy private Vault source
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: runner-vault-deploy-${{ inputs.worker_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate required deployment secrets
+        shell: bash
+        env:
+          AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VAULT_BETTER_AUTH_SECRET: ${{ secrets.VAULT_BETTER_AUTH_SECRET }}
+          VAULT_ENCRYPTION_KEY: ${{ secrets.VAULT_ENCRYPTION_KEY }}
+          WORKER_NAME: ${{ inputs.worker_name }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in AGENT_GITHUB_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID VAULT_BETTER_AUTH_SECRET VAULT_ENCRYPTION_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (("${#missing[@]}" > 0)); then
+            printf '::error::Missing required GitHub Actions secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          if [[ "$WORKER_NAME" == "runner-vault" ]]; then
+            echo "::error::Refusing to replace the existing runner-vault Worker. Use runner-vault-v2 or another new name."
+            exit 1
+          fi
+          if [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID must be a 32-character hexadecimal Cloudflare account ID."
+            exit 1
+          fi
+          if [[ ${#VAULT_BETTER_AUTH_SECRET} -lt 32 ]]; then
+            echo "::error::VAULT_BETTER_AUTH_SECRET must contain at least 32 characters."
+            exit 1
+          fi
+          if ! printf '%s' "$VAULT_ENCRYPTION_KEY" | base64 --decode >/dev/null 2>&1 || [[ $(printf '%s' "$VAULT_ENCRYPTION_KEY" | base64 --decode 2>/dev/null | wc -c) -ne 32 ]]; then
+            echo "::error::VAULT_ENCRYPTION_KEY must be base64 for exactly 32 random bytes."
+            exit 1
+          fi
+          echo "Required deployment secrets are present and structurally valid."
+
+      - name: Checkout GitHub Runner Lab
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Runner Vault source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: aminsh35322088-ctrl/GitHub-runner-vault
+          ref: main
+          token: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          path: private-vault
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Activate pinned pnpm
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@12.16.1 --activate
+          node --version
+          pnpm --version
+
+      - name: Install private Vault dependencies
+        working-directory: private-vault
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Vault validation before deployment
+        working-directory: private-vault
+        run: pnpm validate
+
+      - name: Deploy from the private source repository
+        working-directory: private-vault
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VAULT_BETTER_AUTH_SECRET: ${{ secrets.VAULT_BETTER_AUTH_SECRET }}
+          VAULT_ENCRYPTION_KEY: ${{ secrets.VAULT_ENCRYPTION_KEY }}
+          VAULT_DEPLOY_WORKER_NAME: ${{ inputs.worker_name }}
+          VAULT_DEPLOY_OWNER_GITHUB_USERNAME: ${{ inputs.owner_github_username }}
+          VAULT_DEPLOY_RUNNER_REPOSITORY: ${{ inputs.runner_repository }}
+          VAULT_DEPLOY_BRANCH: ${{ inputs.runner_branch }}
+          VAULT_DEPLOY_WORKFLOW_FILE: ${{ inputs.runner_workflow_file }}
+          VAULT_DEPLOY_ALLOWED_EVENTS: ${{ inputs.allowed_events }}
+          VAULT_DEPLOY_PUBLIC_ORIGIN: ${{ inputs.public_origin }}
+        run: pnpm vault:deploy -- --non-interactive
+
+      - name: Publish deployment summary
+        shell: bash
+        env:
+          WORKER_NAME: ${{ inputs.worker_name }}
+          VAULT_REF: main
+          RUNNER_REPOSITORY: ${{ inputs.runner_repository }}
+          RUNNER_BRANCH: ${{ inputs.runner_branch }}
+          RUNNER_WORKFLOW: ${{ inputs.runner_workflow_file }}
+          OWNER_LOGIN: ${{ inputs.owner_github_username }}
+        run: |
+          {
+            echo "## Runner Credential Vault deployment"
+            echo
+            echo "- Source: \`aminsh35322088-ctrl/GitHub-runner-vault\` @ \`$VAULT_REF\`"
+            echo "- Worker: \`$WORKER_NAME\`"
+            echo "- Owner: \`$OWNER_LOGIN\`"
+            echo "- Trusted repository: \`$RUNNER_REPOSITORY\`"
+            echo "- Trusted ref: \`refs/heads/$RUNNER_BRANCH\`"
+            echo "- Trusted workflow: \`$RUNNER_WORKFLOW\`"
+            echo
+            echo "### Required post-deploy setup"
+            echo "1. Create a GitHub OAuth App with callback \`https://<worker-origin>/api/auth/callback/github\`."
+            echo "2. Add \`GITHUB_CLIENT_ID\` and \`GITHUB_CLIENT_SECRET\` as Worker secrets in Cloudflare."
+            echo "3. Set the trusted runner repository's \`RUNNER_VAULT_URL\` Actions variable to the deployed Worker origin."
+            echo "4. Run \`vault list\` from a real trusted runner session and verify OIDC authentication."
+            echo
+            echo "The default worker name is \`runner-vault-v2\`; it does not overwrite the existing \`runner-vault\` Worker."
+          } >> "$GITHUB_STEP_SUMMARY"
