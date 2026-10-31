@@ -25,6 +25,13 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 - **Project-owned contracts** so this repository never hardcodes another project's setup or test policy.
 - **Self-validation and watchdog recovery** so the Lab can detect broken host/toolchain/access state instead of silently presenting a stale green environment.
 
+## Optional: Runner Credential Vault
+
+For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens) an agent can use a separate
+Cloudflare Worker vault that performs the call on the agent's behalf so the agent never sees the token, and can ask
+the owner to register a new credential through a one-time link. The Lab's only involvement is the `id-token: write`
+permission on the `runner-lab` job. See [`docs/credential-vault.md`](docs/credential-vault.md).
+
 ## System model
 
 ```text

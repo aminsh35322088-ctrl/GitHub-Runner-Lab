@@ -146,6 +146,15 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
+    # A job-level block replaces the workflow-level one, so the two existing
+    # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
+    # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
+    # access to repository contents or secrets.
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+
     outputs:
       configured: ${{ steps.verify.outputs.ready }}
       queued: ${{ steps.handover.outputs.queued }}
