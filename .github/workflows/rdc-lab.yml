@@ -23,6 +23,7 @@ on:
         options:
           - 'Start / Resume'
           - 'Connect a new RDC account'
+          - 'Vault smoke test'
 
 permissions:
   contents: write
@@ -137,8 +138,81 @@ jobs:
             *) exit "$code" ;;
           esac
 
+  vault-smoke-test:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Vault smoke test' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Validate Vault configuration
+        env:
+          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$VAULT_URL" || -z "$VAULT_CLIENT_GITHUB_TOKEN" ]]; then
+            echo "::error::RUNNER_VAULT_URL and AGENT_GITHUB_TOKEN are required for the Vault smoke test."
+            exit 1
+          fi
+          python3 - <<'PYURL'
+          import os
+          from urllib.parse import urlparse
+          u = urlparse(os.environ["VAULT_URL"])
+          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
+              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+          PYURL
+
+      - name: Fetch the pinned private Vault client
+        env:
+          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          VAULT_CLIENT_REF: 5712a78c7c6cff1da4dd662e506c73d459eb2527
+        shell: bash
+        run: |
+          set -euo pipefail
+          content="$(GH_TOKEN="$VAULT_CLIENT_GITHUB_TOKEN" gh api \
+            "repos/aminsh35322088-ctrl/GitHub-runner-vault/contents/client/vault.mjs?ref=$VAULT_CLIENT_REF" \
+            --header 'Accept: application/vnd.github+json' --jq '.content')"
+          unset VAULT_CLIENT_GITHUB_TOKEN
+          printf '%s' "$content" | tr -d '\n' | base64 --decode > "$RUNNER_TEMP/vault.mjs"
+          unset content
+          node --check "$RUNNER_TEMP/vault.mjs"
+
+      - name: Verify GitHub OIDC and read-only Vault registry access
+        env:
+          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+          VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          node "$RUNNER_TEMP/vault.mjs" list > "$RUNNER_TEMP/vault-registry.json"
+          jq -e 'type == "array"' "$RUNNER_TEMP/vault-registry.json" >/dev/null
+          count="$(jq 'length' "$RUNNER_TEMP/vault-registry.json")"
+          {
+            echo "## Runner Credential Vault OIDC smoke test"
+            echo
+            echo "- GitHub OIDC token exchange: **success**"
+            echo "- Vault runner session: **success**"
+            echo "- Read-only registry request: **success**"
+            echo "- Visible credential metadata entries: **$count**"
+            echo "- Secret values returned: **never**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "VAULT_OIDC_SMOKE_TEST=PASS"
+
   runner-lab:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.action != 'Connect a new RDC account' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
 

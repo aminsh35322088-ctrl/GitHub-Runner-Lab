@@ -30,7 +30,7 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens) an agent can use a separate
 Cloudflare Worker vault that performs the call on the agent's behalf so the agent never sees the token, and can ask
 the owner to register a new credential through a one-time link. The Lab's only involvement is the `id-token: write`
-permission on the `runner-lab` job. See [`docs/credential-vault.md`](docs/credential-vault.md).
+permission on the `runner-lab` job. After setting `RUNNER_VAULT_URL`, use the existing **Remote Desktop Commander Lab** workflow's **Vault smoke test** action to verify GitHub OIDC and read-only registry access without starting the long-lived RDC/Tailscale runner. See [`docs/credential-vault.md`](docs/credential-vault.md).
 
 For maintainers who deploy the **private** Vault source, use the dedicated manual deployment action:
 
