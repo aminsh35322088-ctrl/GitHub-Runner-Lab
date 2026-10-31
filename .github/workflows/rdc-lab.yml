@@ -146,6 +146,11 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
+    env:
+      # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
+      VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+      VAULT_CLIENT_REF: ba06d575c757da05f7774d14b09c48327e8de89b
+
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
     # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
@@ -230,6 +235,45 @@ jobs:
         if: steps.mode.outputs.bootstrap == 'true'
         run: ./scripts/bootstrap-rdc.sh
 
+      - name: Install Runner Credential Vault client
+        if: steps.mode.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
+        env:
+          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$VAULT_CLIENT_GITHUB_TOKEN" ]]; then
+            echo "::error::RUNNER_VAULT_URL is configured but AGENT_GITHUB_TOKEN is missing; the private Vault client cannot be downloaded."
+            exit 1
+          fi
+          if [[ ! "$VAULT_CLIENT_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::VAULT_CLIENT_REF must be an immutable 40-character commit SHA."
+            exit 1
+          fi
+          python3 - <<'PYURL'
+          import os
+          from urllib.parse import urlparse
+          u = urlparse(os.environ["VAULT_URL"])
+          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
+              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+          PYURL
+          mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
+          chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
+          content="$(GH_TOKEN="$VAULT_CLIENT_GITHUB_TOKEN" gh api \
+            "repos/aminsh35322088-ctrl/GitHub-runner-vault/contents/client/vault.mjs?ref=$VAULT_CLIENT_REF" \
+            --header 'Accept: application/vnd.github+json' --jq '.content')"
+          unset VAULT_CLIENT_GITHUB_TOKEN
+          client_tmp="$(mktemp --suffix=.mjs "$HOME/.local/share/runner-vault/.vault.XXXXXX")"
+          printf '%s' "$content" | tr -d '\n' | base64 --decode > "$client_tmp"
+          unset content
+          node --check "$client_tmp"
+          chmod 500 "$client_tmp"
+          install -m 500 "$client_tmp" "$HOME/.local/share/runner-vault/vault.mjs"
+          rm -f "$client_tmp"
+          ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
+          test -x "$HOME/.local/bin/vault"
+          echo "VAULT_CLIENT_INSTALLED=true"
+
       - name: Start Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
@@ -241,6 +285,10 @@ jobs:
         run: |
           ./scripts/health.sh
           echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Vault environment reached RDC
+        if: steps.verify.outputs.ready == 'true'
+        run: ./scripts/verify-vault-runtime.sh
 
       - name: Persist verified first-time RDC identity
         if: steps.mode.outputs.bootstrap == 'true' && steps.verify.outputs.ready == 'true'
