@@ -86,20 +86,20 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-10-31 18:08:11 UTC |
-| Last checked | 2026-10-31 18:08:11 UTC |
+| Status freshness | ✅ current as of 2026-10-31 18:12:29 UTC |
+| Last checked | 2026-10-31 18:12:29 UTC |
 | Runner/job started | 2026-10-31 14:06:46 UTC |
 | Keepalive started | 2026-10-31 14:07:23 UTC |
-| Runner age | 241 min |
-| Runner lifecycle remaining | 88 min |
+| Runner age | 245 min |
+| Runner lifecycle remaining | 84 min |
 | Auto restart threshold | 20 min remaining |
 | Nominal handoff | 2026-10-31 19:36:46 UTC |
 | Hard job timeout | 2026-10-31 19:56:46 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | ✅ yes |
-| RDC verification success | 89% (9 samples) |
-| Keepalive completion | 89% (9 samples) |
-| Handoff ≤15 min | 86% (7 samples) |
+| RDC verification success | 88% (8 samples) |
+| Keepalive completion | 88% (8 samples) |
+| Handoff ≤15 min | 83% (6 samples) |
 | Median handoff gap | 0.7 min |
 | Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/41203244045) |
 
