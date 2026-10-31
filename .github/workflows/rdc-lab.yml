@@ -149,7 +149,7 @@ jobs:
     env:
       # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
       VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
-      VAULT_CLIENT_REF: ba06d575c757da05f7774d14b09c48327e8de89b
+      VAULT_CLIENT_REF: 74d663fc99b618c02ec70b56002c069d9bcbc9d8
 
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
@@ -236,18 +236,20 @@ jobs:
         run: ./scripts/bootstrap-rdc.sh
 
       - name: Install Runner Credential Vault client
+        id: vault-client
         if: steps.mode.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
+        continue-on-error: true
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "$VAULT_CLIENT_GITHUB_TOKEN" ]]; then
-            echo "::error::RUNNER_VAULT_URL is configured but AGENT_GITHUB_TOKEN is missing; the private Vault client cannot be downloaded."
+            echo "::warning::RUNNER_VAULT_URL is configured but AGENT_GITHUB_TOKEN is missing; Vault integration will be degraded."
             exit 1
           fi
           if [[ ! "$VAULT_CLIENT_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::VAULT_CLIENT_REF must be an immutable 40-character commit SHA."
+            echo "::warning::VAULT_CLIENT_REF must be an immutable 40-character commit SHA; Vault integration will be degraded."
             exit 1
           fi
           python3 - <<'PYURL'
@@ -287,8 +289,23 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Verify Vault environment reached RDC
+        id: vault-runtime
         if: steps.verify.outputs.ready == 'true'
+        continue-on-error: true
         run: ./scripts/verify-vault-runtime.sh
+
+      - name: Report Vault verifier failure without blocking connectivity
+        if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::Vault runtime verification failed unexpectedly. Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
+          {
+            echo "### Credential Vault"
+            echo
+            echo "- Status: **DEGRADED**"
+            echo "- The runtime verifier did not complete; this does not block RDC or Tailscale."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist verified first-time RDC identity
         if: steps.mode.outputs.bootstrap == 'true' && steps.verify.outputs.ready == 'true'
@@ -420,6 +437,9 @@ jobs:
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         shell: bash
         run: |
+          # Prewarm and keepalive do not mint Vault sessions. Keep the job-scoped
+          # OIDC requester capability out of their process trees.
+          unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
           ./scripts/agent-prewarm.sh --background
           ./scripts/keepalive.sh "$ONLINE_MINUTES"
 

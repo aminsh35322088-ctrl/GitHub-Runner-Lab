@@ -1,18 +1,59 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+report_state() {
+  local state="$1"
+  local detail="$2"
+
+  echo "VAULT_RUNTIME=$state"
+  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    printf 'state=%s\n' "${state,,}" >> "$GITHUB_OUTPUT"
+  fi
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    {
+      echo "### Credential Vault"
+      echo
+      echo "- Status: **$state**"
+      echo "- $detail"
+      echo "- RDC and Tailscale connectivity continue independently of Vault readiness."
+      echo
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+}
+
+degraded() {
+  echo "::warning::Credential Vault is configured but not ready inside RDC. Vault operations remain unavailable; RDC and Tailscale startup will continue."
+  report_state DEGRADED "Vault client/session integration is not ready; check the sanitized readiness markers above."
+}
+
 if [[ -z "${VAULT_URL:-}" ]]; then
-  echo "VAULT_RUNTIME=DISABLED (RUNNER_VAULT_URL is not configured)"
+  report_state DISABLED "Optional Vault integration is not configured."
   exit 0
 fi
 
 CLIENT="${VAULT_CLIENT_BIN:-$HOME/.local/bin/vault}"
 PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
-[[ -x "$CLIENT" ]] || { echo '::error::Vault URL is configured but the client is not installed.'; exit 1; }
-[[ -s "$PID_FILE" ]] || { echo '::error::RDC PID file is missing.'; exit 1; }
-PID="$(cat "$PID_FILE")"
-[[ "$PID" =~ ^[0-9]+$ && -r "/proc/$PID/environ" ]] || { echo '::error::RDC process environment cannot be inspected.'; exit 1; }
 
+if [[ ! -x "$CLIENT" ]]; then
+  echo "VAULT_RDC_CLIENT=MISSING"
+  degraded
+  exit 0
+fi
+
+if [[ ! -s "$PID_FILE" ]]; then
+  echo "VAULT_RDC_PID_FILE=MISSING"
+  degraded
+  exit 0
+fi
+
+PID="$(cat "$PID_FILE")"
+if [[ ! "$PID" =~ ^[0-9]+$ || ! -r "/proc/$PID/environ" ]]; then
+  echo "VAULT_RDC_PROCESS_ENV=UNAVAILABLE"
+  degraded
+  exit 0
+fi
+
+set +e
 python3 - "$PID" "$VAULT_URL" <<'PY'
 import sys
 from pathlib import Path
@@ -25,9 +66,9 @@ try:
         if b"=" in item:
             key, value = item.split(b"=", 1)
             env[key.decode(errors="ignore")] = value.decode(errors="ignore")
-except OSError:
-    print("::error::Cannot inspect the RDC process environment.")
-    raise SystemExit(1)
+except Exception:
+    print("VAULT_RDC_PROCESS_ENV=UNAVAILABLE")
+    raise SystemExit(20)
 
 checks = {
     "vault_url": env.get("VAULT_URL") == expected_url,
@@ -37,7 +78,21 @@ checks = {
 for name, ok in checks.items():
     print(f"VAULT_RDC_{name.upper()}={'READY' if ok else 'MISSING'}")
 if not all(checks.values()):
-    print("::error::RDC did not inherit the Vault URL and GitHub OIDC request environment. The runner client cannot authenticate from agent sessions.")
-    raise SystemExit(1)
-print("VAULT_RUNTIME=READY")
+    raise SystemExit(10)
 PY
+result=$?
+set -e
+
+case "$result" in
+  0)
+    report_state READY "Vault URL and job-scoped OIDC requester are present in the RDC process."
+    ;;
+  10|20)
+    degraded
+    ;;
+  *)
+    echo "::warning::Vault runtime verifier encountered an unexpected internal failure; RDC and Tailscale startup will continue."
+    report_state DEGRADED "Runtime verification could not complete; inspect the verifier step for a sanitized diagnostic."
+    ;;
+esac
+exit 0
