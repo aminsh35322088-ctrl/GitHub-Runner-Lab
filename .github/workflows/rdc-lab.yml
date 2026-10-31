@@ -149,7 +149,7 @@ jobs:
     env:
       # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
       VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
-      VAULT_CLIENT_REF: 74d663fc99b618c02ec70b56002c069d9bcbc9d8
+      VAULT_CLIENT_REF: ea6b062da9459def54047293e28e8ea66b58957b
 
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
