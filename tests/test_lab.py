@@ -450,9 +450,12 @@ class LabTest(unittest.TestCase):
 
     def test_prewarm_background_launch_scrubs_secrets(self):
         script=(SCRIPTS/'agent-prewarm.sh').read_text()
-        self.assertRegex(script,r'nohup env (-u \w+ )+\\?\s*"\$SELF" --foreground')
-        for name in ('RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','AGENT_GITHUB_TOKEN'):
-            self.assertIn('-u '+name,script)
+        launch = script.split('nohup env', 1)[1].split('"$SELF" --foreground', 1)[0]
+        for name in (
+            'RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','AGENT_GITHUB_TOKEN',
+            'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+        ):
+            self.assertIn('-u '+name,launch)
 
     def test_managed_job_times_out_and_cleans_descendant(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)

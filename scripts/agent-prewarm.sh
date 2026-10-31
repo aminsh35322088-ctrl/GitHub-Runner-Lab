@@ -24,9 +24,10 @@ if [[ "${1:-}" == "--background" ]]; then
   fi
 
   # Prewarm downloads and runs third-party installers. It never needs the
-  # persistence key or the workflow token, so do not let it inherit them from
-  # the long-lived keepalive step.
+  # persistence key, workflow tokens, or the OIDC requester capability, so do
+  # not let it inherit them from the long-lived keepalive step.
   nohup env -u RDC_STATE_KEY -u GH_TOKEN -u GITHUB_TOKEN -u AGENT_GITHUB_TOKEN \
+    -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
     "$SELF" --foreground </dev/null >/dev/null 2>&1 &
   echo "[agent-prewarm] Background prewarm started pid=$! version=$TOOLCHAIN_VERSION."
   exit 0
