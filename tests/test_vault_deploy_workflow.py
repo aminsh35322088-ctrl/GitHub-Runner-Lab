@@ -38,6 +38,12 @@ class PrivateVaultDeployWorkflowTests(unittest.TestCase):
                 self.assertIn(name, self.workflow)
                 self.assertIn(name, self.docs)
 
+    def test_private_source_ci_capability_is_checked_before_use(self):
+        self.assertIn("Verify private source supports CI deployment", self.workflow)
+        self.assertIn("const nonInteractive = process.argv.includes('--non-interactive')", self.workflow)
+        self.assertIn("Merge and validate GitHub-runner-vault PR #5 first", self.workflow)
+        self.assertIn("Merge [GitHub-runner-vault PR #5]", self.docs)
+
     def test_existing_worker_name_is_rejected_by_default_launcher(self):
         self.assertIn('if [[ "$WORKER_NAME" == "runner-vault" ]]', self.workflow)
         self.assertIn("runner-vault-v2", self.workflow)

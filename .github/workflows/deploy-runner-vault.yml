@@ -108,6 +108,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Verify private source supports CI deployment
+        working-directory: private-vault
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -Fq "const nonInteractive = process.argv.includes('--non-interactive')" scripts/deploy.mjs; then
+            echo "::error::The private Vault main branch does not yet contain the CI deploy entrypoint. Merge and validate GitHub-runner-vault PR #5 first."
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

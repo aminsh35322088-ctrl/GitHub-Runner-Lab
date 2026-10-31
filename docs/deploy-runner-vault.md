@@ -45,9 +45,11 @@ Create an account API token scoped to the Cloudflare account that will host the 
 
 The token is only injected into the isolated deployment job. It is not placed in the Lab's long-running runner environment or made available to agents. Cloudflare documents the role model in [Workers authorization](https://developers.cloudflare.com/workers/authorization/), the [D1 create permission](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/create/), and the Wrangler CI authentication flow in [GitHub Actions deployment](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/).
 
-## Run deployment
+## Merge order and run deployment
 
-Open [Actions → Deploy private Runner Credential Vault](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/workflows/deploy-runner-vault.yml), choose **Run workflow**, and review the inputs.
+Merge [GitHub-runner-vault PR #5](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault/pull/5) first. That PR adds the non-interactive deploy entrypoint consumed by this workflow. The job checks for that capability and fails with an actionable message if Vault `main` has not been updated yet.
+
+Then open [Actions → Deploy private Runner Credential Vault](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/workflows/deploy-runner-vault.yml), choose **Run workflow**, and review the inputs.
 
 Defaults are intentionally safe for the existing installation:
 
