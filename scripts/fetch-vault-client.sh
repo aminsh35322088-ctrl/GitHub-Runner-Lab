@@ -9,7 +9,7 @@ set -Eeuo pipefail
 
 dest="${1:?usage: fetch-vault-client.sh DEST}"
 repository="${VAULT_CLIENT_REPOSITORY:-}"
-if [[ ! "$repository" =~ ^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$ ]]; then
+if [[ ! "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
   echo "::warning::RUNNER_VAULT_REPOSITORY must be an owner/name repository; Vault integration will be degraded."
   exit 1
 fi

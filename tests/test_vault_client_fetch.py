@@ -87,7 +87,7 @@ class FetchVaultClientTests(unittest.TestCase):
         self.assertIn("degraded", result.stdout + result.stderr)
 
     def test_repository_must_be_an_owner_name_pair(self):
-        for repository in ("", "https://github.com/example/repo", "../repo", "owner/repo/extra"):
+        for repository in ("", "https://github.com/example/repo", "../repo", "./repo", "owner/../repo", "owner/..", "owner/repo/extra"):
             result, dest, _, _ = run(curl_ok=True, gh_ok=True, repository=repository)
             self.assertNotEqual(result.returncode, 0, repository)
             self.assertFalse(dest["exists"], repository)

@@ -168,7 +168,7 @@ jobs:
             echo "::error::RUNNER_VAULT_URL is required for the Vault smoke test."
             exit 1
           fi
-          if [[ ! "$VAULT_CLIENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+          if [[ ! "$VAULT_CLIENT_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
             echo "::error::Set RUNNER_VAULT_REPOSITORY to the source repository in owner/name form."
             exit 1
           fi
