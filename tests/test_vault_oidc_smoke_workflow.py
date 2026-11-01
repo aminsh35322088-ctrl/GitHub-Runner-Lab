@@ -24,9 +24,11 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.action == 'Vault smoke test'", self.workflow)
         self.assertIn("inputs.action == 'Start / Resume'", self.workflow)
 
-    def test_smoke_test_fetches_pinned_private_client_and_lists_metadata_only(self):
-        self.assertIn("repos/aminsh35322088-ctrl/GitHub-runner-vault/contents/client/vault.mjs", self.workflow)
-        self.assertIn("VAULT_CLIENT_REF: 5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
+    def test_smoke_test_fetches_pinned_client_and_lists_metadata_only(self):
+        self.assertIn("./scripts/fetch-vault-client.sh", self.workflow)
+        self.assertIn("VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}", self.workflow)
+        self.assertIn("VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}", self.workflow)
+        self.assertNotIn("5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
         self.assertIn('node "$RUNNER_TEMP/vault.mjs" list', self.workflow)
         self.assertIn("Secret values returned: **never**", self.workflow)
         self.assertNotIn("CLOUDFLARE_API_TOKEN", self.workflow)

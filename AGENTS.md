@@ -173,6 +173,12 @@ For untrusted repository code, require `job start --untrusted --image IMAGE`: ne
 
 ## Runner Credential Vault
 
+The Vault is optional. GitHub access (`gh`, `git`, GHCR) never depends on it and keeps
+using the runner's own GitHub login. For other services, prefer the Vault when it is
+connected (VAULT_URL set and `vault` in PATH): try `vault list` first. If the Vault is
+absent, degraded, or has no credential for the service, continue with the workflow's
+existing credential path; never block RDC or other work because the Vault is missing.
+
 When VAULT_URL is present and the vault command is available in PATH, use the separate
 Runner Credential Vault for owner-managed API credentials. The raw credential value
 never enters this runner: the vault Worker attaches it only to an owner-approved
