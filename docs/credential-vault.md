@@ -2,11 +2,13 @@
 
 This document describes how the Lab connects to the separate private repository
 aminsh35322088-ctrl/GitHub-runner-vault, which deploys the Runner Credential Vault
-Cloudflare Worker.
+Cloudflare Worker (deploy button in that repository's README).
 
 The Vault lets an agent use owner-managed API credentials (for example, a Railway API
 token) without ever receiving the raw value. It is optional until RUNNER_VAULT_URL
-is configured in the Lab repository's Actions variables.
+is configured in the Lab repository's Actions variables. GitHub access never depends on
+the Vault: `AGENT_GITHUB_TOKEN` stays in place, and is only a fallback for downloading the
+Vault client if its repository is private or the anonymous GitHub API is rate limited.
 
 ## Security boundary
 
