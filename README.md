@@ -32,10 +32,10 @@ Cloudflare Worker vault that performs the call on the agent's behalf so the agen
 the owner to register a new credential through a one-time link. The Lab's only involvement is the `id-token: write`
 permission on the `runner-lab` job. After setting `RUNNER_VAULT_URL`, use the existing **Remote Desktop Commander Lab** workflow's **Vault smoke test** action to verify GitHub OIDC and read-only registry access without starting the long-lived RDC/Tailscale runner. See [`docs/credential-vault.md`](docs/credential-vault.md).
 
-To set up your own Vault, use the deploy button in the
-[vault repository](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault#deployment): no command line and no
-hand-made secrets. The Vault is optional. Without `RUNNER_VAULT_URL` nothing changes, and the existing
-`AGENT_GITHUB_TOKEN` keeps providing GitHub access either way; the Vault only adds access to *other* services.
+To set up your own Vault, use the Cloudflare deploy button in the Vault source repository. The Vault is optional.
+Configure `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` as Actions variables;
+`AGENT_GITHUB_TOKEN` remains the optional private-source / API-rate-limit fallback. Without
+`RUNNER_VAULT_URL` nothing changes, and the existing GitHub login remains independent of Vault access.
 
 ## System model
 

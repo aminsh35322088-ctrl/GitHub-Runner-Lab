@@ -1,8 +1,8 @@
 # Runner Credential Vault integration
 
-This document describes how the Lab connects to the separate private repository
-aminsh35322088-ctrl/GitHub-runner-vault, which deploys the Runner Credential Vault
-Cloudflare Worker (deploy button in that repository's README).
+This document describes how the Lab connects to a separately deployed Runner Credential Vault
+Cloudflare Worker. The Vault source repository and immutable client revision are configured
+through Actions variables rather than embedded in the workflow.
 
 The Vault lets an agent use owner-managed API credentials (for example, a Railway API
 token) without ever receiving the raw value. It is optional until RUNNER_VAULT_URL
@@ -20,7 +20,7 @@ credential value remains in the Vault Worker:
 - the Worker adds the credential and performs the HTTPS request;
 - only a filtered response is returned to the runner;
 - the Worker only calls exact public hostnames approved by the owner;
-- the Vault code is in a separate private repository, so an agent with write access to
+- the Vault code runs from a separate repository, so an agent with write access to
   the Lab cannot change its trust or secret-handling implementation.
 
 Delivery is proxy-only. The Vault does not export or inject credential values into the
@@ -39,7 +39,7 @@ session:
 | --- | --- |
 | iss | https://token.actions.githubusercontent.com |
 | aud | exact Vault origin |
-| repository / repository_id | Lab repository and numeric ID 1374269690 |
+| repository / repository_id | Exact Lab repository identity saved in Vault Settings → Runner repository; GitHub metadata supplies its numeric ID |
 | ref | refs/heads/main by default |
 | event_name | workflow_dispatch, schedule or push; PR events excluded |
 | job_workflow_ref | exact .github/workflows/rdc-lab.yml@refs/heads/main |
@@ -51,17 +51,20 @@ the Vault policy.
 ## Client installation and environment propagation
 
 After RDC is installed and first-time authorization is complete, the runner-lab job
-optionally downloads client/vault.mjs from the private Vault repository. The download
-uses the existing AGENT_GITHUB_TOKEN in a single step, pinned to the immutable Vault
-commit recorded as VAULT_CLIENT_REF in the workflow. That download token is unset
-before RDC starts and is not passed to the agent session.
+optionally downloads client/vault.mjs from the repository selected by
+RUNNER_VAULT_REPOSITORY. RUNNER_VAULT_CLIENT_REF pins that file to a reviewed immutable
+40-character commit SHA. The existing AGENT_GITHUB_TOKEN is only a fallback for a private
+source repository or anonymous API rate limiting. It is unset before RDC starts and is
+not passed to the agent session.
 
-To enable integration, configure the following repository Actions variable and secret:
+To enable integration, configure the following repository Actions variables and optional secret:
 
 | Name | Kind | Value |
 | --- | --- | --- |
 | RUNNER_VAULT_URL | Actions variable | HTTPS origin of the deployed Vault Worker, with no path/query |
-| AGENT_GITHUB_TOKEN | Actions secret | Existing Lab secret; must have read access to the private Vault repository |
+| RUNNER_VAULT_REPOSITORY | Actions variable | `owner/name` of the repository that contains the reviewed `client/vault.mjs` |
+| RUNNER_VAULT_CLIENT_REF | Actions variable | Immutable 40-character commit SHA to pin the client source |
+| AGENT_GITHUB_TOKEN | Actions secret | Optional fallback with read access when the source repository is private or GitHub's anonymous API is rate-limited |
 
 The workflow installs the client at ~/.local/share/runner-vault/vault.mjs and links
 vault into ~/.local/bin. It sets VAULT_URL at runner-lab job scope before starting
