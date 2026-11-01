@@ -225,8 +225,6 @@ jobs:
     env:
       # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
       VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
-      VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-      VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
 
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
@@ -319,6 +317,8 @@ jobs:
         env:
           # Optional token fallback; source and immutable revision come from repository variables.
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
+          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: |
           set -euo pipefail
