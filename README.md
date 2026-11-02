@@ -27,16 +27,31 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 
 ## Optional: Runner Credential Vault
 
-For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens) an agent can use a separate
-Cloudflare Worker vault that performs the call on the agent's behalf so the agent never sees the token, and can ask
-the owner to register a new credential through a one-time link. The Lab's only involvement is the `id-token: write`
-permission on the `runner-lab` job. After setting `RUNNER_VAULT_URL`, use the existing **Remote Desktop Commander Lab** workflow's **Vault smoke test** action to verify GitHub OIDC and read-only registry access without starting the long-lived RDC/Tailscale runner. See [`docs/credential-vault.md`](docs/credential-vault.md).
+For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens), an agent can use a
+separate Cloudflare Worker vault to make the API call without receiving the raw token, or ask the owner to register
+a missing credential through a one-time link.
 
-To set up your own Vault, use the Cloudflare deploy button in the Vault source repository. The Vault is optional.
-Configure `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` as Actions variables;
-`AGENT_GITHUB_TOKEN` remains the optional private-source / API-rate-limit fallback. Without
-`RUNNER_VAULT_URL` nothing changes, and the existing GitHub login remains independent of Vault access.
+The Lab-side integration is optional. The long-lived runner job installs the Vault client only when
+`RUNNER_VAULT_URL` is configured; without it, RDC, Tailscale and the normal GitHub login remain independent.
+The `runner-lab` job has the `id-token: write` permission for the OIDC integration, but this is a job-scoped
+token-request capability, not a stored provider credential. See [`docs/credential-vault.md`](docs/credential-vault.md).
 
+To deploy your own Vault, use the button below. It deploys the **separate Runner Credential Vault** from its public
+`app/` source repository:
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/aminsh35322088-ctrl/GitHub-runner-vault/tree/main/app)
+
+Cloudflare creates an independent GitHub repository under the account you authorize, provisions the Vault's
+Cloudflare resources and deploys its Worker. This button does **not** deploy or modify GitHub Runner Lab, configure
+the Lab's Actions variables, or enable the integration. Complete the Vault owner setup first, then explicitly opt
+in by configuring `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` as Actions
+variables. The existing `AGENT_GITHUB_TOKEN` is only a fallback for fetching the client from a private source
+repository or when GitHub's anonymous API is rate-limited.
+
+When `RUNNER_VAULT_URL` is unset, the client-install step is skipped and the runtime verifier reports the
+integration as disabled. The existing Lab workflows continue without Vault access. To test the integration after
+configuration, use the existing **Remote Desktop Commander Lab → Vault smoke test** workflow action; it is a
+separate, manually selected check and does not start the long-lived RDC/Tailscale runner.
 ## System model
 
 ```text
