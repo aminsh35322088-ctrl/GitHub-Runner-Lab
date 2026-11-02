@@ -45,6 +45,22 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("Secret values exposed: **never**", self.workflow[start:rdc])
         self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[start:rdc])
 
+    def test_cloudflare_smoke_test_supports_account_tokens_without_logging_responses(self):
+        self.assertIn("CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}", self.workflow)
+        self.assertIn("accounts/${account_id}/tokens/verify", self.workflow)
+        self.assertIn("Raw responses and credential values were not logged", self.workflow)
+        self.assertIn("CLOUDFLARE_TOKEN_TYPE=$cf_token_type", self.workflow)
+
+    def test_smoke_test_reports_only_safe_registry_metadata(self):
+        self.assertIn("### Safe credential metadata", self.workflow)
+        self.assertIn(".name", self.workflow)
+        self.assertIn(".service", self.workflow)
+        self.assertIn(".delivery", self.workflow)
+        self.assertIn(".validation", self.workflow)
+        self.assertIn(".lifetime", self.workflow)
+        self.assertNotIn(".value_encrypted", self.workflow)
+        self.assertNotIn(".value", self.workflow)
+
     def test_smoke_test_does_not_boot_the_persistent_runner_job(self):
         self.assertIn("if: " + "$" + "{{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}", self.workflow)
         self.assertIn("Vault smoke test", self.readme)
