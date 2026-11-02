@@ -42,8 +42,13 @@ To deploy your own Vault, use the button below. It deploys the **separate Runner
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/aminsh35322088-ctrl/GitHub-runner-vault/tree/main/app)
 
 Cloudflare creates an independent GitHub repository under the account you authorize, provisions the Vault's
-Cloudflare resources and deploys its Worker. This button does **not** deploy or modify GitHub Runner Lab, configure
-the Lab's Actions variables, or enable the integration. Complete the Vault owner setup first, then explicitly opt
+Cloudflare resources and deploys its Worker. During the production build, the Vault resolves the checked-out
+repository owner through GitHub's typed User API and injects that account's numeric ID as the Worker runtime
+variable `OWNER_GITHUB_ID`; the Worker pins it in D1 on first request. This is the owner-identity binding used
+by `/setup`, not a first-visitor claim. If GitHub lookup is unavailable, only a matching immutable GitHub Actions
+owner ID is accepted; an organization or unverified owner leaves setup locked unless the explicit numeric
+`RUNNER_VAULT_OWNER_GITHUB_ID` override is configured. The Deploy Button does **not** deploy or modify GitHub
+Runner Lab, configure the Lab's Actions variables, or enable the integration. Complete the Vault owner setup first, then explicitly opt
 in by configuring `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` as Actions
 variables. The existing `AGENT_GITHUB_TOKEN` is only a fallback for fetching the client from a private source
 repository or when GitHub's anonymous API is rate-limited.
