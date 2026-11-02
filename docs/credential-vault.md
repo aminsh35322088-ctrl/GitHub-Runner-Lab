@@ -10,6 +10,32 @@ is configured in the Lab repository's Actions variables. GitHub access never dep
 the Vault: `AGENT_GITHUB_TOKEN` stays in place, and is only a fallback for downloading the
 Vault client if its repository is private or the anonymous GitHub API is rate limited.
 
+
+## Optional: deploy the Vault on Cloudflare
+
+Use this button only when you independently choose to create your own Runner Credential Vault deployment:
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/aminsh35322088-ctrl/GitHub-runner-vault/tree/main/app)
+
+The button points to the Vault source repository's public `app/` directory, not to this Lab repository.
+Cloudflare creates a separate GitHub repository under the GitHub account you authorize, provisions the resources
+declared by the Worker and deploys it. This does **not** deploy, modify or reconfigure GitHub Runner Lab, and it
+does not automatically connect the new Worker to this Lab.
+
+After deployment, complete the Vault's owner sign-in and runner-repository policy setup using the
+[Vault deployment guide](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault#deployment).
+Only then opt in to the Lab integration by setting `RUNNER_VAULT_URL`,
+`RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` in the Lab repository's Actions variables.
+The client revision must be an immutable 40-character commit SHA. `AGENT_GITHUB_TOKEN` is not a new
+Vault requirement; it is only the existing optional fallback for a private client source or anonymous
+GitHub API rate limiting.
+
+When `RUNNER_VAULT_URL` is absent, the long-lived workflow skips Vault client installation and the
+runtime verifier reports `DISABLED`. The existing RDC, Tailscale and GitHub authentication paths
+continue independently. The `runner-lab` job currently includes `id-token: write` for the OIDC
+integration; this grants the job the ability to request a workflow-bound OIDC token, not a provider API
+credential. The separate **Vault smoke test** workflow action runs only when manually selected and
+requires the integration variables to be configured.
 ## Security boundary
 
 Agents on the runner have passwordless sudo and Docker access. A secret stored on the
