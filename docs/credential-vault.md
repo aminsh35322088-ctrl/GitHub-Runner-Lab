@@ -72,16 +72,21 @@ and adds id-token: write. This permission allows that job to request a GitHub OI
 it does not grant repository access or any additional GitHub scopes.
 
 The Vault verifies all of the following claims before it issues a short-lived runner
-session:
+session. The owner does not manually enter a repository name or numeric ID: on the first
+valid request the Worker binds the caller to its deployment-pinned owner ID, main branch
+and exact rdc-lab.yml workflow, then atomically saves the repository's immutable ID in D1.
+Later requests must match that pinned identity. Concurrent first runs cannot replace it.
 
 | Claim | Required value |
 | --- | --- |
 | iss | https://token.actions.githubusercontent.com |
 | aud | exact Vault origin |
-| repository / repository_id | Exact Lab repository identity saved in Vault Settings → Runner repository; GitHub metadata supplies its numeric ID |
-| ref | refs/heads/main by default |
+| repository_owner_id | Exact numeric GitHub owner ID pinned by the Vault deployment |
+| repository / repository_id | First valid owner-owned Lab repository; its immutable numeric ID is pinned atomically in D1 |
+| ref | refs/heads/main |
 | event_name | workflow_dispatch, schedule or push; PR events excluded |
-| job_workflow_ref | exact .github/workflows/rdc-lab.yml@refs/heads/main |
+| workflow_ref | Exact repository/.github/workflows/rdc-lab.yml@refs/heads/main |
+| job_workflow_ref | If present, must not point to a different reusable workflow |
 
 The account-switch and relaunch jobs do not receive id-token. A same-workflow push
 from main is only accepted when its repository ID, branch and workflow ref all match
@@ -112,8 +117,8 @@ variables. A post-start verifier inspects /proc/<RDC_PID>/environ for variable p
 and the expected Vault URL. It prints readiness booleans only, never their values.
 
 The verifier confirms process-level propagation, not successful authentication to a
-deployed Worker. A live vault list call from an RDC agent session is still required
-after Cloudflare is configured. OIDC authenticates the workflow run, not a specific
+deployed Worker. Before RDC starts, the runner-lab job automatically exchanges OIDC for
+a short-lived Vault session and reads the metadata-only registry. OIDC authenticates the workflow run, not a specific
 process; any process in that job that can obtain the OIDC requester variables can ask
 the Vault for a session. Owner-approved hosts, rate limits, short sessions and the
 ability to revoke all sessions limit what the Vault will permit.
@@ -156,7 +161,7 @@ permission requirements. Do not assume every 401/403 means the token is invalid.
 3. Confirm the Lab logs report VAULT_RDC_VAULT_URL=READY,
    VAULT_RDC_OIDC_REQUEST_URL=READY, VAULT_RDC_OIDC_REQUEST_TOKEN=READY and
    VAULT_RUNTIME=READY. These are booleans; values must never appear in logs.
-4. From a real RDC agent session, run vault list. Confirm a runner session is issued.
+4. The runner-lab job automatically exchanges OIDC and reads the metadata-only registry before starting RDC.
 5. Register a harmless short-lived test credential, call its documented API endpoint and
    confirm the Vault audit page shows the operation without any secret value.
 6. From a pull-request run, confirm the Vault refuses to issue a session.

@@ -31,32 +31,24 @@ For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tok
 separate Cloudflare Worker vault to make the API call without receiving the raw token, or ask the owner to register
 a missing credential through a one-time link.
 
-The Lab-side integration is optional. The long-lived runner job installs the Vault client only when
-`RUNNER_VAULT_URL` is configured; without it, RDC, Tailscale and the normal GitHub login remain independent.
-The `runner-lab` job has the `id-token: write` permission for the OIDC integration, but this is a job-scoped
-token-request capability, not a stored provider credential. See [`docs/credential-vault.md`](docs/credential-vault.md).
+The Lab-side integration is optional until `RUNNER_VAULT_URL` is configured. Once enabled, the
+existing `runner-lab` job automatically downloads the reviewed client, exchanges its GitHub OIDC
+identity for a short-lived Vault session, and reads the credential registry **before** starting RDC.
+No runner token, repository ID, owner ID or manual Vault policy entry is required. The Vault validates
+the deployment-pinned GitHub owner, exact `main/.github/workflows/rdc-lab.yml` identity and allowed
+event, then atomically pins the first valid repository ID in D1. Later runs must match that pin.
 
-To deploy your own Vault, use the button below. It deploys the **separate Runner Credential Vault** from its public
-`app/` source repository:
+The existing **Remote Desktop Commander Lab → Vault smoke test** action performs the same OIDC/session
+flow and additionally checks the saved GitHub and Cloudflare credentials through read-only provider
+API calls. Response bodies stay in runner-temp files; logs and summaries contain only pass/fail markers.
+The normal runner startup also connects automatically, while Vault failure degrades Vault access only
+and does not block RDC or Tailscale.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/aminsh35322088-ctrl/GitHub-runner-vault/tree/main/app)
-
-Cloudflare creates an independent GitHub repository under the account you authorize, provisions the Vault's
-Cloudflare resources and deploys its Worker. During the production build, the Vault resolves the checked-out
-repository owner through GitHub's typed User API and injects that account's numeric ID as the Worker runtime
-variable `OWNER_GITHUB_ID`; the Worker pins it in D1 on first request. This is the owner-identity binding used
-by `/setup`, not a first-visitor claim. If GitHub lookup is unavailable, only a matching immutable GitHub Actions
-owner ID is accepted; an organization or unverified owner leaves setup locked unless the explicit numeric
-`RUNNER_VAULT_OWNER_GITHUB_ID` override is configured. The Deploy Button does **not** deploy or modify GitHub
-Runner Lab, configure the Lab's Actions variables, or enable the integration. Complete the Vault owner setup first, then explicitly opt
-in by configuring `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY` and `RUNNER_VAULT_CLIENT_REF` as Actions
-variables. The existing `AGENT_GITHUB_TOKEN` is only a fallback for fetching the client from a private source
-repository or when GitHub's anonymous API is rate-limited.
-
-When `RUNNER_VAULT_URL` is unset, the client-install step is skipped and the runtime verifier reports the
-integration as disabled. The existing Lab workflows continue without Vault access. To test the integration after
-configuration, use the existing **Remote Desktop Commander Lab → Vault smoke test** workflow action; this
-separate manual check verifies GitHub OIDC and read-only registry access without starting the long-lived RDC/Tailscale runner.
+To enable the optional integration, configure `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY`
+(the public Vault source repository) and `RUNNER_VAULT_CLIENT_REF` (the reviewed immutable client
+commit) as Actions variables. The existing `AGENT_GITHUB_TOKEN` is only an optional fallback for
+private-source access or anonymous API rate limits. Without `RUNNER_VAULT_URL`, the existing Lab
+workflows remain unchanged.
 
 ## System model
 
