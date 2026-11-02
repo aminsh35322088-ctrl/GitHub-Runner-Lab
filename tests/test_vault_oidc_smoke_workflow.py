@@ -29,14 +29,26 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}", self.workflow)
         self.assertIn("VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}", self.workflow)
         self.assertNotIn("5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
-        self.assertIn('node "$RUNNER_TEMP/vault.mjs" list', self.workflow)
-        self.assertIn("Secret values returned: **never**", self.workflow)
-        self.assertNotIn("CLOUDFLARE_API_TOKEN", self.workflow)
+        self.assertIn('node "$client" list', self.workflow)
+        self.assertIn('node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user', self.workflow)
+        self.assertIn('node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify', self.workflow)
+        self.assertIn("Secret values logged or returned to summary: **never**", self.workflow)
+        self.assertIn("CLOUDFLARE_API_TOKEN", self.workflow)
+
+    def test_runner_job_connects_to_vault_automatically_before_starting_rdc(self):
+        start = self.workflow.index("      - name: Connect runner to Credential Vault")
+        rdc = self.workflow.index("      - name: Start Remote Desktop Commander", start)
+        self.assertLess(start, rdc)
+        self.assertIn("id-token: write", self.workflow)
+        self.assertIn('node "$HOME/.local/share/runner-vault/vault.mjs" list', self.workflow[start:rdc])
+        self.assertIn("VAULT_OIDC_CONNECTION=READY", self.workflow[start:rdc])
+        self.assertIn("Secret values exposed: **never**", self.workflow[start:rdc])
+        self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[start:rdc])
 
     def test_smoke_test_does_not_boot_the_persistent_runner_job(self):
         self.assertIn("if: " + "$" + "{{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}", self.workflow)
         self.assertIn("Vault smoke test", self.readme)
-        self.assertIn("without starting the long-lived RDC/Tailscale runner", self.readme)
+        self.assertIn("The existing **Remote Desktop Commander Lab → Vault smoke test** action", self.readme)
 
 
 if __name__ == "__main__":

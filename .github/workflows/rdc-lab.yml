@@ -199,19 +199,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node "$RUNNER_TEMP/vault.mjs" list > "$RUNNER_TEMP/vault-registry.json"
+          client="$RUNNER_TEMP/vault.mjs"
+          node "$client" list > "$RUNNER_TEMP/vault-registry.json"
           jq -e 'type == "array"' "$RUNNER_TEMP/vault-registry.json" >/dev/null
           count="$(jq 'length' "$RUNNER_TEMP/vault-registry.json")"
+
+          # Exercise both saved provider credentials through the Vault proxy.
+          # Raw responses stay in runner-temp files; only boolean outcomes reach logs.
+          node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user             > "$RUNNER_TEMP/vault-github-check.json"
+          jq -e 'type == "object" and (.login | type == "string") and (.id | type == "number")'             "$RUNNER_TEMP/vault-github-check.json" >/dev/null
+          node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify             > "$RUNNER_TEMP/vault-cloudflare-check.json"
+          jq -e '.success == true and .result.status == "active"'             "$RUNNER_TEMP/vault-cloudflare-check.json" >/dev/null
+
           {
-            echo "## Runner Credential Vault OIDC smoke test"
+            echo "## Runner Credential Vault end-to-end smoke test"
             echo
             echo "- GitHub OIDC token exchange: **success**"
             echo "- Vault runner session: **success**"
-            echo "- Read-only registry request: **success**"
-            echo "- Visible credential metadata entries: **$count**"
-            echo "- Secret values returned: **never**"
+            echo "- Read-only credential registry: **success ($count visible entries)**"
+            echo "- GitHub API credential proxy: **success**"
+            echo "- Cloudflare API credential proxy: **success**"
+            echo "- Secret values logged or returned to summary: **never**"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "VAULT_OIDC_SMOKE_TEST=PASS"
+          echo "VAULT_GITHUB_PROXY=PASS"
+          echo "VAULT_CLOUDFLARE_PROXY=PASS"
 
   runner-lab:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}
@@ -337,6 +349,36 @@ jobs:
           test -x "$HOME/.local/bin/vault"
           echo "VAULT_CLIENT_INSTALLED=true"
 
+      - name: Connect runner to Credential Vault
+        id: vault-connect
+        if: steps.vault-client.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          registry="$RUNNER_TEMP/vault-registry.json"
+          if node "$HOME/.local/share/runner-vault/vault.mjs" list > "$registry" &&
+             jq -e 'type == "array"' "$registry" >/dev/null; then
+            count="$(jq 'length' "$registry")"
+            echo "VAULT_OIDC_CONNECTION=READY"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "VAULT_VISIBLE_CREDENTIALS=$count"
+            {
+              echo "### Credential Vault connection"
+              echo
+              echo "- GitHub OIDC exchange: **success**"
+              echo "- Short-lived runner session: **issued**"
+              echo "- Metadata-only registry read: **success**"
+              echo "- Visible credentials: **$count**"
+              echo "- Secret values exposed: **never**"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Credential Vault connection failed; RDC and Tailscale will continue without Vault."
+            echo "VAULT_OIDC_CONNECTION=DEGRADED"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Start Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
@@ -353,6 +395,8 @@ jobs:
         id: vault-runtime
         if: steps.verify.outputs.ready == 'true'
         continue-on-error: true
+        env:
+          VAULT_PRECONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}
         run: ./scripts/verify-vault-runtime.sh
 
       - name: Report Vault verifier failure without blocking connectivity

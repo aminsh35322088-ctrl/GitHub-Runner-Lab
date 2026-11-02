@@ -38,6 +38,7 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "VAULT_URL": url,
+                "VAULT_PRECONNECT_STATE": "true",
                 "ACTIONS_ID_TOKEN_REQUEST_URL": oidc_url,
                 "ACTIONS_ID_TOKEN_REQUEST_TOKEN": oidc_token,
             })
@@ -68,7 +69,9 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
             client.chmod(0o700)
             pid_file = root / "rdc.pid"
             env = os.environ.copy()
-            env.update({"VAULT_URL": "https://vault.example.workers.dev"})
+            env.update({"VAULT_URL": "https://vault.example.workers.dev", "VAULT_PRECONNECT_STATE": "true"})
+            env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
+            env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
             process = self.start_process(env)
             try:
                 pid_file.write_text(str(process.pid))
@@ -86,12 +89,40 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
                 process.terminate()
                 process.wait(timeout=5)
 
+    def test_process_environment_alone_cannot_claim_vault_ready(self):
+        with tempfile.TemporaryDirectory(prefix="vault-runtime-") as tmp:
+            root = Path(tmp)
+            client = root / "vault"
+            client.write_text("#!/bin/sh\nexit 0\n")
+            client.chmod(0o700)
+            pid_file = root / "rdc.pid"
+            env = os.environ.copy()
+            env.update({
+                "VAULT_URL": "https://vault.example.workers.dev",
+                "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/request",
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "SYNTHETIC_OIDC_TOKEN",
+                "VAULT_CLIENT_BIN": str(client),
+                "RDC_PID_FILE": str(pid_file),
+            })
+            process = self.start_process(env)
+            try:
+                pid_file.write_text(str(process.pid))
+                result = self.run_verifier(env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("VAULT_RDC_OIDC_SESSION=UNAVAILABLE", result.stdout)
+                self.assertIn("VAULT_RUNTIME=DEGRADED", result.stdout)
+                self.assertNotIn("SYNTHETIC_OIDC_TOKEN", result.stdout + result.stderr)
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
+
     def test_missing_client_degrades_without_blocking_startup(self):
         with tempfile.TemporaryDirectory(prefix="vault-runtime-") as tmp:
             root = Path(tmp)
             env = os.environ.copy()
             env.update({
                 "VAULT_URL": "https://vault.example.workers.dev",
+                "VAULT_PRECONNECT_STATE": "true",
                 "VAULT_CLIENT_BIN": str(root / "missing-vault"),
                 "RDC_PID_FILE": str(root / "rdc.pid"),
             })
