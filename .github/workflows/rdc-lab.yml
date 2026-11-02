@@ -196,6 +196,7 @@ jobs:
         env:
           VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
           VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
           set -euo pipefail
@@ -203,13 +204,50 @@ jobs:
           node "$client" list > "$RUNNER_TEMP/vault-registry.json"
           jq -e 'type == "array"' "$RUNNER_TEMP/vault-registry.json" >/dev/null
           count="$(jq 'length' "$RUNNER_TEMP/vault-registry.json")"
+          {
+            echo "### Safe credential metadata"
+            echo
+            echo "| Name | Service | Delivery | Validation | Lifetime | External |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            jq -r '.[] | "| \(.name) | \(.service) | \(.delivery) | \(.validation) | \(.lifetime) | \(.externallyManaged) |"' "$RUNNER_TEMP/vault-registry.json"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
 
           # Exercise both saved provider credentials through the Vault proxy.
           # Raw responses stay in runner-temp files; only boolean outcomes reach logs.
           node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user             > "$RUNNER_TEMP/vault-github-check.json"
           jq -e 'type == "object" and (.login | type == "string") and (.id | type == "number")'             "$RUNNER_TEMP/vault-github-check.json" >/dev/null
-          node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify             > "$RUNNER_TEMP/vault-cloudflare-check.json"
-          jq -e '.success == true and .result.status == "active"'             "$RUNNER_TEMP/vault-cloudflare-check.json" >/dev/null
+          # Try the User Token endpoint first, then the Account Token endpoint.
+          # The account identifier is repository metadata; no credential value or raw response is logged.
+          set +e
+          node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify --purpose "read-only token verification" \
+            > "$RUNNER_TEMP/vault-cloudflare-user-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-user.stderr"
+          cf_user_exit=$?
+          set -e
+          cf_token_type=""
+          if [[ "$cf_user_exit" -eq 0 ]] && jq -e '.success == true and .result.status == "active"' "$RUNNER_TEMP/vault-cloudflare-user-check.json" >/dev/null; then
+            cf_token_type="User API Token"
+          else
+            account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
+            if [[ ! "$account_id" =~ ^[a-fA-F0-9]{32}$ ]]; then
+              echo "::error::User Token verification did not pass and CLOUDFLARE_ACCOUNT_ID is missing or malformed."
+              exit 1
+            fi
+            set +e
+            node "$client" use CLOUDFLARE_API_TOKEN GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/tokens/verify" --purpose "read-only account token verification" \
+              > "$RUNNER_TEMP/vault-cloudflare-account-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-account.stderr"
+            cf_account_exit=$?
+            set -e
+            if [[ "$cf_account_exit" -eq 0 ]] && jq -e '.success == true and .result.status == "active"' "$RUNNER_TEMP/vault-cloudflare-account-check.json" >/dev/null; then
+              cf_token_type="Account API Token"
+            else
+              cf_user_status="$(sed -n 's/^vault: upstream status \\([0-9][0-9][0-9]\\)$/\\1/p' "$RUNNER_TEMP/vault-cloudflare-user.stderr" | tail -n1)"
+              cf_account_status="$(sed -n 's/^vault: upstream status \\([0-9][0-9][0-9]\\)$/\\1/p' "$RUNNER_TEMP/vault-cloudflare-account.stderr" | tail -n1)"
+              echo "::error::Cloudflare verification failed: User endpoint HTTP ${cf_user_status:-unknown}; Account endpoint HTTP ${cf_account_status:-unknown}. Raw responses and credential values were not logged."
+              exit 1
+            fi
+          fi
+          echo "CLOUDFLARE_TOKEN_TYPE=$cf_token_type"
 
           {
             echo "## Runner Credential Vault end-to-end smoke test"
@@ -218,7 +256,7 @@ jobs:
             echo "- Vault runner session: **success**"
             echo "- Read-only credential registry: **success ($count visible entries)**"
             echo "- GitHub API credential proxy: **success**"
-            echo "- Cloudflare API credential proxy: **success**"
+            echo "- Cloudflare API credential proxy: **success ($cf_token_type)**"
             echo "- Secret values logged or returned to summary: **never**"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "VAULT_OIDC_SMOKE_TEST=PASS"
