@@ -36,6 +36,7 @@ continue independently. The `runner-lab` job currently includes `id-token: write
 integration; this grants the job the ability to request a workflow-bound OIDC token, not a provider API
 credential. The separate **Vault smoke test** workflow action runs only when manually selected and
 requires the integration variables to be configured.
+
 ## Security boundary
 
 Agents on the runner have passwordless sudo and Docker access. A secret stored on the
