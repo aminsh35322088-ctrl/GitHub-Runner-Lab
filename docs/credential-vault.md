@@ -10,7 +10,6 @@ is configured in the Lab repository's Actions variables. GitHub access never dep
 the Vault: `AGENT_GITHUB_TOKEN` stays in place, and is only a fallback for downloading the
 Vault client if its repository is private or the anonymous GitHub API is rate limited.
 
-
 ## Optional: deploy the Vault on Cloudflare
 
 Use this button only when you independently choose to create your own Runner Credential Vault deployment:
