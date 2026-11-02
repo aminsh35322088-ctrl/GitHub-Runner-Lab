@@ -50,8 +50,8 @@ repository or when GitHub's anonymous API is rate-limited.
 
 When `RUNNER_VAULT_URL` is unset, the client-install step is skipped and the runtime verifier reports the
 integration as disabled. The existing Lab workflows continue without Vault access. To test the integration after
-configuration, use the existing **Remote Desktop Commander Lab → Vault smoke test** workflow action; it is a
-separate, manually selected check and does not start the long-lived RDC/Tailscale runner.
+configuration, use the existing **Remote Desktop Commander Lab → Vault smoke test** workflow action; this
+separate manual check verifies GitHub OIDC and read-only registry access without starting the long-lived RDC/Tailscale runner.
 
 ## System model
 
