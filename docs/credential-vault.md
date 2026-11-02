@@ -18,8 +18,21 @@ Use this button only when you independently choose to create your own Runner Cre
 
 The button points to the Vault source repository's public `app/` directory, not to this Lab repository.
 Cloudflare creates a separate GitHub repository under the GitHub account you authorize, provisions the resources
-declared by the Worker and deploys it. This does **not** deploy, modify or reconfigure GitHub Runner Lab, and it
-does not automatically connect the new Worker to this Lab.
+declared by the Worker and deploys it. It does not pass the browser's GitHub OAuth token into the Worker. Instead,
+the production build resolves the owner from the checked-out Git origin using GitHub's typed JSON User API and
+injects the verified numeric account ID as the Worker runtime variable `OWNER_GITHUB_ID` (with login/repository
+metadata for the setup page). The Worker pins that ID in D1 on first request, and the GitHub App creator must
+match it during `/setup`.
+
+If the API lookup is unavailable, the build accepts `GITHUB_REPOSITORY_OWNER_ID` only when both
+`GITHUB_REPOSITORY_OWNER` and the owner portion of `GITHUB_REPOSITORY` match the checked-out Git origin.
+It does not trust GitHub HTML profile metadata. If the owner is an organization, or a personal account cannot
+be verified, setup remains locked; an explicitly configured numeric `RUNNER_VAULT_OWNER_GITHUB_ID` is the
+documented override. The build/deploy helper refuses to deploy if the generated Worker config has no valid
+numeric `OWNER_GITHUB_ID`.
+
+This does **not** deploy, modify or reconfigure GitHub Runner Lab, and it does not automatically connect the
+new Worker to this Lab.
 
 After deployment, complete the Vault's owner sign-in and runner-repository policy setup using the
 [Vault deployment guide](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault#deployment).
