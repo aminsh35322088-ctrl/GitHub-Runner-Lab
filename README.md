@@ -52,6 +52,7 @@ When `RUNNER_VAULT_URL` is unset, the client-install step is skipped and the run
 integration as disabled. The existing Lab workflows continue without Vault access. To test the integration after
 configuration, use the existing **Remote Desktop Commander Lab → Vault smoke test** workflow action; it is a
 separate, manually selected check and does not start the long-lived RDC/Tailscale runner.
+
 ## System model
 
 ```text
