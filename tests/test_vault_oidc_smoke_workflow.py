@@ -35,15 +35,43 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("Secret values logged or returned to summary: **never**", self.workflow)
         self.assertIn("CLOUDFLARE_API_TOKEN", self.workflow)
 
-    def test_runner_job_connects_to_vault_automatically_before_starting_rdc(self):
-        start = self.workflow.index("      - name: Connect runner to Credential Vault")
-        rdc = self.workflow.index("      - name: Start Remote Desktop Commander", start)
-        self.assertLess(start, rdc)
+    def test_rdc_and_tailscale_are_ready_before_optional_vault_work(self):
+        rdc = self.workflow.index("      - name: Start Remote Desktop Commander")
+        rdc_health = self.workflow.index("      - name: Verify connection", rdc)
+        tailscale = self.workflow.index("      - name: Enable and verify Tailscale SSH", rdc_health)
+        tailscale_ready = self.workflow.index('echo "TAILSCALE_HEALTH=READY"', tailscale)
+        vault_install = self.workflow.index("      - name: Install Runner Credential Vault client")
+        vault_connect = self.workflow.index("      - name: Connect runner to Credential Vault")
+        vault_verify = self.workflow.index("      - name: Verify Vault environment reached RDC")
+        self.assertLess(rdc, rdc_health)
+        self.assertLess(rdc_health, tailscale)
+        self.assertLess(tailscale_ready, vault_install)
+        self.assertIn("steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true'", self.workflow[vault_install:vault_connect])
+        self.assertLess(vault_install, vault_connect)
+        self.assertLess(vault_connect, vault_verify)
         self.assertIn("id-token: write", self.workflow)
-        self.assertIn('node "$HOME/.local/share/runner-vault/vault.mjs" list', self.workflow[start:rdc])
-        self.assertIn("VAULT_OIDC_CONNECTION=READY", self.workflow[start:rdc])
-        self.assertIn("Secret values exposed: **never**", self.workflow[start:rdc])
-        self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[start:rdc])
+        self.assertIn('node "$HOME/.local/share/runner-vault/vault.mjs" list', self.workflow[vault_connect:vault_verify])
+        self.assertIn("VAULT_OIDC_CONNECTION=READY", self.workflow[vault_connect:vault_verify])
+        self.assertIn("Secret values exposed: **never**", self.workflow[vault_connect:vault_verify])
+        self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[vault_connect:vault_verify])
+
+    def test_optional_vault_network_steps_have_bounded_timeouts_and_degrade_gracefully(self):
+        install = self.workflow.split("      - name: Install Runner Credential Vault client", 1)[1].split("      - name: Connect runner to Credential Vault", 1)[0]
+        connect = self.workflow.split("      - name: Connect runner to Credential Vault", 1)[1].split("      - name: Verify Vault environment reached RDC", 1)[0]
+        verify = self.workflow.split("      - name: Verify Vault environment reached RDC", 1)[1].split("      - name: Persist verified first-time RDC identity", 1)[0]
+        self.assertIn("timeout-minutes: 2", install)
+        self.assertIn("continue-on-error: true", install)
+        self.assertIn("timeout-minutes: 1", connect)
+        self.assertIn("VAULT_REQUEST_TIMEOUT_MS: '5000'", connect)
+        self.assertIn("continue-on-error: true", connect)
+        self.assertIn("continue-on-error: true", verify)
+        self.assertIn("Vault operations remain unavailable", verify)
+
+    def test_vault_client_fetch_has_bounded_anonymous_and_token_fallback(self):
+        fetch = (ROOT / "scripts" / "fetch-vault-client.sh").read_text()
+        self.assertIn("--connect-timeout 5 --max-time 15", fetch)
+        self.assertIn("timeout --signal=TERM --kill-after=5s 20s", fetch)
+        self.assertIn("unset VAULT_CLIENT_GITHUB_TOKEN", fetch)
 
     def test_cloudflare_smoke_test_supports_account_tokens_without_logging_responses(self):
         self.assertIn("CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}", self.workflow)

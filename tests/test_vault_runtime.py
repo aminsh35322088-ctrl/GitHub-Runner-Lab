@@ -38,7 +38,7 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "VAULT_URL": url,
-                "VAULT_PRECONNECT_STATE": "true",
+                "VAULT_CONNECT_STATE": "true",
                 "ACTIONS_ID_TOKEN_REQUEST_URL": oidc_url,
                 "ACTIONS_ID_TOKEN_REQUEST_TOKEN": oidc_token,
             })
@@ -69,7 +69,7 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
             client.chmod(0o700)
             pid_file = root / "rdc.pid"
             env = os.environ.copy()
-            env.update({"VAULT_URL": "https://vault.example.workers.dev", "VAULT_PRECONNECT_STATE": "true"})
+            env.update({"VAULT_URL": "https://vault.example.workers.dev", "VAULT_CONNECT_STATE": "true"})
             env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
             env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
             process = self.start_process(env)
@@ -122,7 +122,7 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "VAULT_URL": "https://vault.example.workers.dev",
-                "VAULT_PRECONNECT_STATE": "true",
+                "VAULT_CONNECT_STATE": "true",
                 "VAULT_CLIENT_BIN": str(root / "missing-vault"),
                 "RDC_PID_FILE": str(root / "rdc.pid"),
             })

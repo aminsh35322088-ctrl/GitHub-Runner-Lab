@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / 'scripts'
@@ -1258,6 +1259,38 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertNotEqual(result.returncode,0)
         self.assertIn('unsupported goss architecture',result.stderr)
         self.assertIn('lab_toolset.py', (SCRIPTS/'install-goss.sh').read_text())
+
+    def test_latest_release_reuses_github_cli_auth_when_no_token_env_exists(self):
+        import lab_toolset
+        data=json.loads((ROOT/'config/runner-toolset.json').read_text())
+        response=io.BytesIO(b'{"tag_name":"v1.2.3","assets":[]}')
+        with mock.patch.dict(os.environ, {'GH_TOKEN':'', 'GITHUB_TOKEN':''}):
+            with mock.patch.object(lab_toolset.shutil, 'which', return_value='/usr/bin/gh'):
+                with mock.patch.object(
+                    lab_toolset.subprocess, 'run',
+                    return_value=subprocess.CompletedProcess(['gh','auth','token'],0,'ghp_unit_test_token',''),
+                ) as auth:
+                    with mock.patch.object(lab_toolset, 'urlopen', return_value=response) as open_url:
+                        self.assertEqual(lab_toolset.latest_release(data,'goss')['tag_name'],'v1.2.3')
+                        auth.assert_called_once_with(
+                            ['/usr/bin/gh','auth','token'], capture_output=True, text=True, timeout=5, check=False)
+                        request=open_url.call_args.args[0]
+                        self.assertEqual(request.get_header('Authorization'),'Bearer ghp_unit_test_token')
+
+    def test_toolset_rejects_unsupported_architecture_before_github_lookup(self):
+        import lab_toolset
+        data=lab_toolset.load_manifest()
+        original=lab_toolset.latest_release
+        def forbidden_lookup(*_args, **_kwargs):
+            raise AssertionError('unsupported architecture must be rejected before network access')
+        lab_toolset.latest_release=forbidden_lookup
+        try:
+            with self.assertRaisesRegex(ValueError, 'unsupported goss architecture'):
+                lab_toolset.goss_meta(data, 'mips')
+            with self.assertRaisesRegex(ValueError, 'unsupported actionlint architecture'):
+                lab_toolset.actionlint_meta(data, 'mips')
+        finally:
+            lab_toolset.latest_release=original
 
 
     def test_latest_goss_dns_spec_uses_supported_attributes_only(self):

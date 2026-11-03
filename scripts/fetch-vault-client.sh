@@ -26,12 +26,13 @@ api_path="repos/$repository/contents/client/vault.mjs?ref=$ref"
 tmp="$(mktemp --suffix=.mjs)"
 trap 'rm -f "$tmp"' EXIT
 
-if curl --fail --silent --show-error --max-time 30 \
+if curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
      --header 'Accept: application/vnd.github.raw+json' \
      --output "$tmp" "https://api.github.com/$api_path" 2>/dev/null && [[ -s "$tmp" ]]; then
   echo "VAULT_CLIENT_SOURCE=public"
 elif [[ -n "$token" ]]; then
-  GH_TOKEN="$token" gh api "$api_path" --header 'Accept: application/vnd.github.raw+json' > "$tmp"
+  timeout --signal=TERM --kill-after=5s 20s env GH_TOKEN="$token" \
+    gh api "$api_path" --header 'Accept: application/vnd.github.raw+json' > "$tmp"
   echo "VAULT_CLIENT_SOURCE=token-fallback"
 else
   echo "::warning::Could not download the Vault client anonymously and no fallback token is available; Vault integration will be degraded."

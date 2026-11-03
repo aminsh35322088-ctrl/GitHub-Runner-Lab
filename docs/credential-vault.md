@@ -94,34 +94,42 @@ the Vault policy.
 
 ## Client installation and environment propagation
 
-After RDC is installed and first-time authorization is complete, the runner-lab job
-optionally downloads client/vault.mjs from the repository selected by
-RUNNER_VAULT_REPOSITORY. RUNNER_VAULT_CLIENT_REF pins that file to a reviewed immutable
-40-character commit SHA. The existing AGENT_GITHUB_TOKEN is only a fallback for a private
-source repository or anonymous API rate limiting. It is unset before RDC starts and is
-not passed to the agent session.
+After RDC health and Tailscale SSH are verified, the runner-lab job optionally downloads
+client/vault.mjs from the repository selected by RUNNER_VAULT_REPOSITORY.
+RUNNER_VAULT_CLIENT_REF pins that file to a reviewed immutable 40-character commit SHA.
+The existing AGENT_GITHUB_TOKEN is separately consumed by the Lab's trusted GitHub
+bootstrap for gh, HTTPS Git and GHCR. During this Vault fetch step only, it is also provided
+as a scoped fallback for private client sources or anonymous API rate limiting. The Vault
+client does not receive it, and it is not exported as a normal agent environment variable.
 
-To enable integration, configure the following repository Actions variables and optional secret:
+To enable the optional Vault integration, configure the following repository Actions variables.
+The Lab's separate AGENT_GITHUB_TOKEN secret is already required for trusted GitHub
+CLI/Git/GHCR access:
 
 | Name | Kind | Value |
 | --- | --- | --- |
 | RUNNER_VAULT_URL | Actions variable | HTTPS origin of the deployed Vault Worker, with no path/query |
 | RUNNER_VAULT_REPOSITORY | Actions variable | `owner/name` of the repository that contains the reviewed `client/vault.mjs` |
 | RUNNER_VAULT_CLIENT_REF | Actions variable | Immutable 40-character commit SHA to pin the client source |
-| AGENT_GITHUB_TOKEN | Actions secret | Optional fallback with read access when the source repository is private or GitHub's anonymous API is rate-limited |
+| AGENT_GITHUB_TOKEN | Existing Actions secret | Trusted Agent GitHub CLI/Git/GHCR bootstrap; scoped fallback for private Vault-client downloads/rate limits |
 
 The workflow installs the client at ~/.local/share/runner-vault/vault.mjs and links
-vault into ~/.local/bin. It sets VAULT_URL at runner-lab job scope before starting
-RDC, so the long-lived RDC process inherits it along with GitHub Actions' OIDC requester
-variables. A post-start verifier inspects /proc/<RDC_PID>/environ for variable presence
+vault into ~/.local/bin. GitHub CLI/Git authentication remains independent and uses the
+existing AGENT_GITHUB_TOKEN bootstrap; this is not replaced by a Vault proxy. A stored
+GITHUB_API_TOKEN credential is available only through explicit Vault API/CLI proxy
+operations and does not provide Git smart-HTTP transport or the agent's gh credential helper.
+The workflow sets VAULT_URL at runner-lab job scope before starting RDC, so the long-lived
+RDC process inherits it along with GitHub Actions' OIDC requester variables. A post-start verifier inspects /proc/<RDC_PID>/environ for variable presence
 and the expected Vault URL. It prints readiness booleans only, never their values.
 
 The verifier confirms process-level propagation, not successful authentication to a
-deployed Worker. Before RDC starts, the runner-lab job automatically exchanges OIDC for
-a short-lived Vault session and reads the metadata-only registry. OIDC authenticates the workflow run, not a specific
-process; any process in that job that can obtain the OIDC requester variables can ask
-the Vault for a session. Owner-approved hosts, rate limits, short sessions and the
-ability to revoke all sessions limit what the Vault will permit.
+deployed Worker. After RDC and Tailscale are healthy, the runner-lab job attempts the
+OIDC exchange and metadata-only registry read. Download and connection steps have
+explicit time limits and continue-on-error behavior, so an absent or unreachable Vault
+cannot delay or block either access path. OIDC authenticates the workflow run, not a
+specific process; any process in that job that can obtain the OIDC requester variables
+can ask the Vault for a session. Owner-approved hosts, rate limits, short sessions and
+the ability to revoke all sessions limit what the Vault will permit.
 
 ## Using Vault from an agent session
 
@@ -161,7 +169,7 @@ permission requirements. Do not assume every 401/403 means the token is invalid.
 3. Confirm the Lab logs report VAULT_RDC_VAULT_URL=READY,
    VAULT_RDC_OIDC_REQUEST_URL=READY, VAULT_RDC_OIDC_REQUEST_TOKEN=READY and
    VAULT_RUNTIME=READY. These are booleans; values must never appear in logs.
-4. The runner-lab job automatically exchanges OIDC and reads the metadata-only registry before starting RDC.
+4. The runner-lab job establishes RDC and Tailscale SSH first, then exchanges OIDC and reads the metadata-only registry.
 5. Register a harmless short-lived test credential, call its documented API endpoint and
    confirm the Vault audit page shows the operation without any secret value.
 6. From a pull-request run, confirm the Vault refuses to issue a session.
