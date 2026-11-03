@@ -31,7 +31,7 @@ if [[ -z "${VAULT_URL:-}" ]]; then
   exit 0
 fi
 
-if [[ "${VAULT_PRECONNECT_STATE:-}" != "true" ]]; then
+if [[ "${VAULT_CONNECT_STATE:-}" != "true" ]]; then
   echo "VAULT_RDC_OIDC_SESSION=UNAVAILABLE"
   degraded
   exit 0
@@ -91,7 +91,7 @@ set -e
 
 case "$result" in
   0)
-    report_state READY "Vault OIDC session was established before RDC started, and the URL and job-scoped OIDC requester are present in the RDC process."
+    report_state READY "Vault OIDC session was established after RDC and Tailscale were ready; the Vault URL and job-scoped OIDC requester are present in the RDC process."
     ;;
   10|20)
     degraded

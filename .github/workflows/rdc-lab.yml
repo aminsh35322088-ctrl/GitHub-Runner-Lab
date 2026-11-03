@@ -280,7 +280,10 @@ jobs:
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
     # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
-    # access to repository contents or secrets.
+    # access to repository contents or secrets. The runner exposes its OIDC requester
+    # variables to this job's steps; RDC inherits them at launch, while the later Vault
+    # CLI connection writes the session into the same runner-private cache for reuse.
+    # This lets RDC and Tailscale become healthy before optional Vault network work.
     permissions:
       contents: write
       actions: write
@@ -361,63 +364,6 @@ jobs:
         if: steps.mode.outputs.bootstrap == 'true'
         run: ./scripts/bootstrap-rdc.sh
 
-      - name: Install Runner Credential Vault client
-        id: vault-client
-        if: steps.mode.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
-        continue-on-error: true
-        env:
-          # Optional token fallback; source and immutable revision come from repository variables.
-          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYURL'
-          import os
-          from urllib.parse import urlparse
-          u = urlparse(os.environ["VAULT_URL"])
-          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
-          PYURL
-          mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
-          chmod 500 "$HOME/.local/share/runner-vault/vault.mjs"
-          ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
-          test -x "$HOME/.local/bin/vault"
-          echo "VAULT_CLIENT_INSTALLED=true"
-
-      - name: Connect runner to Credential Vault
-        id: vault-connect
-        if: steps.vault-client.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          registry="$RUNNER_TEMP/vault-registry.json"
-          if node "$HOME/.local/share/runner-vault/vault.mjs" list > "$registry" &&
-             jq -e 'type == "array"' "$registry" >/dev/null; then
-            count="$(jq 'length' "$registry")"
-            echo "VAULT_OIDC_CONNECTION=READY"
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "VAULT_VISIBLE_CREDENTIALS=$count"
-            {
-              echo "### Credential Vault connection"
-              echo
-              echo "- GitHub OIDC exchange: **success**"
-              echo "- Short-lived runner session: **issued**"
-              echo "- Metadata-only registry read: **success**"
-              echo "- Visible credentials: **$count**"
-              echo "- Secret values exposed: **never**"
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::Credential Vault connection failed; RDC and Tailscale will continue without Vault."
-            echo "VAULT_OIDC_CONNECTION=DEGRADED"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Start Remote Desktop Commander
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/start-rdc.sh
@@ -429,27 +375,6 @@ jobs:
         run: |
           ./scripts/health.sh
           echo "ready=true" >> "$GITHUB_OUTPUT"
-
-      - name: Verify Vault environment reached RDC
-        id: vault-runtime
-        if: steps.verify.outputs.ready == 'true'
-        continue-on-error: true
-        env:
-          VAULT_PRECONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}
-        run: ./scripts/verify-vault-runtime.sh
-
-      - name: Report Vault verifier failure without blocking connectivity
-        if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
-        shell: bash
-        run: |
-          echo "::warning::Vault runtime verification failed unexpectedly. Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
-          {
-            echo "### Credential Vault"
-            echo
-            echo "- Status: **DEGRADED**"
-            echo "- The runtime verifier did not complete; this does not block RDC or Tailscale."
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist verified first-time RDC identity
         if: steps.mode.outputs.bootstrap == 'true' && steps.verify.outputs.ready == 'true'
@@ -526,6 +451,88 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"
+
+      - name: Install Runner Credential Vault client
+        id: vault-client
+        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
+        timeout-minutes: 2
+        continue-on-error: true
+        env:
+          # Optional token fallback; source and immutable revision come from repository variables.
+          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
+          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYURL'
+          import os
+          from urllib.parse import urlparse
+          u = urlparse(os.environ["VAULT_URL"])
+          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
+              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+          PYURL
+          mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
+          chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
+          ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
+          chmod 500 "$HOME/.local/share/runner-vault/vault.mjs"
+          ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
+          test -x "$HOME/.local/bin/vault"
+          echo "VAULT_CLIENT_INSTALLED=true"
+
+      - name: Connect runner to Credential Vault
+        id: vault-connect
+        if: steps.vault-client.outcome == 'success'
+        timeout-minutes: 1
+        continue-on-error: true
+        env:
+          VAULT_REQUEST_TIMEOUT_MS: '5000'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          registry="$RUNNER_TEMP/vault-registry.json"
+          if node "$HOME/.local/share/runner-vault/vault.mjs" list > "$registry" &&
+             jq -e 'type == "array"' "$registry" >/dev/null; then
+            count="$(jq 'length' "$registry")"
+            echo "VAULT_OIDC_CONNECTION=READY"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "VAULT_VISIBLE_CREDENTIALS=$count"
+            {
+              echo "### Credential Vault connection"
+              echo
+              echo "- GitHub OIDC exchange: **success**"
+              echo "- Short-lived runner session: **issued**"
+              echo "- Metadata-only registry read: **success**"
+              echo "- Visible credentials: **$count**"
+              echo "- Secret values exposed: **never**"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Credential Vault connection failed; RDC and Tailscale will continue without Vault."
+            echo "VAULT_OIDC_CONNECTION=DEGRADED"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify Vault environment reached RDC
+        id: vault-runtime
+        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true'
+        continue-on-error: true
+        env:
+          VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}
+        run: ./scripts/verify-vault-runtime.sh
+
+      - name: Report Vault verifier failure without blocking connectivity
+        if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::Vault runtime verification failed unexpectedly. Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
+          {
+            echo "### Credential Vault"
+            echo
+            echo "- Status: **DEGRADED**"
+            echo "- The runtime verifier did not complete; this does not block RDC or Tailscale."
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Configure Agent GitHub access
         if: steps.mode.outputs.ready == 'true'

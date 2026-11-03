@@ -33,7 +33,7 @@ a missing credential through a one-time link.
 
 The Lab-side integration is optional until `RUNNER_VAULT_URL` is configured. Once enabled, the
 existing `runner-lab` job automatically downloads the reviewed client, exchanges its GitHub OIDC
-identity for a short-lived Vault session, and reads the credential registry **before** starting RDC.
+identity for a short-lived Vault session, and reads the credential registry after RDC health and Tailscale SSH are ready. Vault network work is time-bounded and cannot delay or block either access path.
 No runner token, repository ID, owner ID or manual Vault policy entry is required. The Vault validates
 the deployment-pinned GitHub owner, exact `main/.github/workflows/rdc-lab.yml` identity and allowed
 event, then atomically pins the first valid repository ID in D1. Later runs must match that pin.
@@ -41,14 +41,16 @@ event, then atomically pins the first valid repository ID in D1. Later runs must
 The existing **Remote Desktop Commander Lab → Vault smoke test** action performs the same OIDC/session
 flow and additionally checks the saved GitHub and Cloudflare credentials through read-only provider
 API calls. Response bodies stay in runner-temp files; logs and summaries contain only pass/fail markers.
-The normal runner startup also connects automatically, while Vault failure degrades Vault access only
-and does not block RDC or Tailscale.
+The normal runner startup also connects automatically after RDC and Tailscale are ready. A missing,
+slow or unavailable Vault degrades Vault access only and does not block either access path.
 
-To enable the optional integration, configure `RUNNER_VAULT_URL`, `RUNNER_VAULT_REPOSITORY`
-(the public Vault source repository) and `RUNNER_VAULT_CLIENT_REF` (the reviewed immutable client
-commit) as Actions variables. The existing `AGENT_GITHUB_TOKEN` is only an optional fallback for
-private-source access or anonymous API rate limits. Without `RUNNER_VAULT_URL`, the existing Lab
-workflows remain unchanged.
+To enable the optional integration, configure RUNNER_VAULT_URL, RUNNER_VAULT_REPOSITORY
+(the Vault source repository) and RUNNER_VAULT_CLIENT_REF (the reviewed immutable client
+commit) as Actions variables. The existing AGENT_GITHUB_TOKEN remains the separate trusted
+Agent GitHub CLI/Git/GHCR bootstrap credential; the Vault proxy does not replace Git smart-HTTP
+or gh authentication. The same secret is available to the pinned-client download step only
+as a scoped fallback for private-source access or anonymous API rate limits. Without
+RUNNER_VAULT_URL, the Lab skips Vault integration.
 
 ## System model
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 from urllib.request import Request, urlopen
 
@@ -30,12 +33,40 @@ def expand(data, section, profile):
                 out.append(item)
     return out
 
+def github_api_token():
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+
+    # GitHub CLI stores the authenticated credential outside the environment.
+    # Reuse that existing login when a release lookup would otherwise hit the
+    # anonymous API rate limit. Capture stdout and never print or persist it.
+    gh = shutil.which("gh")
+    if not gh:
+        return None
+    try:
+        result = subprocess.run(
+            [gh, "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    token = result.stdout.strip() if result.returncode == 0 else ""
+    return token or None
+
+
 def latest_release(data, tool):
     repo = data[tool]["latest_release"]["repo"]
     request = Request(
         f"https://api.github.com/repos/{repo}/releases/latest",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "github-runner-lab"},
     )
+    token = github_api_token()
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
     try:
         with urlopen(request, timeout=20) as response:
             return json.load(response)
@@ -43,11 +74,17 @@ def latest_release(data, tool):
         raise ValueError(f"could not resolve latest {tool} release from GitHub: {error}") from error
 
 
-def release_asset_meta(data, tool, arch, release):
+def validate_release_architecture(data, tool, arch):
     config = data[tool]["latest_release"]
     arch_name = config["architectures"].get(arch)
     if not arch_name:
         raise ValueError(f"unsupported {tool} architecture: {arch}")
+    return arch_name
+
+
+def release_asset_meta(data, tool, arch, release):
+    config = data[tool]["latest_release"]
+    arch_name = validate_release_architecture(data, tool, arch)
     tag = release.get("tag_name", "")
     version = tag[1:] if tag.startswith("v") else tag
     if not version:
@@ -62,10 +99,12 @@ def release_asset_meta(data, tool, arch, release):
 
 
 def goss_meta(data, arch):
+    validate_release_architecture(data, "goss", arch)
     return release_asset_meta(data, "goss", arch, latest_release(data, "goss"))
 
 
 def actionlint_meta(data, arch):
+    validate_release_architecture(data, "actionlint", arch)
     return release_asset_meta(data, "actionlint", arch, latest_release(data, "actionlint"))
 
 
