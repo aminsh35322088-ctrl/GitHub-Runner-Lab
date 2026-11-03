@@ -1,4 +1,6 @@
 import os
+import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -159,6 +161,67 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
 
 
 class VaultWorkflowIsolationTests(unittest.TestCase):
+    def test_rdc_started_before_vault_inherits_job_scoped_oidc_environment(self):
+        with tempfile.TemporaryDirectory(prefix="rdc-oidc-inheritance-") as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            shutil.copy2(ROOT / "scripts" / "start-rdc.sh", scripts / "start-rdc.sh")
+            health = scripts / "health.sh"
+            health.write_text("#!/usr/bin/env bash\nexit 0\n")
+            health.chmod(0o700)
+
+            home = root / "home"
+            device_dir = home / ".desktop-commander-device"
+            device_dir.mkdir(parents=True)
+            (device_dir / "device.json").write_text("{}")
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            capture = root / "rdc-inherited-env"
+            fake_node = bin_dir / "node"
+            fake_node.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\n' \"$VAULT_URL\" \"$ACTIONS_ID_TOKEN_REQUEST_URL\" \"$ACTIONS_ID_TOKEN_REQUEST_TOKEN\" > \"$CAPTURE\"\n"
+                "exec sleep 60\n"
+            )
+            fake_node.chmod(0o700)
+
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "PATH": str(bin_dir) + os.pathsep + env["PATH"],
+                "VAULT_URL": "https://vault.example.workers.dev",
+                "ACTIONS_ID_TOKEN_REQUEST_URL": "https://oidc.example/request?opaque=1",
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "synthetic-oidc-request-token",
+                "CAPTURE": str(capture),
+                "RDC_LOG_FILE": str(root / "rdc.log"),
+                "RDC_PID_FILE": str(root / "rdc.pid"),
+                "RDC_STARTUP_TIMEOUT_SECONDS": "10",
+            })
+            started = subprocess.run(
+                ["bash", str(scripts / "start-rdc.sh")],
+                cwd=root, env=env, capture_output=True, text=True, timeout=5,
+            )
+            self.assertEqual(started.returncode, 0, started.stderr + started.stdout)
+            pid = int((root / "rdc.pid").read_text().strip())
+            try:
+                deadline = time.monotonic() + 2
+                while not capture.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(capture.exists(), "RDC child did not capture its inherited environment")
+                inherited = capture.read_text().splitlines()
+                self.assertEqual(inherited, [
+                    "https://vault.example.workers.dev",
+                    "https://oidc.example/request?opaque=1",
+                    "synthetic-oidc-request-token",
+                ])
+            finally:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+
     def test_prewarm_step_scrubs_oidc_requester_before_launch(self):
         workflow = (ROOT / ".github" / "workflows" / "rdc-lab.yml").read_text()
         marker = "- name: Prewarm Agent Toolchain and Keep RDC Lab Alive"

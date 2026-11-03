@@ -280,7 +280,10 @@ jobs:
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
     # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
-    # access to repository contents or secrets.
+    # access to repository contents or secrets. The runner exposes its OIDC requester
+    # variables to this job's steps; RDC inherits them at launch, while the later Vault
+    # CLI connection writes the session into the same runner-private cache for reuse.
+    # This lets RDC and Tailscale become healthy before optional Vault network work.
     permissions:
       contents: write
       actions: write

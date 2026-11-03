@@ -55,6 +55,19 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("Secret values exposed: **never**", self.workflow[vault_connect:vault_verify])
         self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[vault_connect:vault_verify])
 
+    def test_post_start_vault_connection_keeps_job_oidc_and_verifier_state_aligned(self):
+        runner = self.workflow.split("  runner-lab:", 1)[1].split("\n  relaunch:", 1)[0]
+        job_header = runner.split("\n    steps:", 1)[0]
+        self.assertIn("VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}", job_header)
+        self.assertIn("id-token: write", job_header)
+
+        verify_step = runner.split("      - name: Verify Vault environment reached RDC", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}", verify_step)
+        verifier = (ROOT / "scripts" / "verify-vault-runtime.sh").read_text()
+        self.assertIn('if [[ "${VAULT_CONNECT_STATE:-}" != "true" ]]', verifier)
+        self.assertIn('env.get("ACTIONS_ID_TOKEN_REQUEST_URL")', verifier)
+        self.assertIn('env.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")', verifier)
+
     def test_optional_vault_network_steps_have_bounded_timeouts_and_degrade_gracefully(self):
         install = self.workflow.split("      - name: Install Runner Credential Vault client", 1)[1].split("      - name: Connect runner to Credential Vault", 1)[0]
         connect = self.workflow.split("      - name: Connect runner to Credential Vault", 1)[1].split("      - name: Verify Vault environment reached RDC", 1)[0]
