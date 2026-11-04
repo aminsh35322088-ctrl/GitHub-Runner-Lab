@@ -333,6 +333,48 @@ The full background prewarm covers the common coding/debugging stack rather than
 
 Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
 
+### Optional reverse-engineering toolkit (REA)
+
+REA is an opt-in CLI/MCP toolkit for evidence-backed application, binary, process, Android, browser, firmware, and network-capture analysis. It stays outside core prewarm and startup, so installing it never delays RDC/Tailscale readiness.
+
+Install it when a task needs reverse-engineering capabilities:
+
+```bash
+./scripts/install-rea.sh
+source "${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+rea --help
+rea capabilities
+rea doctor --provider ghidra --format json
+rea doctor --provider jadx --format json
+```
+
+The provider-scoped Doctor commands verify the two engines installed by default. The unscoped `rea doctor --format json` is a full environment audit and can exit nonzero when intentionally caller-managed integrations (Hopper, IDA, Kuna, or an agent skill registration) are absent; that does not mean the installed providers are unhealthy.
+
+**REA tracks npm's `rea-agents@latest` dist-tag, but an install never floats.** The installer resolves the dist-tag exactly once per run to an exact version, checks that version's npm `engines.node` range against its own pinned Node.js runtime (the installer carries Node.js 26.12.1 itself, independent of the workflow's `setup-node` version), downloads the registry tarball and verifies its SHA-512 `dist.integrity` before installing that exact version, and records the resolved version and integrity in `providers.env` (`REA_VERSION` / `REA_INTEGRITY`) so every install is auditable and reproducible after the fact. One honest limit: REA's own transitive npm dependencies are still resolved by npm at install time — pinning those would require a lockfile and is a documented follow-up, not part of this change. Supporting runtimes and providers are deliberately fixed to this tested baseline instead of trying to dynamically guess compatibility on every run:
+
+| Component | Pinned version |
+|---|---:|
+| Node.js | 26.12.1 |
+| Python toolchain | 3.13.x (newest installed Runner toolcache patch) |
+| Ghidra + Temurin JDK | 12.1.4 + 21.0.13+9 |
+| WABT | 1.0.42 |
+| JADX headless MCP bridge | 0.7.1 |
+| Apktool | 2.12.1 |
+| mitmproxy | 12.2.3 |
+| TShark (Ubuntu package) | Latest available Wireshark 4.x |
+| Frida tools / Frida runtime | 14.11.0 / 17.25.2 |
+| pwntools / Capstone / pyelftools / Unicorn | 4.15.0 / 5.0.9 / 0.33 / 2.1.2 |
+| Unblob | 26.6.4 |
+| Binwalk native / Python API | 3.1.0 / 3.2.0 |
+| System Google Chrome | 156.0.8078.x (Runner image patch) |
+
+Ghidra 12.1.4 is intentional: REA's current Ghidra bridge verifies against that release line; Ghidra 12.2 was rejected by the actual provider Doctor. Python 3.13.x is used for every provider virtual environment, selecting the newest installed Runner toolcache patch, so the pinned Unicorn 2.1.2 binary wheel is selected instead of compiling the multi-architecture QEMU source on Python 3.14. Capstone is fixed at stable 5.0.9 rather than accepting the 6.0.0 alpha that an unconstrained resolver can otherwise choose. Native Binwalk is built from its pinned upstream commit using Cargo; `RUST_FONTCONFIG_DLOPEN=1` avoids a build-time fontconfig development-package dependency while retaining the host runtime library. TShark is installed from the current Ubuntu package candidate and verified to be in the Wireshark 4.x release line. Chrome's 156.0.8078 patch component follows the Runner image update, while the browser compatibility branch is held constant.
+
+The installer verifies SHA-256 for the pinned Node.js, Ghidra, Temurin, WABT, JADX, and Apktool archives (a cached archive is reused only after its checksum verifies) and SHA-512 integrity for the REA tarball. It saves provider paths in `providers.env`, including `REA_VERSION`, `REA_BINWALK_COMMAND`, `REA_UNBLOB_COMMAND`, `REA_JADX_MCP_JAR`, `REA_PWNTOOLS_PYTHON`, and the browser/mitmproxy command paths. `--dry-run` is strictly side-effect-free: it prints the plan and never sources an existing `providers.env`. Google Chrome 156.0.8078.x from the Runner image is reused (Playwright's Chromium downloader does not yet map this Ubuntu 26.04 image); the installer launches it using the Playwright Core bundled with the installed REA for a headless smoke test.
+
+Selective options are available: `--skip-os-packages`, `--skip-ghidra`, `--skip-android`, `--skip-network`, `--skip-browser`, `--skip-python-tools`, `--skip-binwalk`, and `--dry-run`. The `--skip-binwalk` option leaves REA's firmware signature-inspection tool unavailable, but does not affect the rest of the toolkit. Python tooling is isolated in separate virtual environments. The installer's skip flags can be used for partial repairs without discarding previously installed provider paths.
+
+`rea setup` is intentionally **not** run automatically: it can modify agent/MCP configuration. The installer does not register MCP clients or edit OpenCode/Codex settings. Commercial providers (IDA, Hopper, JEB) are not installed. Kuna remains caller-supplied. Process capture runs with the Runner account's permissions and is not a sandbox; only analyze targets you are authorized to inspect and treat untrusted targets as untrusted code.
 The canonical machine/toolchain contract is [`config/runner-toolset.json`](config/runner-toolset.json). Bootstrap, readiness, doctor, and runner validation consume the same manifest so they do not maintain independent definitions of a healthy machine.
 
 ## Validation

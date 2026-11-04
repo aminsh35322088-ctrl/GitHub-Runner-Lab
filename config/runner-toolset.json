@@ -166,5 +166,56 @@
         "url": "https://pypi.org"
       }
     ]
+  },
+  "optional_tools": {
+    "rea": {
+      "package": "rea-agents",
+      "channel": "latest",
+      "entrypoint": "rea",
+      "install_script": "scripts/install-rea.sh",
+      "automatic_install": false,
+      "automatic_setup": false,
+      "node_requirement_source": "npm:rea-agents@latest resolved once per install to an exact version; that version's engines.node is checked and its dist.integrity (SHA-512) verified before global install",
+      "prerequisites": [
+        "Node.js 26.12.1 stable runtime (installed by the REA installer itself, independent of the workflow setup-node version); rea-agents resolved from the latest npm dist-tag to an exact, integrity-verified version per install",
+        "Python 3.13.x (newest installed Runner toolcache patch) for provider virtual environments",
+        "Ghidra 12.1.4 with Temurin JDK 21.0.13+9",
+        "GNU binutils/objdump, GDB, procps and Linux tracing utilities",
+        "WABT 1.0.42 for WebAssembly inspection",
+        "JADX headless MCP bridge 0.7.1 and Apktool 2.12.1",
+        "TShark/capinfos from the current Ubuntu Wireshark 4.x package and mitmproxy 12.2.3",
+        "Frida tools 14.11.0 with Frida runtime 17.25.2",
+        "pwntools 4.15.0, Capstone 5.0.9, pyelftools 0.33 and Unicorn 2.1.2",
+        "Unblob 26.6.4 and Binwalk 3.1.0 native CLI (Cargo) plus Binwalk3 Python API 3.2.0",
+        "Google Chrome 156.0.8078.x from the Runner image, launched through the installed REA's bundled Playwright Core"
+      ],
+      "commercial_providers": "caller-managed; no automatic IDA, Hopper or JEB installation",
+      "mcp_registration": "manual; rea setup is not run by installer",
+      "runtime_versions": {
+        "node": "26.12.1",
+        "python": "3.13.x (newest installed toolcache patch)",
+        "rea_channel": "latest",
+        "rea_resolution": "dist-tag resolved once per install to an exact version; tarball SHA-512 (dist.integrity) verified before install; resolved version and integrity recorded in providers.env as REA_VERSION / REA_INTEGRITY"
+      },
+      "provider_versions": {
+        "ghidra": "12.1.4",
+        "temurin_jdk": "21.0.13+9",
+        "wabt": "1.0.42",
+        "jadx_headless_mcp": "0.7.1",
+        "apktool": "2.12.1",
+        "mitmproxy": "12.2.3",
+        "tshark": "4.x (Ubuntu package candidate)",
+        "frida_tools": "14.11.0",
+        "frida_runtime": "17.25.2",
+        "pwntools": "4.15.0",
+        "capstone": "5.0.9",
+        "pyelftools": "0.33",
+        "unicorn": "2.1.2",
+        "unblob": "26.6.4",
+        "binwalk_native": "3.1.0",
+        "binwalk_python_api": "3.2.0",
+        "google_chrome": "156.0.8078.x (Runner image patch)"
+      }
+    }
   }
 }
