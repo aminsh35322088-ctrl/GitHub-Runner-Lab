@@ -157,24 +157,51 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: |
+          # The Vault's own deploy workflow publishes deployment.json at the
+          # root of the Vault repository after every successful deploy. It is
+          # the single source for the Worker URL and the pinned client
+          # revision, so the Lab keeps no Vault configuration of its own.
+          # Discovery never fails this job: without a readable deployment.json
+          # the Vault integration is simply disabled for this run.
+          set -uo pipefail
+          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
+          vault_url=""
+          client_ref=""
+          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
+            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
+            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
+          fi
+          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
+            {
+              echo "VAULT_URL=$vault_url"
+              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
+              echo "VAULT_CLIENT_REF=$client_ref"
+            } >> "$GITHUB_ENV"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
+          fi
+
       - name: Validate Vault configuration
-        env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$VAULT_URL" ]]; then
-            echo "::error::RUNNER_VAULT_URL is required for the Vault smoke test."
+          if [[ -z "${VAULT_URL:-}" ]]; then
+            echo "::error::No Vault deployment was discovered. Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
             exit 1
           fi
-          if [[ ! "$VAULT_CLIENT_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-            echo "::error::Set RUNNER_VAULT_REPOSITORY to the source repository in owner/name form."
+          if [[ ! "${VAULT_CLIENT_REPOSITORY:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            echo "::error::The discovered Vault client repository must be in owner/name form."
             exit 1
           fi
-          if [[ ! "$VAULT_CLIENT_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Set RUNNER_VAULT_CLIENT_REF to an immutable 40-character commit SHA."
+          if [[ ! "${VAULT_CLIENT_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The discovered Vault client revision must be an immutable 40-character commit SHA."
             exit 1
           fi
           python3 - <<'PYURL'
@@ -182,20 +209,17 @@ jobs:
           from urllib.parse import urlparse
           u = urlparse(os.environ["VAULT_URL"])
           if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
 
       - name: Fetch the pinned Vault client
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Verify GitHub OIDC and read-only Vault registry access
         env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
           VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
@@ -273,9 +297,12 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
-    env:
-      # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
-      VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+    # The Vault is optional and needs no Lab-side configuration: the
+    # vault-discovery step below reads deployment.json from the Vault
+    # repository and exports VAULT_URL / VAULT_CLIENT_REPOSITORY /
+    # VAULT_CLIENT_REF for the rest of the job (including the RDC process,
+    # which inherits this job's environment at launch) only when a Vault is
+    # actually deployed.
 
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
@@ -304,6 +331,39 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.22.2
+
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: |
+          # The Vault's own deploy workflow publishes deployment.json at the
+          # root of the Vault repository after every successful deploy. It is
+          # the single source for the Worker URL and the pinned client
+          # revision, so the Lab keeps no Vault configuration of its own.
+          # Discovery never fails this job: without a readable deployment.json
+          # the Vault integration is simply disabled for this run. It runs
+          # before RDC starts so a discovered VAULT_URL is part of the RDC
+          # process environment, exactly as the old job-level variable was.
+          set -uo pipefail
+          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
+          vault_url=""
+          client_ref=""
+          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
+            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
+            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
+          fi
+          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
+            {
+              echo "VAULT_URL=$vault_url"
+              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
+              echo "VAULT_CLIENT_REF=$client_ref"
+            } >> "$GITHUB_ENV"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
+          fi
 
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
@@ -454,14 +514,13 @@ jobs:
 
       - name: Install Runner Credential Vault client
         id: vault-client
-        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
+        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && steps.vault-discovery.outputs.configured == 'true'
         timeout-minutes: 2
         continue-on-error: true
         env:
-          # Optional token fallback; source and immutable revision come from repository variables.
+          # Optional token fallback; source and immutable revision come from
+          # the discovered deployment.json (see the vault-discovery step).
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: |
           set -euo pipefail
@@ -470,7 +529,7 @@ jobs:
           from urllib.parse import urlparse
           u = urlparse(os.environ["VAULT_URL"])
           if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
           mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
           chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
@@ -728,17 +787,53 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: |
+          # The Vault's own deploy workflow publishes deployment.json at the
+          # root of the Vault repository after every successful deploy. It is
+          # the single source for the Worker URL and the pinned client
+          # revision, so the Lab keeps no Vault configuration of its own.
+          # Discovery never fails this job: without a readable deployment.json
+          # the Vault integration is simply disabled for this run.
+          set -uo pipefail
+          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
+          vault_url=""
+          client_ref=""
+          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
+            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
+            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
+          fi
+          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
+            {
+              echo "VAULT_URL=$vault_url"
+              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
+              echo "VAULT_CLIENT_REF=$client_ref"
+            } >> "$GITHUB_ENV"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
+          fi
+
+      - name: Report missing Vault deployment
+        if: steps.vault-discovery.outputs.configured != 'true'
+        shell: bash
+        run: |
+          echo "No Vault deployment was discovered, so there is no Vault to link a Northflank credential to."
+          echo "Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
+
       - name: Fetch the pinned Vault client
+        if: steps.vault-discovery.outputs.configured == 'true'
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Create one-time Northflank credential registration
-        env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+        if: steps.vault-discovery.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
