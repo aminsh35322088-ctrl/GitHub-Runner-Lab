@@ -47,6 +47,57 @@ jobs:
       - name: Byte-compile Python
         run: python3 -m compileall -q scripts tests .github/scripts
 
+      # Lint toolchain versions are pinned and checksum-verified, matching
+      # the repository's installer conventions (see scripts/install-goss.sh).
+      # Bump the version + sha256 pairs together when upgrading.
+      - name: Lint Python (ruff)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/lint-venv"
+          "${RUNNER_TEMP}/lint-venv/bin/pip" install --quiet ruff==0.17.3
+          "${RUNNER_TEMP}/lint-venv/bin/ruff" check scripts tests .github/scripts
+
+      - name: Install lint tools (shellcheck, actionlint)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="${RUNNER_TEMP}/lint-bin"
+          mkdir -p "${bin_dir}"
+          download_verified() {
+            local url="$1" sha256="$2" archive="$3"
+            curl --fail --location --silent --show-error --retry 3 \
+              --proto '=https' --tlsv1.2 "${url}" -o "${RUNNER_TEMP}/${archive}"
+            printf '%s  %s\n' "${sha256}" "${RUNNER_TEMP}/${archive}" | sha256sum --check --status
+          }
+          download_verified \
+            "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz" \
+            "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" \
+            "shellcheck.tar.xz"
+          tar -xJf "${RUNNER_TEMP}/shellcheck.tar.xz" -C "${RUNNER_TEMP}"
+          install -m 0755 "${RUNNER_TEMP}/shellcheck-v0.11.0/shellcheck" "${bin_dir}/shellcheck"
+          download_verified \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz" \
+            "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" \
+            "actionlint.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
+          install -m 0755 "${RUNNER_TEMP}/actionlint" "${bin_dir}/actionlint"
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+      - name: Lint shell scripts (shellcheck)
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          for file in scripts/*.sh .github/scripts/*.sh; do
+            echo "shellcheck ${file}"
+            shellcheck --severity=warning "${file}" || status=1
+          done
+          exit "${status}"
+
+      - name: Lint workflows (actionlint)
+        run: actionlint .github/workflows/*.yml
+
   heartbeat:
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
