@@ -1,10 +1,77 @@
 import unittest
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from discover_vault import validate_deployment
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "rdc-lab.yml"
 README = ROOT / "README.md"
+
+
+class VaultDiscoveryInputTests(unittest.TestCase):
+    OWNER = "aminsh35322088-ctrl"
+    SHA = "a" * 40
+
+    def test_accepts_a_valid_workers_origin_and_immutable_revision(self):
+        values = validate_deployment(
+            {"url": "https://runner-vault.example.workers.dev", "clientRef": self.SHA},
+            self.OWNER,
+        )
+        self.assertEqual(values, {
+            "VAULT_URL": "https://runner-vault.example.workers.dev",
+            "VAULT_CLIENT_REPOSITORY": self.OWNER + "/GitHub-runner-vault",
+            "VAULT_CLIENT_REF": self.SHA,
+        })
+
+    def test_rejects_environment_injection_in_url_or_sha(self):
+        for malicious in (
+            "https://vault.example.workers.dev\nEXTRA=value",
+            "https://vault.example.workers.dev\rGITHUB_TOKEN=stolen",
+        ):
+            with self.subTest(value=repr(malicious)):
+                with self.assertRaises(ValueError):
+                    validate_deployment({"url": malicious, "clientRef": self.SHA}, self.OWNER)
+        with self.assertRaises(ValueError):
+            validate_deployment({"url": "https://vault.example.workers.dev", "clientRef": self.SHA + "\nPWNED=1"}, self.OWNER)
+
+    def test_rejects_non_workers_dev_origins(self):
+        for url in (
+            "https://attacker.example",
+            "https://runner-vault.example.workers.dev.evil.example",
+            "https://runner-vault.example.workers.dev:8443",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    validate_deployment({"url": url, "clientRef": self.SHA}, self.OWNER)
+
+    def test_rejects_non_origin_urls_and_credentials(self):
+        for url in (
+            "http://vault.example.workers.dev",
+            "https://user:pass@vault.example.workers.dev",
+            "https://vault.example.workers.dev/path",
+            "https://vault.example.workers.dev/?query=1",
+            "https://vault.example.workers.dev/#fragment",
+            " https://vault.example.workers.dev",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    validate_deployment({"url": url, "clientRef": self.SHA}, self.OWNER)
+
+    def test_rejects_invalid_sha_document_shape_and_owner(self):
+        for payload in (
+            {"url": "https://vault.example.workers.dev", "clientRef": "g" * 40},
+            {"url": "https://vault.example.workers.dev", "clientRef": self.SHA.upper()},
+            [],
+            {"url": "https://vault.example.workers.dev"},
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    validate_deployment(payload, self.OWNER)
+        with self.assertRaises(ValueError):
+            validate_deployment({"url": "https://vault.example.workers.dev", "clientRef": self.SHA}, "owner\nBAD=1")
 
 
 class VaultOidcSmokeWorkflowTests(unittest.TestCase):
@@ -26,8 +93,9 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
 
     def test_smoke_test_fetches_pinned_client_and_lists_metadata_only(self):
         self.assertIn("./scripts/fetch-vault-client.sh", self.workflow)
-        self.assertIn("VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}", self.workflow)
-        self.assertIn("VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}", self.workflow)
+        discovery_helper = (ROOT / "scripts" / "discover_vault.py").read_text()
+        self.assertIn('f"{owner}/GitHub-runner-vault"', discovery_helper)
+        self.assertIn('"VAULT_CLIENT_REF": client_ref', discovery_helper)
         self.assertNotIn("5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
         self.assertIn('node "$client" list', self.workflow)
         self.assertIn('node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user', self.workflow)
@@ -58,8 +126,17 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
     def test_post_start_vault_connection_keeps_job_oidc_and_verifier_state_aligned(self):
         runner = self.workflow.split("  runner-lab:", 1)[1].split("\n  relaunch:", 1)[0]
         job_header = runner.split("\n    steps:", 1)[0]
-        self.assertIn("VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}", job_header)
+        self.assertNotIn("vars.RUNNER_VAULT_URL", job_header)
         self.assertIn("id-token: write", job_header)
+
+        # Discovery runs before RDC starts and exports VAULT_URL to the job
+        # environment, so the RDC process inherits it just as it did when the
+        # URL came from a job-level Actions variable.
+        discovery = runner.index("      - name: Discover Vault deployment")
+        rdc_start = runner.index("      - name: Start Remote Desktop Commander")
+        self.assertLess(discovery, rdc_start)
+        self.assertIn("run: python3 scripts/discover_vault.py", runner)
+        self.assertNotIn('echo "VAULT_URL=$vault_url"', runner)
 
         verify_step = runner.split("      - name: Verify Vault environment reached RDC", 1)[1].split("\n      - name:", 1)[0]
         self.assertIn("VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}", verify_step)
@@ -101,6 +178,25 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn(".lifetime", self.workflow)
         self.assertNotIn(".value_encrypted", self.workflow)
         self.assertNotIn(".value", self.workflow)
+
+    def test_vault_is_discovered_from_deployment_json_not_actions_variables(self):
+        self.assertNotIn("vars.RUNNER_VAULT_URL", self.workflow)
+        self.assertNotIn("vars.RUNNER_VAULT_REPOSITORY", self.workflow)
+        self.assertNotIn("vars.RUNNER_VAULT_CLIENT_REF", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_URL", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_REPOSITORY", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_CLIENT_REF", self.workflow)
+        # Every job that consumes the Vault discovers it the same way.
+        self.assertEqual(3, self.workflow.count("id: vault-discovery"))
+        self.assertEqual(3, self.workflow.count("run: python3 scripts/discover_vault.py"))
+        self.assertIn("steps.vault-discovery.outputs.configured == 'true'", self.workflow)
+        # Shared discovery validates every untrusted value before writing GITHUB_ENV.
+        helper = (ROOT / "scripts" / "discover_vault.py").read_text()
+        self.assertIn("validate_deployment(payload, owner)", helper)
+        self.assertIn("SHA_RE.fullmatch(client_ref)", helper)
+        self.assertIn("parsed.scheme != \"https\"", helper)
+        self.assertLess(helper.index("values = validate_deployment"), helper.index('with open(env_path'))
+        self.assertIn("MAX_DOCUMENT_BYTES", helper)
 
     def test_smoke_test_does_not_boot_the_persistent_runner_job(self):
         self.assertIn("if: " + "$" + "{{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}", self.workflow)

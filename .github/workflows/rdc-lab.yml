@@ -157,24 +157,24 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: python3 scripts/discover_vault.py
       - name: Validate Vault configuration
-        env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$VAULT_URL" ]]; then
-            echo "::error::RUNNER_VAULT_URL is required for the Vault smoke test."
+          if [[ -z "${VAULT_URL:-}" ]]; then
+            echo "::error::No Vault deployment was discovered. Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
             exit 1
           fi
-          if [[ ! "$VAULT_CLIENT_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-            echo "::error::Set RUNNER_VAULT_REPOSITORY to the source repository in owner/name form."
+          if [[ ! "${VAULT_CLIENT_REPOSITORY:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            echo "::error::The discovered Vault client repository must be in owner/name form."
             exit 1
           fi
-          if [[ ! "$VAULT_CLIENT_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Set RUNNER_VAULT_CLIENT_REF to an immutable 40-character commit SHA."
+          if [[ ! "${VAULT_CLIENT_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The discovered Vault client revision must be an immutable 40-character commit SHA."
             exit 1
           fi
           python3 - <<'PYURL'
@@ -182,20 +182,17 @@ jobs:
           from urllib.parse import urlparse
           u = urlparse(os.environ["VAULT_URL"])
           if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
 
       - name: Fetch the pinned Vault client
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Verify GitHub OIDC and read-only Vault registry access
         env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
           VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
@@ -273,9 +270,12 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
-    env:
-      # Optional until the vault is deployed and RUNNER_VAULT_URL is configured.
-      VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+    # The Vault is optional and needs no Lab-side configuration: the
+    # vault-discovery step below reads deployment.json from the Vault
+    # repository and exports VAULT_URL / VAULT_CLIENT_REPOSITORY /
+    # VAULT_CLIENT_REF for the rest of the job (including the RDC process,
+    # which inherits this job's environment at launch) only when a Vault is
+    # actually deployed.
 
     # A job-level block replaces the workflow-level one, so the two existing
     # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
@@ -305,6 +305,10 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: python3 scripts/discover_vault.py
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
         run: |
@@ -454,14 +458,13 @@ jobs:
 
       - name: Install Runner Credential Vault client
         id: vault-client
-        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && vars.RUNNER_VAULT_URL != ''
+        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && steps.vault-discovery.outputs.configured == 'true'
         timeout-minutes: 2
         continue-on-error: true
         env:
-          # Optional token fallback; source and immutable revision come from repository variables.
+          # Optional token fallback; source and immutable revision come from
+          # the discovered deployment.json (see the vault-discovery step).
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: |
           set -euo pipefail
@@ -470,7 +473,7 @@ jobs:
           from urllib.parse import urlparse
           u = urlparse(os.environ["VAULT_URL"])
           if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("RUNNER_VAULT_URL must be an HTTPS origin with no path, query or credentials")
+              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
           mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
           chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
@@ -728,17 +731,26 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Discover Vault deployment
+        id: vault-discovery
+        shell: bash
+        run: python3 scripts/discover_vault.py
+      - name: Report missing Vault deployment
+        if: steps.vault-discovery.outputs.configured != 'true'
+        shell: bash
+        run: |
+          echo "No Vault deployment was discovered, so there is no Vault to link a Northflank credential to."
+          echo "Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
+
       - name: Fetch the pinned Vault client
+        if: steps.vault-discovery.outputs.configured == 'true'
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
-          VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
-          VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}
         shell: bash
         run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Create one-time Northflank credential registration
-        env:
-          VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}
+        if: steps.vault-discovery.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
