@@ -13,13 +13,13 @@ set -Eeuo pipefail
 dest="${1:?usage: fetch-vault-client.sh DEST}"
 repository="${VAULT_CLIENT_REPOSITORY:-}"
 if [[ ! "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-  echo "::warning::RUNNER_VAULT_REPOSITORY must be an owner/name repository; Vault integration will be degraded."
+  echo "::warning::VAULT_CLIENT_REPOSITORY must be an owner/name repository; Vault integration will be degraded."
   exit 1
 fi
 
 ref="${VAULT_CLIENT_REF:-}"
 if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "::warning::RUNNER_VAULT_CLIENT_REF must be an immutable 40-character commit SHA; Vault integration will be degraded."
+  echo "::warning::VAULT_CLIENT_REF must be an immutable 40-character commit SHA; Vault integration will be degraded."
   exit 1
 fi
 

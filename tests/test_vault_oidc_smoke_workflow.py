@@ -26,8 +26,8 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
 
     def test_smoke_test_fetches_pinned_client_and_lists_metadata_only(self):
         self.assertIn("./scripts/fetch-vault-client.sh", self.workflow)
-        self.assertIn("VAULT_CLIENT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}", self.workflow)
-        self.assertIn("VAULT_CLIENT_REF: ${{ vars.RUNNER_VAULT_CLIENT_REF }}", self.workflow)
+        self.assertIn("VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault", self.workflow)
+        self.assertIn("VAULT_CLIENT_REF=$client_ref", self.workflow)
         self.assertNotIn("5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
         self.assertIn('node "$client" list', self.workflow)
         self.assertIn('node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user', self.workflow)
@@ -58,8 +58,17 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
     def test_post_start_vault_connection_keeps_job_oidc_and_verifier_state_aligned(self):
         runner = self.workflow.split("  runner-lab:", 1)[1].split("\n  relaunch:", 1)[0]
         job_header = runner.split("\n    steps:", 1)[0]
-        self.assertIn("VAULT_URL: ${{ vars.RUNNER_VAULT_URL }}", job_header)
+        self.assertNotIn("vars.RUNNER_VAULT_URL", job_header)
         self.assertIn("id-token: write", job_header)
+
+        # Discovery runs before RDC starts and exports VAULT_URL to the job
+        # environment, so the RDC process inherits it just as it did when the
+        # URL came from a job-level Actions variable.
+        discovery = runner.index("      - name: Discover Vault deployment")
+        rdc_start = runner.index("      - name: Start Remote Desktop Commander")
+        self.assertLess(discovery, rdc_start)
+        self.assertIn('echo "VAULT_URL=$vault_url"', runner)
+        self.assertIn('>> "$GITHUB_ENV"', runner)
 
         verify_step = runner.split("      - name: Verify Vault environment reached RDC", 1)[1].split("\n      - name:", 1)[0]
         self.assertIn("VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}", verify_step)
@@ -101,6 +110,25 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn(".lifetime", self.workflow)
         self.assertNotIn(".value_encrypted", self.workflow)
         self.assertNotIn(".value", self.workflow)
+
+    def test_vault_is_discovered_from_deployment_json_not_actions_variables(self):
+        self.assertNotIn("vars.RUNNER_VAULT_URL", self.workflow)
+        self.assertNotIn("vars.RUNNER_VAULT_REPOSITORY", self.workflow)
+        self.assertNotIn("vars.RUNNER_VAULT_CLIENT_REF", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_URL", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_REPOSITORY", self.workflow)
+        self.assertNotIn("RUNNER_VAULT_CLIENT_REF", self.workflow)
+        discovery_url = "https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
+        # Every job that consumes the Vault discovers it the same way.
+        self.assertEqual(3, self.workflow.count("id: vault-discovery"))
+        self.assertEqual(3, self.workflow.count(discovery_url))
+        self.assertIn("curl -fsSL --max-time 10", self.workflow)
+        self.assertIn("steps.vault-discovery.outputs.configured == 'true'", self.workflow)
+        # The discovered values still pass the original validations before use.
+        validate = self.workflow.split("      - name: Validate Vault configuration", 1)[1].split("      - name: Fetch the pinned Vault client", 1)[0]
+        self.assertIn("^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$", validate)
+        self.assertIn("^[0-9a-f]{40}$", validate)
+        self.assertIn("VAULT_URL must be an HTTPS origin with no path, query or credentials", validate)
 
     def test_smoke_test_does_not_boot_the_persistent_runner_job(self):
         self.assertIn("if: " + "$" + "{{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}", self.workflow)
