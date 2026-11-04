@@ -160,34 +160,7 @@ jobs:
       - name: Discover Vault deployment
         id: vault-discovery
         shell: bash
-        run: |
-          # The Vault's own deploy workflow publishes deployment.json at the
-          # root of the Vault repository after every successful deploy. It is
-          # the single source for the Worker URL and the pinned client
-          # revision, so the Lab keeps no Vault configuration of its own.
-          # Discovery never fails this job: without a readable deployment.json
-          # the Vault integration is simply disabled for this run.
-          set -uo pipefail
-          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
-          vault_url=""
-          client_ref=""
-          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
-            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
-            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
-          fi
-          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
-            {
-              echo "VAULT_URL=$vault_url"
-              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
-              echo "VAULT_CLIENT_REF=$client_ref"
-            } >> "$GITHUB_ENV"
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
-          fi
-
+        run: python3 scripts/discover_vault.py
       - name: Validate Vault configuration
         shell: bash
         run: |
@@ -335,36 +308,7 @@ jobs:
       - name: Discover Vault deployment
         id: vault-discovery
         shell: bash
-        run: |
-          # The Vault's own deploy workflow publishes deployment.json at the
-          # root of the Vault repository after every successful deploy. It is
-          # the single source for the Worker URL and the pinned client
-          # revision, so the Lab keeps no Vault configuration of its own.
-          # Discovery never fails this job: without a readable deployment.json
-          # the Vault integration is simply disabled for this run. It runs
-          # before RDC starts so a discovered VAULT_URL is part of the RDC
-          # process environment, exactly as the old job-level variable was.
-          set -uo pipefail
-          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
-          vault_url=""
-          client_ref=""
-          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
-            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
-            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
-          fi
-          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
-            {
-              echo "VAULT_URL=$vault_url"
-              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
-              echo "VAULT_CLIENT_REF=$client_ref"
-            } >> "$GITHUB_ENV"
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
-          fi
-
+        run: python3 scripts/discover_vault.py
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
         run: |
@@ -790,34 +734,7 @@ jobs:
       - name: Discover Vault deployment
         id: vault-discovery
         shell: bash
-        run: |
-          # The Vault's own deploy workflow publishes deployment.json at the
-          # root of the Vault repository after every successful deploy. It is
-          # the single source for the Worker URL and the pinned client
-          # revision, so the Lab keeps no Vault configuration of its own.
-          # Discovery never fails this job: without a readable deployment.json
-          # the Vault integration is simply disabled for this run.
-          set -uo pipefail
-          deployment_json_url="https://raw.githubusercontent.com/${{ github.repository_owner }}/GitHub-runner-vault/main/deployment.json"
-          vault_url=""
-          client_ref=""
-          if payload="$(curl -fsSL --max-time 10 "$deployment_json_url" 2>/dev/null)"; then
-            vault_url="$(jq -r '.url // empty' <<<"$payload" 2>/dev/null || true)"
-            client_ref="$(jq -r '.clientRef // empty' <<<"$payload" 2>/dev/null || true)"
-          fi
-          if [[ -n "$vault_url" && -n "$client_ref" ]]; then
-            {
-              echo "VAULT_URL=$vault_url"
-              echo "VAULT_CLIENT_REPOSITORY=${{ github.repository_owner }}/GitHub-runner-vault"
-              echo "VAULT_CLIENT_REF=$client_ref"
-            } >> "$GITHUB_ENV"
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "Discovered the Vault deployment at $vault_url; client pinned to $client_ref."
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No Vault deployment discovered at $deployment_json_url; Vault integration is disabled for this run."
-          fi
-
+        run: python3 scripts/discover_vault.py
       - name: Report missing Vault deployment
         if: steps.vault-discovery.outputs.configured != 'true'
         shell: bash
