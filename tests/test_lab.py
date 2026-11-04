@@ -52,6 +52,11 @@ class LabTest(unittest.TestCase):
             'AGENT_JOBS_DIR': self.base / 'jobs',
             'AGENT_KIT_CACHE_DIR': self.base / 'kit',
             'RDC_STATE_KEY': 'unit-test-key-with-more-than-32-characters',
+            # Pin a generous fake available-memory value so managed-job
+            # admission does not depend on the test host's real free RAM.
+            # The memory-pressure refusal test overrides this with a tiny
+            # value to keep the refusal path covered.
+            'AGENT_JOB_AVAILABLE_MEMORY_MB': '65536',
         }
         Path(self.env['AGENT_WORKSPACE_ROOT']).mkdir()
         Path(self.env['AGENT_KIT_CACHE_DIR']).mkdir()
@@ -519,7 +524,7 @@ class LabTest(unittest.TestCase):
 
     def test_managed_job_refuses_host_under_memory_pressure(self):
         workspace=Path(self.env['AGENT_WORKSPACE_ROOT'])/'repo';init_repo(workspace)
-        env={**self.env,'AGENT_JOB_MIN_FREE_MEMORY_MB':'999999999'}
+        env={**self.env,'AGENT_JOB_AVAILABLE_MEMORY_MB':'1'}
         result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--','true'],env=env)
         self.assertNotEqual(result.returncode,0)
         self.assertIn('available memory',result.stderr)
