@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from lab_common import SCRIPTS, atomic, kit, runtime
+from lab_common import SCRIPTS, atomic, runtime
 
 LOCKFILES = ('package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock',
              'bun.lock', 'bun.lockb', 'uv.lock', 'poetry.lock', 'requirements.txt',

@@ -13,7 +13,7 @@ import sys
 import time
 import uuid
 
-from lab_common import SCRIPTS, atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path, workspace_root
+from lab_common import atomic, clean_environment, git, kit, lock, path_env, runtime, workspace_lock_path, workspace_root
 
 
 SECRET_NAME = re.compile(
