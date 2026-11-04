@@ -232,6 +232,47 @@ def write_readme(state, repo):
 def git(*args):
     return subprocess.run(["git",*args],check=True,capture_output=True,text=True).stdout.strip()
 
+STATUS_SUBJECT = "docs: refresh runner status"
+BOT_NAME = "github-actions[bot]"
+BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
+
+def tip_commit():
+    """Describe the current HEAD commit, or None when it cannot be identified."""
+    try:
+        fields = git("log","-1","--format=%H%x00%an%x00%ae%x00%s").split("\x00")
+        files = git("diff-tree","--no-commit-id","--name-only","-r","HEAD").splitlines()
+    except subprocess.CalledProcessError:
+        return None
+    if len(fields)!=4: return None
+    sha,name,email,subject = fields
+    return {"sha":sha,"name":name,"email":email,"subject":subject,"files":files}
+
+def is_status_commit(tip):
+    """True only when HEAD is verifiably this bot's own previous status commit.
+
+    Every signal must match: the bot identity, the exact status subject, and a
+    diff limited to README.md. Anything ambiguous returns False and the caller
+    falls back to a normal commit, so foreign history is never rewritten.
+    """
+    return bool(tip) and tip["name"]==BOT_NAME and tip["email"]==BOT_EMAIL \
+        and tip["subject"]==STATUS_SUBJECT and tip["files"]==["README.md"]
+
+def previous_last_checked():
+    """Best-effort 'Last checked' value from the README currently on disk."""
+    try: match = re.search(r"^\| Last checked \| (.+?) \|$",Path("README.md").read_text(),re.M)
+    except OSError: return None
+    return match.group(1) if match else None
+
+def status_commit_message(state,amend_of=None,previous_checked=None):
+    """Commit message for a status refresh; the body keeps an audit trail."""
+    lines = [STATUS_SUBJECT,"",f"Status-Checked: {state.get('checked') or 'unknown'}"]
+    if state.get("run_id") is not None: lines.append(f"Status-Run-Id: {state['run_id']}")
+    workflow_run = os.environ.get("GITHUB_RUN_ID")
+    if workflow_run: lines.append(f"Workflow-Run-Id: {workflow_run}")
+    if amend_of: lines.append(f"Amends-Status-Commit: {amend_of}")
+    if previous_checked: lines.append(f"Previous-Status-Last-Checked: {previous_checked}")
+    return "\n".join(lines)
+
 def unknown_state(now):
     return {"state":"unknown","checked":now.isoformat(),"stale":True,"run_id":None,"run_url":None,"job_started":None,
             "keepalive_started":None,"elapsed":None,"remaining":None,"handoff":None,"hard_timeout":None,
@@ -257,13 +298,31 @@ def main():
             time.sleep(10)
     if not args.publish:
         write_readme(state,repo); return
-    git("config","user.name","github-actions[bot]")
-    git("config","user.email","41898282+github-actions[bot]@users.noreply.github.com")
+    git("config","user.name",BOT_NAME)
+    git("config","user.email",BOT_EMAIL)
     for attempt in range(3):
-        git("fetch","origin",branch); git("reset","--hard","FETCH_HEAD"); write_readme(state,repo); git("add","--","README.md")
+        git("fetch","origin",branch); git("reset","--hard","FETCH_HEAD")
+        # Collapse consecutive status refreshes: when the branch tip is
+        # verifiably this bot's own previous status commit, amend it instead
+        # of stacking another "docs: refresh runner status" commit on main.
+        # The push is guarded by an explicit force-with-lease on the exact
+        # tip being replaced; any ambiguity falls back to a normal commit,
+        # and a lost race retries the loop against the fresh tip.
+        tip = tip_commit()
+        amend = tip if is_status_commit(tip) else None
+        previous_checked = previous_last_checked() if amend else None
+        write_readme(state,repo); git("add","--","README.md")
         if not git("diff","--cached","--name-only"): return
-        git("commit","-m","docs: refresh runner status")
-        try: git("push","origin",f"HEAD:refs/heads/{branch}"); return
+        message = status_commit_message(state,amend_of=amend["sha"] if amend else None,
+                                        previous_checked=previous_checked)
+        if amend:
+            git("commit","--amend","-m",message)
+            push = ("push",f"--force-with-lease=refs/heads/{branch}:{amend['sha']}",
+                    "origin",f"HEAD:refs/heads/{branch}")
+        else:
+            git("commit","-m",message)
+            push = ("push","origin",f"HEAD:refs/heads/{branch}")
+        try: git(*push); return
         except subprocess.CalledProcessError:
             if attempt==2: raise RuntimeError("Runner status push failed") from None
 

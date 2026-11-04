@@ -19,4 +19,36 @@ class LiveStatusTest(unittest.TestCase):
         self.assertEqual(result['state'],'running')
         self.assertEqual(result['run_id'],2)
 
+class StatusCommitHistoryTest(unittest.TestCase):
+    TIP = {'sha': 'a' * 40, 'name': 'github-actions[bot]',
+           'email': '41898282+github-actions[bot]@users.noreply.github.com',
+           'subject': 'docs: refresh runner status', 'files': ['README.md']}
+
+    def test_own_status_tip_is_amendable(self):
+        self.assertTrue(status.is_status_commit(self.TIP))
+
+    def test_foreign_or_mixed_tips_are_not_amendable(self):
+        for change in ({'name': 'Amin'}, {'email': 'amin@example.invalid'},
+                       {'subject': 'docs: refresh runner status!'},
+                       {'files': ['README.md', 'scripts/lab_jobs.py']},
+                       {'files': []}):
+            self.assertFalse(status.is_status_commit({**self.TIP, **change}), change)
+        self.assertFalse(status.is_status_commit(None))
+
+    def test_commit_message_records_audit_trail(self):
+        state = {'checked': '2026-11-04T09:00:00+00:00', 'run_id': 123}
+        message = status.status_commit_message(state, amend_of='b' * 40,
+                                               previous_checked='2026-11-04 08:50:00 UTC')
+        lines = message.splitlines()
+        self.assertEqual(lines[0], 'docs: refresh runner status')
+        self.assertIn('Status-Checked: 2026-11-04T09:00:00+00:00', lines)
+        self.assertIn('Status-Run-Id: 123', lines)
+        self.assertIn('Amends-Status-Commit: ' + 'b' * 40, lines)
+        self.assertIn('Previous-Status-Last-Checked: 2026-11-04 08:50:00 UTC', lines)
+
+    def test_plain_commit_message_has_no_amend_reference(self):
+        message = status.status_commit_message({'checked': None, 'run_id': None})
+        self.assertNotIn('Amends-Status-Commit', message)
+        self.assertIn('Status-Checked: unknown', message)
+
 if __name__ == '__main__': unittest.main()
