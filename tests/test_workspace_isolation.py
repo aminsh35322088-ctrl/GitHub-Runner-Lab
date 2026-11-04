@@ -44,6 +44,9 @@ class WorkspaceIsolationTest(unittest.TestCase):
             "AGENT_WORKSPACE_ROOT": self.base / "workspaces",
             "AGENT_JOBS_DIR": self.base / "jobs",
             "AGENT_KIT_CACHE_DIR": self.base / "kit",
+            # Pin a generous fake available-memory value so managed-job
+            # admission does not depend on the test host's real free RAM.
+            "AGENT_JOB_AVAILABLE_MEMORY_MB": "65536",
         }
         Path(self.env["AGENT_WORKSPACE_ROOT"]).mkdir()
         Path(self.env["AGENT_KIT_CACHE_DIR"]).mkdir()

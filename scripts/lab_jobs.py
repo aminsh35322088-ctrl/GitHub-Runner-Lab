@@ -91,6 +91,12 @@ def memory_budget_mb():
 
 
 def available_memory_mb():
+    # AGENT_JOB_AVAILABLE_MEMORY_MB is a test seam: when set, it replaces the
+    # /proc/meminfo probe so admission tests are hermetic on hosts whose real
+    # free memory varies. Production runs leave it unset and probe the host.
+    override = os.getenv('AGENT_JOB_AVAILABLE_MEMORY_MB')
+    if override is not None:
+        return positive_number(override, 'AGENT_JOB_AVAILABLE_MEMORY_MB')
     available_kib = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
                          if line.startswith('MemAvailable:'))
     return available_kib / 1024
