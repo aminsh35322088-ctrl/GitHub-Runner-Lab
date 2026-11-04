@@ -8,7 +8,7 @@ import re
 import sys
 import time
 
-from lab_common import atomic, git, kit, lock, path_env, run, workspace_root
+from lab_common import atomic, kit, lock, path_env, run, workspace_root
 
 
 def registry_file():

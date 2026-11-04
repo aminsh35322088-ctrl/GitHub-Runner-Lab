@@ -1,0 +1,13 @@
+# Ruff configuration for the Lab's Python sources (scripts/, tests/,
+# .github/scripts/). CI runs `ruff check` with this config in the
+# repository-heartbeat regression job.
+#
+# Rule scope is deliberately narrow: E9 (syntax errors) + F (Pyflakes:
+# undefined names, unused imports, ...). The codebase predates linting and
+# is not clean under the full E style rules (E501/E701/E702 alone account
+# for ~700 findings), so style enforcement is out of scope here; widen
+# `select` only in a dedicated cleanup change.
+target-version = "py312"
+
+[lint]
+select = ["E9", "F"]

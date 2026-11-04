@@ -20,10 +20,9 @@ docker_helper_path() {
 }
 
 install_docker_helper() {
-  local source target parent config
+  local source target config
   source="$(cd "$(dirname "$0")" && pwd -P)/docker-credential-github-cli"
   target="$(docker_helper_path)"
-  parent="$(dirname "$target")"
   if [[ -n "${AGENT_GITHUB_DOCKER_HELPER:-}" ]]; then
     install -m 755 "$source" "$target"
   else

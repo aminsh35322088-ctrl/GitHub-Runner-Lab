@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Recoverable snapshots. Never overwrites an existing recovery workspace."""
 import argparse
-import fnmatch
 import hashlib
 import json
 import os
