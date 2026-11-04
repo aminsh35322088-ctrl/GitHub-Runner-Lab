@@ -324,7 +324,7 @@ The full background prewarm covers the common coding/debugging stack rather than
 
 - Git and GitHub CLI;
 - Node.js/npm, Python, Go, Rust/Cargo, and a headless Java JDK;
-- Node.js and the Remote Desktop Commander npm package install the latest stable release; `actionlint` and Goss resolve GitHub’s latest release at install time and verify the release asset SHA-256 digest;
+- Version policy for the privileged runner path: Node.js is pinned to an exact LTS patch release at every `actions/setup-node` site, the Remote Desktop Commander npm package is pinned to an exact version whose registry tarball SHA-512 integrity is verified by `scripts/install-rdc.sh` before install, and the Tailscale action receives an exact release version — none of these float on `latest`. Bump the pins deliberately in one change (Node: newest LTS patch from nodejs.org/dist; RDC: `npm view @wonderwhy-er/desktop-commander dist-tags.latest dist.integrity`; Tailscale: latest stable release tag). `actionlint` and Goss still resolve GitHub’s latest release at install time and verify the release asset SHA-256 digest;
 - ripgrep/fd/fzf, jq/yq and common shell utilities;
 - C/C++ build tools, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS, SQLite, network/process diagnostics;

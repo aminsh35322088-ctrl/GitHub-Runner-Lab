@@ -119,7 +119,7 @@
   },
   "pkg_config_path": [],
   "node": {
-    "source": "actions/setup-node latest stable"
+    "source": "actions/setup-node pinned exact release (see README toolchain policy)"
   },
   "thresholds": {
     "disk_free_gb": 10,

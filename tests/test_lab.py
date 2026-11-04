@@ -1163,15 +1163,23 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         with self.assertRaises(ValueError): release_asset_meta(data,'actionlint','mips',release)
         with self.assertRaises(ValueError): release_asset_meta(data,'actionlint','x86_64',{'tag_name':'v1','assets':[]})
 
-    def test_tool_versions_are_not_pinned_in_workflow_or_toolset(self):
+    def test_tool_versions_are_pinned_in_workflow_and_installers(self):
+        # Policy (issue #32): the privileged path must not float on @latest.
+        # Exact pins are asserted so a version bump is a deliberate,
+        # reviewable change to the workflow, the installer and this test.
         data=json.loads((ROOT/'config/runner-toolset.json').read_text())
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
         self.assertNotIn('expected',data['node'])
-        self.assertNotIn('RDC_VERSION:',workflow)
-        self.assertNotIn('22.14.0',workflow)
-        self.assertIn('node-version: latest',workflow)
+        self.assertNotIn('node-version: latest',workflow)
+        self.assertNotIn('node-version: 24\n',workflow)
+        self.assertEqual(workflow.count('node-version: 24.22.2'),4)
+        self.assertNotIn('version: latest',workflow)
+        self.assertIn('version: 1.104.5',workflow)
         self.assertIn('./scripts/install-rdc.sh',workflow)
-        self.assertIn('npm install --global @wonderwhy-er/desktop-commander@latest', (SCRIPTS/'install-rdc.sh').read_text())
+        installer=(SCRIPTS/'install-rdc.sh').read_text()
+        self.assertIn('RDC_VERSION="0.3.1"',installer)
+        self.assertIn('sha512-cx7KTscLF951adHmDLVCDIVTqJ/Bg1LtdRILZoo5wa/UMeyOfMAuOJOEBulNMKBKb5Xd3nHDQnB9aXroN9Fw5A==',installer)
+        self.assertNotIn('desktop-commander@latest',installer)
 
     def test_agent_lib_reads_commands_from_toolset_manifest(self):
         content=(SCRIPTS/'agent-lib.sh').read_text()
