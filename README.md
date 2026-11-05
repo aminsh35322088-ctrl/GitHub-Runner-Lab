@@ -342,13 +342,13 @@ The full background prewarm covers the common coding/debugging stack rather than
 - FFmpeg and ImageMagick;
 - Docker/BuildKit when supplied by the GitHub-hosted image.
 
-Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
+Other large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
 
-### Optional reverse-engineering toolkit (REA)
+### Shared reverse-engineering toolkit (REA)
 
-REA is an opt-in CLI/MCP toolkit for evidence-backed application, binary, process, Android, browser, firmware, and network-capture analysis. It stays outside core prewarm and startup, so installing it never delays RDC/Tailscale readiness.
+REA is a shared CLI toolkit for evidence-backed application, binary, process, Android, browser, firmware, and network-capture analysis. The existing background prewarm runs the official `scripts/install-rea.sh` automatically on every runner generation, after RDC is healthy. That makes the same verified CLI and provider set available to every model/agent using the runner account without delaying the initial RDC/Tailscale connection. Prewarm reaches `READY` only after installation, a capabilities check, and the installer's provider smoke tests succeed.
 
-Install it when a task needs reverse-engineering capabilities:
+At every connection, run `agent-lab onboard` followed by `agent-lab status`; require `REA=READY` before REA work. The Lab shell library sources `providers.env` for non-login shells too. If REA is missing after prewarm, repair it with the official installer:
 
 ```bash
 ./scripts/install-rea.sh
@@ -385,7 +385,7 @@ The installer verifies SHA-256 for the pinned Node.js, Ghidra, Temurin, WABT, JA
 
 Selective options are available: `--skip-os-packages`, `--skip-ghidra`, `--skip-android`, `--skip-network`, `--skip-browser`, `--skip-python-tools`, `--skip-binwalk`, and `--dry-run`. The `--skip-binwalk` option leaves REA's firmware signature-inspection tool unavailable, but does not affect the rest of the toolkit. Python tooling is isolated in separate virtual environments. The installer's skip flags can be used for partial repairs without discarding previously installed provider paths.
 
-`rea setup` is intentionally **not** run automatically: it can modify agent/MCP configuration. The installer does not register MCP clients or edit OpenCode/Codex settings. Commercial providers (IDA, Hopper, JEB) are not installed. Kuna remains caller-supplied. Process capture runs with the Runner account's permissions and is not a sandbox; only analyze targets you are authorized to inspect and treat untrusted targets as untrusted code.
+`rea setup` is intentionally **not** run automatically: it modifies client-specific agent/MCP configuration and would not be a safe shared-runner default. The globally available CLI is usable by all shell-capable models; MCP registration remains a separate, deliberate per-client operation. Commercial providers (IDA, Hopper, JEB) are not installed. Kuna remains caller-supplied. Process capture runs with the Runner account's permissions and is not a sandbox; only analyze targets you are authorized to inspect and treat untrusted targets as untrusted code.
 The canonical machine/toolchain contract is [`config/runner-toolset.json`](config/runner-toolset.json). Bootstrap, readiness, doctor, and runner validation consume the same manifest so they do not maintain independent definitions of a healthy machine.
 
 ## Validation
