@@ -396,7 +396,7 @@ class BrokerHandler(socketserver.StreamRequestHandler):
             return
         try:
             raw = self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
-            pid, uid, gid = struct.unpack("3i", raw)
+            _pid, uid, _gid = struct.unpack("3i", raw)
         except OSError:
             self._error(None, BrokerError("PEER_UNVERIFIED", "Could not verify socket peer"))
             return
