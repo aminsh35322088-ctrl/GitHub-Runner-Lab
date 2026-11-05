@@ -1521,7 +1521,13 @@ EOF
 """)
         installer.chmod(0o755)
         rea=rea_bin/'rea'
-        rea.write_text('#!/bin/sh\ncase "$1" in --version) echo rea-test;; capabilities) echo \\'{"capabilities":[]}\\';; *) exit 2;; esac\n')
+        rea.write_text("""#!/bin/sh
+case "$1" in
+  --version) echo rea-test ;;
+  capabilities) printf '%s\n' '{"capabilities":[]}' ;;
+  *) exit 2 ;;
+esac
+""")
         rea.chmod(0o755)
         validator=bindir/'lab_runner_validate.py'
         validator.write_text(
