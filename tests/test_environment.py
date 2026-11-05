@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -50,6 +51,32 @@ class EnvironmentTests(unittest.TestCase):
             result = subprocess.run([str(alias), 'onboard'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('report_problem', json.loads(result.stdout)['commands'])
+
+    def test_agent_lib_loads_rea_environment_in_nonlogin_shells(self):
+        scripts = Path(__file__).resolve().parents[1] / 'scripts'
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            install_root = home / '.local' / 'share' / 'rea'
+            mock_bin = install_root / 'mock-bin'
+            mock_bin.mkdir(parents=True)
+            rea = mock_bin / 'rea'
+            rea.write_text("#!/bin/sh\nprintf 'rea-mock\\n'\n")
+            rea.chmod(0o755)
+            providers = install_root / 'providers.env'
+            providers.write_text(
+                f"export REA_INSTALL_ROOT='{install_root}'\n"
+                "export REA_PROVIDER_ENV_TEST='loaded'\n"
+                f"export PATH='{mock_bin}:/usr/bin:/bin'\n"
+            )
+            env = {**os.environ, 'HOME': str(home), 'PATH': os.environ['PATH']}
+            result = subprocess.run(
+                ['/bin/bash', '-c',
+                 f'source "{scripts / "agent-lib.sh"}" && command -v rea && '
+                 'test "$REA_PROVIDER_ENV_TEST" = loaded && rea'],
+                capture_output=True, text=True, env=env, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(str(rea), result.stdout)
+            self.assertIn('rea-mock', result.stdout)
 
     def test_pending_incident_survives_encrypted_recovery(self):
         import json

@@ -87,6 +87,20 @@ trap finish EXIT
     agent_missing_full_commands
     exit 20
   fi
+
+  # Install the shared REA CLI and verified providers for every agent using
+  # this runner. This runs only after RDC is already reachable because prewarm
+  # itself is started in the background by the keepalive workflow step.
+  echo "[agent-prewarm] Installing shared REA CLI and providers."
+  "$SELF_DIR/install-rea.sh"
+  REA_ENV_FILE="${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+  [[ -r "$REA_ENV_FILE" ]] || { echo "[agent-prewarm] REA providers.env was not created." >&2; exit 21; }
+  # shellcheck disable=SC1090
+  source "$REA_ENV_FILE"
+  command -v rea >/dev/null 2>&1 || { echo "[agent-prewarm] REA CLI is not available on PATH." >&2; exit 21; }
+  rea capabilities --format json | jq -e '.capabilities | type == "array"' >/dev/null
+  echo "[agent-prewarm] REA ready: $(rea --version)"
+
   validation_dir="$CACHE_DIR/prewarm-validation"
   rm -rf "$validation_dir"
   echo "[agent-prewarm] Running quick self-validation."
