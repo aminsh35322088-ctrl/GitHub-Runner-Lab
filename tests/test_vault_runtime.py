@@ -155,6 +155,7 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
         self.assertIn('AGENT_SYSTEM_PACKAGES_READY:-false', bootstrap)
         self.assertIn('exit 21', bootstrap)
         self.assertNotIn('sudo apt-get', bootstrap)
+        self.assertNotIn('mapfile -t PACKAGES', bootstrap)
         trusted = (ROOT / "scripts" / "install-agent-system-packages.sh").read_text()
         self.assertIn('lab_toolset.py" packages full', trusted)
         self.assertIn('apt-get install', trusted)

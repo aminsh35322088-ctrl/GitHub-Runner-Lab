@@ -19,8 +19,6 @@ case "${1:-}" in
   *) echo "Unknown bootstrap option: $1" >&2; exit 2 ;;
 esac
 
-mapfile -t PACKAGES < <(python3 "$SELF_DIR/lab_toolset.py" packages "$PROFILE")
-
 echo "[agent-bootstrap] profile=$PROFILE checking trusted-runner system package provisioning."
 if [[ "${AGENT_SYSTEM_PACKAGES_READY:-false}" != "true" ]]; then
   echo "Agent system packages must be installed by the trusted runner before bootstrap." >&2
