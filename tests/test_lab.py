@@ -159,6 +159,16 @@ class LabTest(unittest.TestCase):
             sourced_at, script.find('exec '),
             'agent-lib.sh must be sourced before the first dispatch')
 
+    def test_prewarm_runs_official_rea_installer_before_ready_validation(self):
+        script = (SCRIPTS / 'agent-prewarm.sh').read_text()
+        bootstrap = script.index('"$SELF_DIR/agent-bootstrap.sh" --full')
+        install_rea = script.index('"$SELF_DIR/install-rea.sh"')
+        validate = script.index('python3 "$SELF_DIR/lab_runner_validate.py" quick')
+        self.assertLess(bootstrap, install_rea)
+        self.assertLess(install_rea, validate)
+        self.assertIn('rea capabilities --format json', script)
+        self.assertIn('source "$REA_ENV_FILE"', script)
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
