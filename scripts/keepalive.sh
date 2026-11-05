@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
 : "${RDC_STATE_KEY:?RDC_STATE_KEY secret is required}"
 
 MINUTES="${1:-330}"
-PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
-DEVICE_FILE="$HOME/.desktop-commander-device/device.json"
-REQUEST_FILE="${AGENT_KIT_CACHE_DIR:-$HOME/.cache/agent-runner-kit}/handoff.request"
+RDC_AGENT_USER="${RDC_AGENT_USER:-rdc-agent}"
+RDC_AGENT_HOME="${RDC_AGENT_HOME:-$(getent passwd "$RDC_AGENT_USER" | cut -d: -f6)}"
+DEVICE_FILE="$RDC_AGENT_HOME/.desktop-commander-device/device.json"
+AGENT_CACHE="${AGENT_KIT_CACHE_DIR:-/home/runner/.cache/agent-runner-kit}"
+AGENT_LAB="${RDC_AGENT_HOME}/lab"
+AGENT_NODE_HOME="$RDC_AGENT_HOME/.node-runtime"
+AGENT_PATH="$RDC_AGENT_HOME/.local/bin:$AGENT_NODE_HOME/bin:/usr/local/bin:/usr/bin:/bin"
+AGENT_SHARED_ENV=(
+  AGENT_CONTAINER_ENGINE=podman
+  AGENT_WORKSPACE_ROOT="${AGENT_WORKSPACE_ROOT:-/home/runner/agent-workspaces}"
+  AGENT_RECOVERY_DIR="${AGENT_RECOVERY_DIR:-/home/runner/agent-recovery}"
+  AGENT_JOBS_DIR="${AGENT_JOBS_DIR:-/home/runner/agent-jobs}"
+  AGENT_KIT_CACHE_DIR="$AGENT_CACHE"
+  AGENT_CHECKPOINT_DIR="${AGENT_CHECKPOINT_DIR:-/home/runner/agent-checkpoints}"
+  AGENT_PROJECT_CACHE_ROOT="${AGENT_PROJECT_CACHE_ROOT:-/home/runner/.cache/agent-projects}"
+  AGENT_NPM_CACHE_DIR="${AGENT_NPM_CACHE_DIR:-/home/runner/agent-npm-cache}"
+  AGENT_CHECKPOINT_ARTIFACT_DIR="${AGENT_CHECKPOINT_ARTIFACT_DIR:-/home/runner/agent-checkpoints/artifacts}"
+  npm_config_cache="${npm_config_cache:-/home/runner/.npm}"
+  GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
+  GITHUB_RUN_ID="${GITHUB_RUN_ID:-manual}"
+  GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
+  GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+)
+REQUEST_FILE="$AGENT_CACHE/handoff.request"
+PID_FILE="${RDC_PID_FILE:-$RDC_AGENT_HOME/.run/rdc.pid}"
+RDC_LOG_FILE="${RDC_LOG_FILE:-$RDC_AGENT_HOME/.run/rdc.log}"
+RDC_HEALTH_FILE="${RDC_HEALTH_FILE:-$RDC_AGENT_HOME/.run/rdc-health.json}"
+RDC_BOOTSTRAP_LOG="${RDC_BOOTSTRAP_LOG:-$RDC_AGENT_HOME/.run/rdc-bootstrap.log}"
 RESTARTS=0
 MAX_RESTARTS=3
 CHECKPOINT_DONE=false
@@ -19,10 +45,53 @@ if ! [[ "$MINUTES" =~ ^[0-9]+$ ]] || (( MINUTES < 1 || MINUTES > 330 )); then
   exit 2
 fi
 
+AGENT_ENV=(
+  HOME="$RDC_AGENT_HOME"
+  USER="$RDC_AGENT_USER"
+  LOGNAME="$RDC_AGENT_USER"
+  PATH="$AGENT_PATH"
+  XDG_RUNTIME_DIR="$RDC_AGENT_HOME/.run"
+  RDC_PID_FILE="$PID_FILE"
+  RDC_LOG_FILE="$RDC_LOG_FILE"
+  RDC_HEALTH_FILE="$RDC_HEALTH_FILE"
+  RDC_BOOTSTRAP_LOG="$RDC_BOOTSTRAP_LOG"
+  NPM_CONFIG_PREFIX="$RDC_AGENT_HOME/.local"
+  AGENT_SYSTEM_PACKAGES_READY=true
+  AGENT_NPM_CACHE_DIR="${AGENT_NPM_CACHE_DIR:-/home/runner/agent-npm-cache}"
+  AGENT_CHECKPOINT_ARTIFACT_DIR="${AGENT_CHECKPOINT_ARTIFACT_DIR:-/home/runner/agent-checkpoints/artifacts}"
+  AGENT_CONTAINER_ENGINE=podman
+  AGENT_WORKSPACE_ROOT="${AGENT_WORKSPACE_ROOT:-/home/runner/agent-workspaces}"
+  AGENT_RECOVERY_DIR="${AGENT_RECOVERY_DIR:-/home/runner/agent-recovery}"
+  AGENT_JOBS_DIR="${AGENT_JOBS_DIR:-/home/runner/agent-jobs}"
+  AGENT_KIT_CACHE_DIR="$AGENT_CACHE"
+  AGENT_CHECKPOINT_DIR="${AGENT_CHECKPOINT_DIR:-/home/runner/agent-checkpoints}"
+  AGENT_PROJECT_CACHE_ROOT="${AGENT_PROJECT_CACHE_ROOT:-/home/runner/.cache/agent-projects}"
+  npm_config_cache="${AGENT_NPM_CACHE_DIR:-/home/runner/agent-npm-cache}"
+  GITHUB_WORKSPACE="$AGENT_LAB"
+  AGENT_CHECKPOINT_ARTIFACT_DIR="${AGENT_CHECKPOINT_ARTIFACT_DIR:-/home/runner/agent-checkpoints/artifacts}"
+  GITHUB_RUN_ID="${GITHUB_RUN_ID:-manual}"
+  GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
+  GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+  CI=true
+)
+
+agent_run() {
+  sudo -n -u "$RDC_AGENT_USER" -- env -i "${AGENT_ENV[@]}" \
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$AGENT_LAB" "$@"
+}
+
+agent_pid() {
+  agent_run cat "$PID_FILE"
+}
+
 hash_state() {
   if [[ -s "$DEVICE_FILE" ]]; then
-    sha256sum "$DEVICE_FILE" | awk '{print $1}'
+    sudo -n -u "$RDC_AGENT_USER" -- sha256sum "$DEVICE_FILE" | awk '{print $1}'
   fi
+}
+
+persist_rdc_state() {
+  RDC_STATE_FILE="$DEVICE_FILE" RDC_STATE_OWNER="$RDC_AGENT_USER" ./scripts/persist-rdc-state.sh
 }
 
 runtime_value() {
@@ -31,9 +100,7 @@ runtime_value() {
 }
 
 queue_successor() {
-  if [[ "$SUCCESSOR_QUEUED" == "true" ]]; then
-    return 0
-  fi
+  if [[ "$SUCCESSOR_QUEUED" == "true" ]]; then return 0; fi
   if ! ./scripts/stop-tailscale.sh; then
     echo "::warning::Tailscale cleanup was not confirmed; refusing to pre-queue a successor."
     return 1
@@ -52,9 +119,9 @@ queue_successor() {
 
 create_checkpoint() {
   if [[ "$CHECKPOINT_DONE" == "false" ]]; then
-    echo "Creating agent checkpoint before runner handoff."
-    python3 scripts/lab_jobs.py drain --seconds "${AGENT_DRAIN_SECONDS:-900}" || echo "::warning::Job drain incomplete."
-    ./scripts/checkpoint-sync.sh save auto-pre-handoff || echo "::warning::Durable checkpoint failed; finalizer will retry."
+    echo "Draining Agent jobs and creating checkpoint before runner handoff."
+    agent_run python3 scripts/lab_jobs.py drain --seconds "${AGENT_DRAIN_SECONDS:-900}" || echo "::warning::Job drain incomplete."
+    env "${AGENT_SHARED_ENV[@]}" ./scripts/checkpoint-sync.sh save auto-pre-handoff || echo "::warning::Durable checkpoint failed; finalizer will retry."
     CHECKPOINT_DONE=true
   fi
 }
@@ -64,7 +131,7 @@ if [[ "$(runtime_value RUNTIME_STATE)" == "UNKNOWN" ]]; then
 fi
 
 LAST_HASH="$(hash_state)"
-echo "Keeping RDC Lab online until the lifecycle enters the final auto-restart window."
+echo "Keeping isolated RDC Lab online until the lifecycle enters the final auto-restart window."
 ./scripts/agent-runtime.sh status
 
 TOTAL_TICKS=$((MINUTES * 6))
@@ -72,39 +139,39 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
   sleep 10
   minute=$(((tick + 5) / 6))
 
-  if ./scripts/health.sh >/dev/null 2>&1; then
+  if agent_run ./scripts/health.sh >/dev/null 2>&1; then
     HEALTH_FAILURES=0
   else
     HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
   fi
+
   if (( HEALTH_FAILURES >= 3 )); then
     if [[ -s "$DEVICE_FILE" ]]; then
-      ./scripts/persist-rdc-state.sh || true
+      persist_rdc_state || echo "::warning::RDC state persistence failed before restart."
       LAST_HASH="$(hash_state)"
     fi
-
     RESTARTS=$((RESTARTS + 1))
-    echo "[$minute] RDC stopped; automatic RDC process restart $RESTARTS/$MAX_RESTARTS."
+    echo "[$minute] RDC stopped; isolated Agent process restart $RESTARTS/$MAX_RESTARTS."
     if (( RESTARTS > MAX_RESTARTS )); then
       echo "RDC exceeded the local restart limit; ending this runner so the watchdog can replace it."
       exit 1
     fi
-    ./scripts/stop-rdc.sh || true
-    ./scripts/start-rdc.sh
+    agent_run ./scripts/stop-rdc.sh || true
+    agent_run ./scripts/start-rdc.sh
     HEALTH_FAILURES=0
   fi
 
   now="$(date +%s)"
   if (( now - LAST_CHECKPOINT >= ${AGENT_CHECKPOINT_INTERVAL_SECONDS:-900} )); then
-    ./scripts/checkpoint-sync.sh save periodic || echo '::warning::Periodic durable checkpoint failed.'
-    timeout 90 python3 scripts/lab_incidents.py --flush || echo '::warning::Pending Lab incidents could not be delivered.'
+    env "${AGENT_SHARED_ENV[@]}" ./scripts/checkpoint-sync.sh save periodic || echo '::warning::Periodic durable checkpoint failed.'
+    env "${AGENT_SHARED_ENV[@]}" timeout 90 python3 scripts/lab_incidents.py --flush || echo '::warning::Pending Lab incidents could not be delivered.'
     LAST_CHECKPOINT=$now
   fi
 
   CURRENT_HASH="$(hash_state)"
   if [[ -n "$CURRENT_HASH" && "$CURRENT_HASH" != "$LAST_HASH" ]]; then
-    echo "[$minute] RDC session state changed; persisting rotated credentials."
-    ./scripts/persist-rdc-state.sh
+    echo "[$minute] RDC session state changed; persisting encrypted identity through the trusted runner."
+    persist_rdc_state
     LAST_HASH="$CURRENT_HASH"
   fi
 
@@ -122,11 +189,9 @@ for ((tick=1; tick<=TOTAL_TICKS; tick++)); do
     AUTO_HANDOFF="$(awk -F= '$1=="AUTO_HANDOFF_MINUTES"{print $2}' <<<"$RUNTIME")"
     ELAPSED="$(awk -F= '$1=="ELAPSED_MINUTES"{print $2}' <<<"$RUNTIME")"
     AUTO_HANDOFF="${AUTO_HANDOFF:-20}"
-
-    PID="$(cat "$PID_FILE")"
+    PID="$(agent_pid)"
     RSS="$(ps -p "$PID" -o rss= 2>/dev/null | xargs || true)"
     echo "[$minute] RDC healthy pid=$PID rss_kb=${RSS:-unknown} lifecycle=${STATE:-UNKNOWN} elapsed=${ELAPSED:-?}m remaining=${REMAINING:-?}m."
-
     if [[ "$STATE" == "HANDOFF_DUE" ]] || { [[ "$REMAINING" =~ ^[0-9]+$ ]] && (( REMAINING <= AUTO_HANDOFF )); }; then
       echo "[$minute] Final ${AUTO_HANDOFF}m restart window reached; checkpointing and rotating to a fresh runner."
       create_checkpoint

@@ -1,192 +1,141 @@
 # Runner Credential Vault integration
 
-This document describes how the Lab connects to a separately deployed Runner Credential Vault
-Cloudflare Worker. The Lab keeps no Vault configuration of its own: at the start of every run
-it discovers the deployment by reading `deployment.json` from the root of the Vault repository,
-which the Vault's own deploy workflow publishes after each successful deploy.
+This document describes the optional Runner Credential Vault connection used by
+GitHub Runner Lab. The Lab discovers the deployed Worker from `deployment.json`
+in the Vault repository; there is no Lab-side Vault URL or client-revision secret
+to maintain. GitHub access (`gh`, HTTPS Git and GHCR) remains a separate Agent
+capability and does not depend on Vault availability.
 
-The Vault lets an agent use owner-managed API credentials (for example, a Railway API
-token) without ever receiving the raw value. It is optional until a Vault is deployed and
-discovered. GitHub access never depends on
-the Vault: `AGENT_GITHUB_TOKEN` stays in place, and is only a fallback for downloading the
-Vault client if its repository is private or the anonymous GitHub API is rate limited.
+## Deploy and enroll the Vault
 
-## Optional: deploy the Vault on Cloudflare
-
-Deploy the Vault through its setup wizard — the one supported build method:
+Deploy the Vault through its setup wizard — the supported build method:
 
 https://aminsh35322088-ctrl.github.io/GitHub-runner-vault/
 
-The wizard walks through creating a Cloudflare token and running the Vault repository's Deploy
-workflow. Nothing is configured in this Lab repository: once the Vault is deployed, this Lab
-discovers it automatically on its next run (see below). The rest of this section describes how
-the Vault deployment itself establishes the owner identity the Lab later relies on.
-The deploy provisions the resources declared by the Worker and deploys it. It does not pass any
-browser GitHub OAuth token into the Worker. Instead,
-the production build resolves the owner from the checked-out Git origin using GitHub's typed JSON User API and
-injects the verified numeric account ID as the Worker runtime variable `OWNER_GITHUB_ID` (with login/repository
-metadata for the setup page). The Worker pins that ID in D1 on first request, and the GitHub App creator must
-match it during `/setup`.
+The wizard creates the Worker resources and deploys the Vault. Its deployment
+metadata publishes the Worker HTTPS origin and immutable client commit in
+`deployment.json`. On a later Lab run, the trusted discovery step validates that
+metadata and fetches the client at that exact commit. The existing
+`AGENT_GITHUB_TOKEN` is only the Lab's normal GitHub bootstrap credential and a
+scoped fallback for private client downloads or anonymous API rate limits; it is
+not passed to Vault as a credential.
 
-If the API lookup is unavailable, the build accepts `GITHUB_REPOSITORY_OWNER_ID` only when both
-`GITHUB_REPOSITORY_OWNER` and the owner portion of `GITHUB_REPOSITORY` match the checked-out Git origin.
-It does not trust GitHub HTML profile metadata. If the owner is an organization, or a personal account cannot
-be verified, setup remains locked; an explicitly configured numeric `RUNNER_VAULT_OWNER_GITHUB_ID` is the
-documented override. The build/deploy helper refuses to deploy if the generated Worker config has no valid
-numeric `OWNER_GITHUB_ID`.
+The Vault owner completes browser sign-in and configures the runner repository
+policy in the Vault UI. The Worker pins the verified personal GitHub owner ID and
+repository identity. Its OIDC verifier accepts the supported GitHub subject
+formats, binds the immutable owner/repository IDs to the separately signed
+claims, and checks issuer, audience, expiry, ref, event and workflow policy.
+Pull-request/fork contexts are not allowed to enroll or access the Runner API.
 
-Deploying the Vault does **not** deploy, modify or reconfigure GitHub Runner Lab. The connection
-is one-directional and configuration-free: the Vault's deploy workflow publishes `deployment.json`
-(the Worker URL and the deployed Vault commit) at the root of the Vault repository, and the Lab
-reads that file at the start of a run. There is no Lab-side opt-in step and nothing to set.
+## Runtime trust boundaries
 
-After deployment, complete the Vault's owner sign-in and runner-repository policy setup using the
-[Vault deployment guide](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault#deployment).
-The discovered client revision is an immutable 40-character commit SHA — the deployed Vault
-commit — and the Lab validates it (and the HTTPS-origin shape of the URL) before use.
-`AGENT_GITHUB_TOKEN` is not a new
-Vault requirement; it is only the existing optional fallback for a private client source or anonymous
-GitHub API rate limiting.
+The long-lived Lab workflow runs with three distinct Unix identities:
 
-When no Vault deployment is discovered, the long-lived workflow skips Vault client installation and the
-runtime verifier reports `DISABLED`. The existing RDC, Tailscale and GitHub authentication paths
-continue independently. The `runner-lab` job currently includes `id-token: write` for the OIDC
-integration; this grants the job the ability to request a workflow-bound OIDC token, not a provider API
-credential. The separate **Vault smoke test** workflow action runs only when manually selected and
-requires a deployed Vault to be discovered.
-
-## Security boundary
-
-Agents on the runner have passwordless sudo and Docker access. A secret stored on the
-runner is therefore not protected from a compromised or prompt-injected agent. The
-credential value remains in the Vault Worker:
-
-- the agent requests an API operation by credential name, URL and method;
-- the Worker adds the credential and performs the HTTPS request;
-- only a filtered response is returned to the runner;
-- the Worker only calls exact public hostnames approved by the owner;
-- the Vault code runs from a separate repository, so an agent with write access to
-  the Lab cannot change its trust or secret-handling implementation.
-
-Delivery is proxy-only. The Vault does not export or inject credential values into the
-runner environment, files, shell history or local credential helpers.
-
-## What PR #24 changes
-
-The runner-lab job in .github/workflows/rdc-lab.yml retains its existing permissions
-and adds id-token: write. This permission allows that job to request a GitHub OIDC token;
-it does not grant repository access or any additional GitHub scopes.
-
-The Vault verifies all of the following claims before it issues a short-lived runner
-session. The owner does not manually enter a repository name or numeric ID: on the first
-valid request the Worker binds the caller to its deployment-pinned owner ID, main branch
-and exact rdc-lab.yml workflow, then atomically saves the repository's immutable ID in D1.
-Later requests must match that pinned identity. Concurrent first runs cannot replace it.
-
-| Claim | Required value |
-| --- | --- |
-| iss | https://token.actions.githubusercontent.com |
-| aud | exact Vault origin |
-| repository_owner_id | Exact numeric GitHub owner ID pinned by the Vault deployment |
-| repository / repository_id | First valid owner-owned Lab repository; its immutable numeric ID is pinned atomically in D1 |
-| ref | refs/heads/main |
-| event_name | workflow_dispatch, schedule or push; PR events excluded |
-| workflow_ref | Exact repository/.github/workflows/rdc-lab.yml@refs/heads/main |
-| job_workflow_ref | If present, must not point to a different reusable workflow |
-
-The account-switch and relaunch jobs do not receive id-token. A same-workflow push
-from main is only accepted when its repository ID, branch and workflow ref all match
-the Vault policy.
-
-## Client installation and environment propagation
-
-After RDC health and Tailscale SSH are verified, the runner-lab job optionally downloads
-client/vault.mjs from the Vault repository of the same account (`<owner>/GitHub-runner-vault`).
-The `clientRef` published in `deployment.json` pins that file to a reviewed immutable
-40-character commit SHA: the very commit the Vault deploy ran from.
-The existing AGENT_GITHUB_TOKEN is separately consumed by the Lab's trusted GitHub
-bootstrap for gh, HTTPS Git and GHCR. During this Vault fetch step only, it is also provided
-as a scoped fallback for private client sources or anonymous API rate limiting. The Vault
-client does not receive it, and it is not exported as a normal agent environment variable.
-
-The optional Vault integration needs no Lab-side configuration at all. For reference, the
-values the workflow works with come from discovery, not from repository settings:
-
-| Name | Source | Value |
+| Identity | Responsibility | Access |
 | --- | --- | --- |
-| Vault URL | `deployment.json` in the Vault repository | HTTPS origin of the deployed Vault Worker, with no path/query |
-| Vault client repository | Derived from the account | `<owner>/GitHub-runner-vault`, the repository that contains the reviewed `client/vault.mjs` |
-| Vault client revision | `deployment.json` in the Vault repository | Immutable 40-character commit SHA pinning the client source |
-| AGENT_GITHUB_TOKEN | Existing Actions secret | Trusted Agent GitHub CLI/Git/GHCR bootstrap; scoped fallback for private Vault-client downloads/rate limits |
+| `runner` | Trusted workflow steps, checkout, Tailscale and encrypted state sync | Runner secrets and checkout; never used for RDC |
+| `rdc-agent` | Remote Desktop Commander and Agent processes | Dedicated Agent home, sanitized source snapshot, explicit workspace/cache roots, restricted Broker socket |
+| `runner-vault-broker` | OIDC exchange and Vault API proxy | Broker code, its own process memory and the restricted socket; no Agent home or shell |
 
-The workflow installs the client at ~/.local/share/runner-vault/vault.mjs and links
-vault into ~/.local/bin. GitHub CLI/Git authentication remains independent and uses the
-existing AGENT_GITHUB_TOKEN bootstrap; this is not replaced by a Vault proxy. A stored
-GITHUB_API_TOKEN credential is available only through explicit Vault API/CLI proxy
-operations and does not provide Git smart-HTTP transport or the agent's gh credential helper.
-The workflow discovers the deployment at the start of the runner-lab job, before starting RDC,
-and exports VAULT_URL into the job environment, so the long-lived
-RDC process inherits it along with GitHub Actions' OIDC requester variables. A post-start verifier inspects /proc/<RDC_PID>/environ for variable presence
-and the expected Vault URL. It prints readiness booleans only, never their values.
+`setup-runner-identities.sh` creates the Agent and Broker identities, assigns a
+unique 65,536-ID subordinate UID/GID range for rootless Podman, and removes
+privileged group membership. The Agent has no sudo or rootful Docker access.
+RDC is launched only through `run-as-rdc-agent.sh`, which creates an empty
+environment and adds an explicit, non-secret allowlist. The Agent reads a
+root-owned, read-only copy of the Lab source at `/var/lib/rdc-agent/lab`; the
+copy excludes `.git` and is separate from the runner's credential-bearing
+checkout. Node/npm also run from a private read-only runtime in the Agent home.
+Only designated workspaces and caches are shared using explicit ACLs.
 
-The verifier confirms process-level propagation, not successful authentication to a
-deployed Worker. After RDC and Tailscale are healthy, the runner-lab job attempts the
-OIDC exchange and metadata-only registry read. Download and connection steps have
-explicit time limits and continue-on-error behavior, so an absent or unreachable Vault
-cannot delay or block either access path. OIDC authenticates the workflow run, not a
-specific process; any process in that job that can obtain the OIDC requester variables
-can ask the Vault for a session. Owner-approved hosts, rate limits, short sessions and
-the ability to revoke all sessions limit what the Vault will permit.
+The OIDC requester capability is used only by the trusted workflow's Broker
+bootstrap. `start-vault-broker.sh` passes the bootstrap configuration through an
+anonymous pipe to the Broker process; it is not placed in Broker argv, a file or
+its environment. The Broker runs as `runner-vault-broker`, verifies the connecting
+peer UID with Linux `SO_PEERCRED`, and serves only the configured `rdc-agent` UID
+on `/run/runner-vault/broker.sock`. The socket is group-restricted and has mode
+`0660`; the containing directory is `0750`.
 
-## Using Vault from an agent session
+The Broker retains the OIDC requester and short-lived Runner Session in process
+memory only. It never returns either value to the Agent, never exposes a
+session-read/export or arbitrary shell operation, and never writes a Session
+cache. The Agent cannot inspect the Broker's process memory or environment.
+RDC and Agent processes have no `ACTIONS_ID_TOKEN_REQUEST_URL`,
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN`, Runner Session, `RDC_STATE_KEY`, or workflow
+bootstrap token in their environment. RDC PID, log and health files are private
+to `/var/lib/rdc-agent/.run` rather than shared `/tmp` names.
 
-The client is installed as vault in PATH; no manual token or environment export is
-required.
+## Broker protocol and CLI contract
 
-    vault list
+The local JSON protocol is versioned, length-bounded and uses one request per
+Unix-socket connection. It rejects unknown fields, mismatched request IDs,
+wrong peer UIDs, oversized frames and unsupported operations. The Broker has a
+bounded client pool, bounded upstream timeouts/responses and fails closed on
+redirects.
 
-    vault use CF_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify --purpose "verify token"
+Only the following operations are available:
 
-    vault request --name RAILWAY_API_TOKEN --service Railway --purpose "deploy an application" --doc railway-token-doc.json
+| Broker operation | API behavior | Agent visibility |
+| --- | --- | --- |
+| `status` | Establish/refresh a short Runner Session | Connected/protocol/expiry metadata only |
+| `tokens.list` | Read `/api/runner/registry` | Active/visible credential metadata; no values |
+| `integrations.list` | Read `/api/runner/integrations` | Reviewed adapter metadata only |
+| `registrations.create` | Create `/api/runner/registrations` request | One-time owner link and expiry; no credential input |
+| `credential.use` | Proxy `/api/runner/use` | Filtered provider response; never the raw credential |
 
-When a required credential is missing:
+The `credential.use` payload is limited to HTTPS targets, a bounded method set,
+reviewed request headers and a maximum request body. The Vault Worker independently
+enforces the owner's credential policy, including hostname and method allowlists,
+visibility and lifetime. Provider redirects are not followed by the Broker.
 
-1. Research the provider's current official documentation.
-2. Identify the token type, minimum required permissions, why each is needed,
-   unnecessary permissions, creation steps, expiry guidance and official documentation
-   links. Prepare the Vault's validated documentation JSON.
-3. Run vault request. Give the returned one-time registration link to the owner.
-4. The owner signs in to the Vault UI, reads the documentation, chooses allowed hosts,
-   auth header/scheme, lifetime and visibility, then enters the secret directly in the
-   browser form. The value is write-only and is encrypted by the Worker.
-5. Refresh vault list and call the approved operation. The model never receives the
-   raw token.
+The installed zero-dependency CLI speaks only to the local Broker socket:
 
-Never ask the owner to paste a secret into a messaging app, a prompt, source code, a
-shell command or a runner environment variable. Treat upstream API response content
-as untrusted input. Do not print request headers, request bodies or credential values.
+```bash
+vault status
+vault list
+vault request --name RAILWAY_API_TOKEN --service Railway --doc railway-token-doc.json
+vault use RAILWAY_API_TOKEN GET https://api.railway.com/v2/projects --purpose "list projects"
+vault serve RAILWAY_API_TOKEN
+```
 
-A 401/403 must be diagnosed from the actual upstream response and the documented
-permission requirements. Do not assume every 401/403 means the token is invalid.
+`vault request` submits documentation and asks the owner to finish registration
+in the browser; the raw token is never accepted by the Agent. `vault use` makes
+one explicitly requested API call. `vault serve` exposes a reviewed provider
+adapter only on `127.0.0.1`; CLI placeholder values are intercepted locally and
+never sent upstream as credentials. Git smart-HTTP and the Agent's GitHub CLI
+credentials remain independent of Vault.
 
-## Verification checklist after Cloudflare deployment
+## Failure behavior and verification
 
-1. Sign in to the Vault UI with the configured owner GitHub account.
-2. Run a main-branch Lab job with the Vault deployed (`deployment.json` published in the Vault repository).
-3. Confirm the Lab logs report VAULT_RDC_VAULT_URL=READY,
-   VAULT_RDC_OIDC_REQUEST_URL=READY, VAULT_RDC_OIDC_REQUEST_TOKEN=READY and
-   VAULT_RUNTIME=READY. These are booleans; values must never appear in logs.
-4. The runner-lab job establishes RDC and Tailscale SSH first, then exchanges OIDC and reads the metadata-only registry.
-5. Register a harmless short-lived test credential, call its documented API endpoint and
-   confirm the Vault audit page shows the operation without any secret value.
-6. From a pull-request run, confirm the Vault refuses to issue a session.
-7. Revoke all runner sessions in the Vault UI and confirm the next call must obtain a
-   fresh session.
+The Vault integration is optional. Missing deployment metadata reports
+`VAULT_RUNTIME=DISABLED`. Missing OIDC bootstrap, Broker startup/IPC failure,
+policy refusal, or failed runtime verification reports `DEGRADED`; these states
+disable Agent Vault operations without blocking RDC, Tailscale or GitHub access.
+There is no fallback that copies a Vault credential or Session into an Agent
+environment, file or shell helper.
+
+The runtime verifier checks:
+
+- runner, Agent and Broker have distinct UIDs, and Agent/Broker have no sudo or
+  rootful Docker group membership;
+- socket type, owner group, mode and directory permissions;
+- Broker PID/UID and absence of OIDC bootstrap names in its environment/argv;
+- RDC PID/UID and absence of OIDC requester, persistence key and bootstrap GitHub
+  token names in its environment;
+- rootless Podman readiness for the Agent;
+- successful `vault status` and metadata-only `vault list` over the restricted
+  socket, with no secret-shaped registry fields.
+
+The workflow's separately selectable **Vault smoke test** is a short-lived
+trusted OIDC job. It tests the Vault's read-only registry and configured provider
+proxies without launching the persistent RDC Lab. After the Broker is deployed,
+a normal Lab run also checks the actual Agent-to-Broker protocol before reporting
+`VAULT_RUNTIME=READY`.
 
 ## Rollback
 
-Delete or rename `deployment.json` in the Vault repository (or delete the Vault) to skip
-client bootstrap and runtime verification; discovery then finds nothing and the integration
-stays off. The Lab's
-existing GitHub, Tailscale and RDC authentication remain independent. The Vault Worker
-can be disabled separately.
+Remove or rename `deployment.json` in the Vault repository, or disable the Vault
+Worker, to make discovery skip the integration. The next Lab run reports
+`DISABLED`; the runner still starts RDC and Tailscale and retains its separate
+GitHub access. If only the Broker is unhealthy, the Lab reports `DEGRADED` and
+leaves Agent-side Vault commands unavailable rather than weakening the process
+boundary.

@@ -193,7 +193,7 @@ jobs:
 
       - name: Verify GitHub OIDC and read-only Vault registry access
         env:
-          VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
+          VAULT_SESSION_FILE: /dev/null
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
@@ -270,20 +270,16 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
-    # The Vault is optional and needs no Lab-side configuration: the
-    # vault-discovery step below reads deployment.json from the Vault
-    # repository and exports VAULT_URL / VAULT_CLIENT_REPOSITORY /
-    # VAULT_CLIENT_REF for the rest of the job (including the RDC process,
-    # which inherits this job's environment at launch) only when a Vault is
-    # actually deployed.
+    # The Vault is optional and needs no Lab-side configuration: discovery exports
+    # the public deployment URL only. The OIDC requester is used by the trusted,
+    # one-shot Vault CLI step and is explicitly removed before RDC/Agent startup.
+    # Its short-lived Vault session stays in that CLI process's memory; no session
+    # file or bearer token is shared with RDC. Until a separately verified broker
+    # exists, Agent-side Vault operations remain disabled (degraded, non-blocking).
 
-    # A job-level block replaces the workflow-level one, so the two existing
-    # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
-    # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
-    # access to repository contents or secrets. The runner exposes its OIDC requester
-    # variables to this job's steps; RDC inherits them at launch, while the later Vault
-    # CLI connection writes the session into the same runner-private cache for reuse.
-    # This lets RDC and Tailscale become healthy before optional Vault network work.
+    # Job-level permissions are required because GitHub Actions does not provide
+    # per-step permissions. Keep OIDC use confined to the explicit Vault step and
+    # scrub the requester capability before launching any untrusted process tree.
     permissions:
       contents: write
       actions: write
@@ -318,6 +314,17 @@ jobs:
           ln -sfn "$GITHUB_WORKSPACE/scripts/agent-run.sh" "$HOME/.local/bin/agent-lab"
           cp AGENTS.md "$HOME/AGENTS.md"
 
+      - name: Provision isolated RDC Agent and Vault Broker identities
+        id: identities
+        shell: bash
+        run: |
+          sudo --preserve-env=PATH,GITHUB_WORKSPACE ./scripts/setup-runner-identities.sh
+          sudo install -o rdc-agent -g rdc-agent -m 0440 AGENTS.md /var/lib/rdc-agent/AGENTS.md
+          sudo ln -sfn /var/lib/rdc-agent/lab/scripts/agent-run.sh /var/lib/rdc-agent/.local/bin/agent-lab
+          echo "RDC_AGENT_IDENTITY=READY"
+          id rdc-agent
+          id runner-vault-broker
+
       - name: Validate RDC persistence secret
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
@@ -332,6 +339,8 @@ jobs:
         id: restore
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+          RDC_STATE_OWNER: rdc-agent
+          RDC_STATE_FILE: /var/lib/rdc-agent/.desktop-commander-device/device.json
         shell: bash
         run: |
           set +e
@@ -363,27 +372,29 @@ jobs:
         if: steps.mode.outputs.ready == 'true'
         run: ./scripts/install-rdc.sh
 
-      - name: Authorize RDC account
+      - name: Authorize RDC account as the isolated Agent user
         id: authorize
         if: steps.mode.outputs.bootstrap == 'true'
-        run: ./scripts/bootstrap-rdc.sh
+        run: ./scripts/run-as-rdc-agent.sh ./scripts/bootstrap-rdc.sh
 
-      - name: Start Remote Desktop Commander
+      - name: Start Remote Desktop Commander as the isolated Agent user
         if: steps.mode.outputs.ready == 'true'
-        run: ./scripts/start-rdc.sh
+        run: ./scripts/run-as-rdc-agent.sh ./scripts/start-rdc.sh
 
-      - name: Verify connection
+      - name: Verify isolated RDC connection
         id: verify
         if: steps.mode.outputs.ready == 'true'
         shell: bash
         run: |
-          ./scripts/health.sh
+          ./scripts/run-as-rdc-agent.sh ./scripts/health.sh
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Persist verified first-time RDC identity
         if: steps.mode.outputs.bootstrap == 'true' && steps.verify.outputs.ready == 'true'
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+          RDC_STATE_OWNER: rdc-agent
+          RDC_STATE_FILE: /var/lib/rdc-agent/.desktop-commander-device/device.json
         run: ./scripts/persist-rdc-state.sh
 
       - name: Validate Tailscale OAuth secrets
@@ -456,6 +467,9 @@ jobs:
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"
 
+      - name: Install Agent system toolchain as trusted runner
+        run: ./scripts/install-agent-system-packages.sh
+
       - name: Install Runner Credential Vault client
         id: vault-client
         if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && steps.vault-discovery.outputs.configured == 'true'
@@ -475,48 +489,63 @@ jobs:
           if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
               raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
-          mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
-          chmod 500 "$HOME/.local/share/runner-vault/vault.mjs"
-          ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
-          test -x "$HOME/.local/bin/vault"
+          mkdir -p "$RUNNER_TEMP/runner-vault-client"
+          chmod 700 "$RUNNER_TEMP/runner-vault-client"
+          ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/runner-vault-client/vault.mjs"
+          sudo install -d -o rdc-agent -g rdc-agent -m 0700 /var/lib/rdc-agent/.local/share/runner-vault
+          sudo install -o rdc-agent -g rdc-agent -m 0500 "$RUNNER_TEMP/runner-vault-client/vault.mjs" /var/lib/rdc-agent/.local/share/runner-vault/vault.mjs
+          sudo ln -sfn /var/lib/rdc-agent/.local/share/runner-vault/vault.mjs /var/lib/rdc-agent/.local/bin/vault
+          sudo test -x /var/lib/rdc-agent/.local/bin/vault
           echo "VAULT_CLIENT_INSTALLED=true"
 
-      - name: Connect runner to Credential Vault
-        id: vault-connect
-        if: steps.vault-client.outcome == 'success'
+      - name: Start isolated Runner Credential Vault Broker
+        id: vault-broker
+        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && steps.vault-client.outcome == 'success'
         timeout-minutes: 1
         continue-on-error: true
-        env:
-          VAULT_REQUEST_TIMEOUT_MS: '5000'
         shell: bash
         run: |
           set -Eeuo pipefail
-          registry="$RUNNER_TEMP/vault-registry.json"
-          if node "$HOME/.local/share/runner-vault/vault.mjs" list > "$registry" &&
-             jq -e 'type == "array"' "$registry" >/dev/null; then
-            count="$(jq 'length' "$registry")"
-            echo "VAULT_OIDC_CONNECTION=READY"
+          sudo --preserve-env=VAULT_URL,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_WORKSPACE ./scripts/start-vault-broker.sh
+          if [[ -S /run/runner-vault/broker.sock ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "VAULT_VISIBLE_CREDENTIALS=$count"
-            {
-              echo "### Credential Vault connection"
-              echo
-              echo "- GitHub OIDC exchange: **success**"
-              echo "- Short-lived runner session: **issued**"
-              echo "- Metadata-only registry read: **success**"
-              echo "- Visible credentials: **$count**"
-              echo "- Secret values exposed: **never**"
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Credential Vault connection failed; RDC and Tailscale will continue without Vault."
-            echo "VAULT_OIDC_CONNECTION=DEGRADED"
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify Vault environment reached RDC
+      - name: Verify Agent access through the Broker protocol
+        id: vault-connect
+        if: steps.vault-broker.outputs.ready == 'true'
+        timeout-minutes: 1
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          status="$RUNNER_TEMP/vault-broker-status.json"
+          registry="$RUNNER_TEMP/vault-broker-registry.json"
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault status > "$status"
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault list > "$registry"
+          jq -e '.connected == true and .brokerProtocol == 1' "$status" >/dev/null
+          jq -e 'type == "array"' "$registry" >/dev/null
+          count="$(jq 'length' "$registry")"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "VAULT_BROKER_CONNECTION=READY"
+          echo "VAULT_VISIBLE_CREDENTIALS=$count"
+          {
+            echo "### Credential Vault Broker"
+            echo
+            echo "- Broker process UID: **runner-vault-broker**"
+            echo "- RDC/Agent UID: **rdc-agent**"
+            echo "- Agent authentication path: **restricted Unix socket + peer UID check**"
+            echo "- Runner Session: **Broker process memory only**"
+            echo "- Agent-visible raw Session/OIDC values: **never**"
+            echo "- Metadata-only registry read: **success**"
+            echo "- Visible credentials: **$count**"
+            echo "- Agent access: **fixed, policy-enforced Vault operations only**"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify RDC and Vault Broker process isolation
         id: vault-runtime
         if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true'
         continue-on-error: true
@@ -528,7 +557,7 @@ jobs:
         if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
         shell: bash
         run: |
-          echo "::warning::Vault runtime verification failed unexpectedly. Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
+          echo "::warning::Vault broker runtime verification failed. Agent Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
           {
             echo "### Credential Vault"
             echo
@@ -543,13 +572,14 @@ jobs:
           AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
         shell: bash
         run: |
+          unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
           if [[ -z "${AGENT_GITHUB_TOKEN:-}" ]]; then
             echo "::error::AGENT_GITHUB_TOKEN is required for transparent Agent GitHub access."
             exit 1
           fi
-          printf '%s' "$AGENT_GITHUB_TOKEN" | ./scripts/agent-github.sh install
+          printf '%s' "$AGENT_GITHUB_TOKEN" | AGENT_GITHUB_DOCKER_HELPER=/var/lib/rdc-agent/.local/bin/docker-credential-github-cli ./scripts/run-as-rdc-agent.sh bash ./scripts/agent-github.sh install
           unset AGENT_GITHUB_TOKEN
-          ./scripts/agent-github.sh verify
+          AGENT_GITHUB_DOCKER_HELPER=/var/lib/rdc-agent/.local/bin/docker-credential-github-cli ./scripts/run-as-rdc-agent.sh bash ./scripts/agent-github.sh verify
 
       # Restore dependency/download caches only after RDC is already reachable.
       # Target-repository setup scripts own the cache contents; the Lab only
@@ -566,7 +596,7 @@ jobs:
         with:
           path: |
             ~/.cache/agent-projects
-            ~/.npm
+            /home/runner/agent-npm-cache
           key: agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-
@@ -576,6 +606,16 @@ jobs:
         continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+          AGENT_WORKSPACE_ROOT: /home/runner/agent-workspaces
+          AGENT_RECOVERY_DIR: /home/runner/agent-recovery
+          AGENT_JOBS_DIR: /home/runner/agent-jobs
+          AGENT_KIT_CACHE_DIR: /home/runner/.cache/agent-runner-kit
+          AGENT_CHECKPOINT_DIR: /home/runner/agent-checkpoints
+          AGENT_PROJECT_CACHE_ROOT: /home/runner/.cache/agent-projects
+          AGENT_NPM_CACHE_DIR: /home/runner/agent-npm-cache
+          AGENT_CHECKPOINT_ARTIFACT_DIR: /home/runner/agent-checkpoints/artifacts
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: ./scripts/checkpoint-sync.sh restore
 
       # RDC is already healthy at this point. Keep the prewarm child in the
@@ -594,7 +634,7 @@ jobs:
           # Prewarm and keepalive do not mint Vault sessions. Keep the job-scoped
           # OIDC requester capability out of their process trees.
           unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
-          ./scripts/agent-prewarm.sh --background
+          ./scripts/run-as-rdc-agent.sh ./scripts/agent-prewarm.sh --background
           ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
       # Remove the ephemeral node before any successor is released. The action's
@@ -652,19 +692,26 @@ jobs:
       - name: Gracefully Stop RDC
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
-        run: ./scripts/stop-rdc.sh
+        run: ./scripts/run-as-rdc-agent.sh ./scripts/stop-rdc.sh
+
+      - name: Stop isolated Vault Broker
+        if: ${{ always() && steps.vault-broker.outcome == 'success' }}
+        continue-on-error: true
+        run: sudo ./scripts/stop-vault-broker.sh
 
       - name: Persist final RDC state
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
+          RDC_STATE_OWNER: rdc-agent
+          RDC_STATE_FILE: /var/lib/rdc-agent/.desktop-commander-device/device.json
         run: ./scripts/persist-rdc-state.sh
 
       - name: Prune retained Agent data
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
-        run: ./scripts/agent-run.sh cache --apply --days 14
+        run: ./scripts/run-as-rdc-agent.sh ./scripts/agent-run.sh cache --apply --days 14
 
       - name: Save Agent Project Cache
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
@@ -673,13 +720,13 @@ jobs:
         with:
           path: |
             ~/.cache/agent-projects
-            ~/.npm
+            /home/runner/agent-npm-cache
           key: agent-lab-projects-v2-${{ runner.os }}-${{ steps.cache-runtime.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Remove optional Agent GitHub token
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
         continue-on-error: true
-        run: ./scripts/agent-github.sh remove
+        run: AGENT_GITHUB_DOCKER_HELPER=/var/lib/rdc-agent/.local/bin/docker-credential-github-cli ./scripts/run-as-rdc-agent.sh bash ./scripts/agent-github.sh remove
 
   # Same fallback role as Exit Node's relaunch job.
   relaunch:

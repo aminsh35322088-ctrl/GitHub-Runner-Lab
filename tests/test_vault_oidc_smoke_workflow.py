@@ -104,59 +104,72 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("CLOUDFLARE_API_TOKEN", self.workflow)
 
     def test_rdc_and_tailscale_are_ready_before_optional_vault_work(self):
-        rdc = self.workflow.index("      - name: Start Remote Desktop Commander")
-        rdc_health = self.workflow.index("      - name: Verify connection", rdc)
+        rdc = self.workflow.index("      - name: Start Remote Desktop Commander as the isolated Agent user")
+        rdc_health = self.workflow.index("      - name: Verify isolated RDC connection", rdc)
         tailscale = self.workflow.index("      - name: Enable and verify Tailscale SSH", rdc_health)
         tailscale_ready = self.workflow.index('echo "TAILSCALE_HEALTH=READY"', tailscale)
         vault_install = self.workflow.index("      - name: Install Runner Credential Vault client")
-        vault_connect = self.workflow.index("      - name: Connect runner to Credential Vault")
-        vault_verify = self.workflow.index("      - name: Verify Vault environment reached RDC")
+        vault_broker = self.workflow.index("      - name: Start isolated Runner Credential Vault Broker")
+        vault_connect = self.workflow.index("      - name: Verify Agent access through the Broker protocol")
+        vault_verify = self.workflow.index("      - name: Verify RDC and Vault Broker process isolation")
         self.assertLess(rdc, rdc_health)
         self.assertLess(rdc_health, tailscale)
         self.assertLess(tailscale_ready, vault_install)
-        self.assertIn("steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true'", self.workflow[vault_install:vault_connect])
-        self.assertLess(vault_install, vault_connect)
+        self.assertLess(vault_install, vault_broker)
+        self.assertLess(vault_broker, vault_connect)
         self.assertLess(vault_connect, vault_verify)
-        self.assertIn("id-token: write", self.workflow)
-        self.assertIn('node "$HOME/.local/share/runner-vault/vault.mjs" list', self.workflow[vault_connect:vault_verify])
-        self.assertIn("VAULT_OIDC_CONNECTION=READY", self.workflow[vault_connect:vault_verify])
-        self.assertIn("Secret values exposed: **never**", self.workflow[vault_connect:vault_verify])
-        self.assertIn('echo "ready=true" >> "$GITHUB_OUTPUT"', self.workflow[vault_connect:vault_verify])
-
+        self.assertIn("steps.vault-discovery.outputs.configured == 'true'", self.workflow[vault_install:vault_broker])
+        self.assertIn("steps.vault-broker.outputs.ready == 'true'", self.workflow[vault_connect:vault_verify])
+        self.assertIn("/var/lib/rdc-agent/.local/bin/vault status", self.workflow[vault_connect:vault_verify])
+        self.assertIn("/var/lib/rdc-agent/.local/bin/vault list", self.workflow[vault_connect:vault_verify])
+        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", self.workflow[vault_connect:vault_verify])
     def test_post_start_vault_connection_keeps_job_oidc_and_verifier_state_aligned(self):
         runner = self.workflow.split("  runner-lab:", 1)[1].split("\n  relaunch:", 1)[0]
         job_header = runner.split("\n    steps:", 1)[0]
-        self.assertNotIn("vars.RUNNER_VAULT_URL", job_header)
         self.assertIn("id-token: write", job_header)
-
-        # Discovery runs before RDC starts and exports VAULT_URL to the job
-        # environment, so the RDC process inherits it just as it did when the
-        # URL came from a job-level Actions variable.
         discovery = runner.index("      - name: Discover Vault deployment")
-        rdc_start = runner.index("      - name: Start Remote Desktop Commander")
-        self.assertLess(discovery, rdc_start)
-        self.assertIn("run: python3 scripts/discover_vault.py", runner)
-        self.assertNotIn('echo "VAULT_URL=$vault_url"', runner)
-
-        verify_step = runner.split("      - name: Verify Vault environment reached RDC", 1)[1].split("\n      - name:", 1)[0]
-        self.assertIn("VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}", verify_step)
+        identity = runner.index("      - name: Provision isolated RDC Agent and Vault Broker identities")
+        rdc_start = runner.index("      - name: Start Remote Desktop Commander as the isolated Agent user")
+        broker_start = runner.index("      - name: Start isolated Runner Credential Vault Broker")
+        agent_verify = runner.index("      - name: Verify Agent access through the Broker protocol")
+        self.assertLess(discovery, identity)
+        self.assertLess(identity, rdc_start)
+        self.assertLess(rdc_start, broker_start)
+        self.assertLess(broker_start, agent_verify)
+        self.assertIn("sudo --preserve-env=PATH,GITHUB_WORKSPACE ./scripts/setup-runner-identities.sh", runner)
+        self.assertIn("run-as-rdc-agent.sh ./scripts/start-rdc.sh", runner)
+        self.assertIn("RDC_STATE_OWNER: rdc-agent", runner)
+        self.assertIn("RDC_STATE_FILE: /var/lib/rdc-agent/.desktop-commander-device/device.json", runner)
+        self.assertIn("tar -C \"$WORKSPACE\" --exclude='./.git'", (ROOT / "scripts" / "setup-runner-identities.sh").read_text())
+        self.assertIn("/var/lib/rdc-agent/lab/scripts/agent-run.sh", runner)
         verifier = (ROOT / "scripts" / "verify-vault-runtime.sh").read_text()
-        self.assertIn('if [[ "${VAULT_CONNECT_STATE:-}" != "true" ]]', verifier)
-        self.assertIn('env.get("ACTIONS_ID_TOKEN_REQUEST_URL")', verifier)
-        self.assertIn('env.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")', verifier)
-
+        self.assertIn("SO_PEERCRED", (ROOT / "scripts" / "vault_broker.py").read_text())
+        self.assertIn('Path(f"/proc/{pid}/environ")', verifier)
+        self.assertIn("VAULT_RDC_AGENT_UID", verifier)
+        self.assertIn("VAULT_BROKER_UID", verifier)
+        self.assertIn("VAULT_RDC_CONTAINER_ENGINE=ROOTLESS_PODMAN", verifier)
+        self.assertIn("ACTIONS_ID_TOKEN_REQUEST_TOKEN", verifier)
+        self.assertIn("RDC_STATE_KEY", verifier)
+        launcher = (ROOT / "scripts" / "run-as-rdc-agent.sh").read_text()
+        self.assertIn("env -i", launcher)
+        self.assertIn("AGENT_CONTAINER_ENGINE=podman", launcher)
+        self.assertIn("RDC_STATE_KEY", launcher)  # must not appear in the allowlisted env
     def test_optional_vault_network_steps_have_bounded_timeouts_and_degrade_gracefully(self):
-        install = self.workflow.split("      - name: Install Runner Credential Vault client", 1)[1].split("      - name: Connect runner to Credential Vault", 1)[0]
-        connect = self.workflow.split("      - name: Connect runner to Credential Vault", 1)[1].split("      - name: Verify Vault environment reached RDC", 1)[0]
-        verify = self.workflow.split("      - name: Verify Vault environment reached RDC", 1)[1].split("      - name: Persist verified first-time RDC identity", 1)[0]
+        install = self.workflow.split("      - name: Install Runner Credential Vault client", 1)[1].split("      - name: Start isolated Runner Credential Vault Broker", 1)[0]
+        broker = self.workflow.split("      - name: Start isolated Runner Credential Vault Broker", 1)[1].split("      - name: Verify Agent access through the Broker protocol", 1)[0]
+        connect = self.workflow.split("      - name: Verify Agent access through the Broker protocol", 1)[1].split("      - name: Verify RDC and Vault Broker process isolation", 1)[0]
+        verify = self.workflow.split("      - name: Verify RDC and Vault Broker process isolation", 1)[1].split("      - name: Report Vault verifier failure", 1)[0]
         self.assertIn("timeout-minutes: 2", install)
         self.assertIn("continue-on-error: true", install)
+        self.assertIn("timeout-minutes: 1", broker)
+        self.assertIn("continue-on-error: true", broker)
+        self.assertIn("sudo --preserve-env=VAULT_URL,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_WORKSPACE", broker)
         self.assertIn("timeout-minutes: 1", connect)
-        self.assertIn("VAULT_REQUEST_TIMEOUT_MS: '5000'", connect)
         self.assertIn("continue-on-error: true", connect)
+        self.assertIn("run-as-rdc-agent.sh", connect)
         self.assertIn("continue-on-error: true", verify)
-        self.assertIn("Vault operations remain unavailable", verify)
-
+        self.assertIn("continue-on-error: true", verify)
+        self.assertIn("run: ./scripts/verify-vault-runtime.sh", verify)
     def test_vault_client_fetch_has_bounded_anonymous_and_token_fallback(self):
         fetch = (ROOT / "scripts" / "fetch-vault-client.sh").read_text()
         self.assertIn("--connect-timeout 5 --max-time 15", fetch)

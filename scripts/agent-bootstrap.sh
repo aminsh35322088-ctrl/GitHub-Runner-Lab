@@ -21,9 +21,11 @@ esac
 
 mapfile -t PACKAGES < <(python3 "$SELF_DIR/lab_toolset.py" packages "$PROFILE")
 
-echo "[agent-bootstrap] profile=$PROFILE updating installed tools to current distro packages."
-sudo apt-get update -qq
-sudo apt-get install -y --no-install-recommends "${PACKAGES[@]}"
+echo "[agent-bootstrap] profile=$PROFILE checking trusted-runner system package provisioning."
+if [[ "${AGENT_SYSTEM_PACKAGES_READY:-false}" != "true" ]]; then
+  echo "Agent system packages must be installed by the trusted runner before bootstrap." >&2
+  exit 21
+fi
 
 if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
   ln -sfn "$(command -v fdfind)" "$LOCAL_BIN/fd"
@@ -31,14 +33,9 @@ fi
 
 # GitHub-hosted runners normally provide Node.js already. Recover it from the
 # hosted toolcache instead of downloading another copy if PATH was lost.
-if ! command -v node >/dev/null 2>&1 && [[ -d /opt/hostedtoolcache/node ]]; then
-  node_bin="$(find /opt/hostedtoolcache/node -type f -path '*/x64/bin/node' 2>/dev/null | sort -V | tail -n 1 || true)"
-  if [[ -n "$node_bin" ]]; then
-    node_dir="$(dirname "$node_bin")"
-    for name in node npm npx corepack; do
-      [[ -x "$node_dir/$name" ]] && ln -sfn "$node_dir/$name" "$LOCAL_BIN/$name"
-    done
-  fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[agent-bootstrap] Private Node runtime is unavailable; refusing shared hosted-toolcache fallback." >&2
+  exit 22
 fi
 
 profile_file="$HOME/.profile"

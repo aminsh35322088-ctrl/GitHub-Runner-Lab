@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
+PID_FILE="${RDC_PID_FILE:-$HOME/.run/rdc.pid}"
 
 if [[ ! -f "$PID_FILE" ]]; then
   echo "No RDC PID file; nothing to stop."
@@ -20,6 +20,7 @@ kill -TERM "$PID"
 for _ in $(seq 1 15); do
   if ! kill -0 "$PID" 2>/dev/null; then
     echo "RDC stopped cleanly."
+    rm -f -- "$PID_FILE" "${RDC_HEALTH_FILE:-$HOME/.run/rdc-health.json}"
     exit 0
   fi
   sleep 1
@@ -27,3 +28,4 @@ done
 
 echo "RDC did not stop within 15 seconds; forcing termination."
 kill -KILL "$PID" 2>/dev/null || true
+rm -f -- "$PID_FILE" "${RDC_HEALTH_FILE:-$HOME/.run/rdc-health.json}"

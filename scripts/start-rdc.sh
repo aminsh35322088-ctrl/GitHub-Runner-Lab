@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The OIDC requester is a job-scoped capability. Only the trusted Vault client
+# step may use it; RDC, the Agent and their descendants must never inherit it.
+unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
+
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$(id -un)" != "${RDC_AGENT_USER:-rdc-agent}" ]]; then
+  echo "RDC must run as the dedicated unprivileged Agent account." >&2
+  exit 4
+fi
+umask 077
+export PATH="$HOME/.local/bin:$PATH"
+export AGENT_CONTAINER_ENGINE=podman
 RDC_DIR="$HOME/.desktop-commander-device"
 DEVICE_FILE="$RDC_DIR/device.json"
-LOG_FILE="${RDC_LOG_FILE:-/tmp/rdc.log}"
-PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
+LOG_FILE="${RDC_LOG_FILE:-$HOME/.run/rdc.log}"
+PID_FILE="${RDC_PID_FILE:-$HOME/.run/rdc.pid}"
+HEALTH_FILE="${RDC_HEALTH_FILE:-$HOME/.run/rdc-health.json}"
+mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")" "$(dirname "$HEALTH_FILE")"
+chmod 0700 "$HOME/.run"
 STARTUP_SECONDS="${RDC_STARTUP_TIMEOUT_SECONDS:-180}"
 [[ "$STARTUP_SECONDS" =~ ^[1-9][0-9]*$ ]] && (( STARTUP_SECONDS <= 300 )) || exit 2
 
@@ -23,7 +37,7 @@ for label,needle in [('local_connected','Connected to Desktop Commander MCP'),
                      ('device_ready','Device ready'),('startup_failed','Device startup failed')]:
     print(f'RDC_STARTUP_{label.upper()}={str(needle in text).lower()}')
 try:
-    state=json.loads(Path(os.getenv('RDC_HEALTH_FILE','/tmp/rdc-health.json')).read_text())
+    state=json.loads(Path(os.getenv('RDC_HEALTH_FILE', os.path.expanduser('~/.run/rdc-health.json'))).read_text())
     for key in ('healthy','reachable','local_executor_ready','channel_joined','presence_tracked'):
         print(f'RDC_{key.upper()}={state.get(key) is True}')
 except (OSError,ValueError):

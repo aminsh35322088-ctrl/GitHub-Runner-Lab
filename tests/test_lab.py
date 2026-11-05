@@ -1,3 +1,4 @@
+import argparse
 import datetime as dt
 import io
 import json
@@ -887,8 +888,8 @@ class LabTest(unittest.TestCase):
 
     def test_workflow_pipes_agent_secret_into_persistent_login(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
-        self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | ./scripts/agent-github.sh install",workflow)
-        self.assertIn('./scripts/agent-github.sh verify',workflow)
+        self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | AGENT_GITHUB_DOCKER_HELPER=/var/lib/rdc-agent/.local/bin/docker-credential-github-cli ./scripts/run-as-rdc-agent.sh bash ./scripts/agent-github.sh install", workflow)
+        self.assertIn('AGENT_GITHUB_DOCKER_HELPER=/var/lib/rdc-agent/.local/bin/docker-credential-github-cli ./scripts/run-as-rdc-agent.sh bash ./scripts/agent-github.sh verify', workflow)
 
     def test_tailscale_handoff_keeps_stable_name_and_disconnects_before_successor(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
@@ -1521,6 +1522,50 @@ agent_missing_full_commands() {{ :; }}
         self.assertEqual(module.parse_size('53B'),53)
         self.assertEqual(module.parse_size('785.3kB'),785300)
         self.assertEqual(module.parse_size('1.5MiB'),1572864)
+
+    def test_rootless_podman_storage_is_supported_without_claiming_buildx_metrics(self):
+        spec=importlib.util.spec_from_file_location('lab_docker_storage_podman',SCRIPTS/'lab_docker_storage.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        with mock.patch.dict(os.environ, {'AGENT_CONTAINER_ENGINE':'podman'}):
+            with mock.patch.object(module, 'run', return_value=subprocess.CompletedProcess(
+                ['podman'], 0, '/home/rdc-agent/.local/share/containers/storage\n', '')) as mocked:
+                root, source=module.docker_root()
+            self.assertEqual(source, 'podman-info')
+            self.assertTrue(str(root).endswith('/containers/storage'))
+            self.assertEqual(mocked.call_args.args[0], ['podman','info','--format','{{.Store.GraphRoot}}'])
+            cache=module.buildx_usage()
+            self.assertTrue(cache['ok'])
+            self.assertFalse(cache['supported'])
+            self.assertIsNone(cache['total_bytes'])
+
+    def test_rootless_podman_uses_safe_build_cache_prune_without_system_prune(self):
+        spec=importlib.util.spec_from_file_location('lab_docker_storage_podman_prune',SCRIPTS/'lab_docker_storage.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        with mock.patch.dict(os.environ, {'AGENT_CONTAINER_ENGINE':'podman'}):
+            with mock.patch.object(module, 'capture', return_value={'ok':True,'stdout':''}) as capture:
+                with mock.patch.object(module, 'status', side_effect=[
+                    {'healthy':True,'filesystem':{'free_gb':50}},
+                    {'healthy':True,'filesystem':{'free_gb':50}},
+                ]):
+                    with mock.patch.object(module, 'all_jobs', return_value=[]):
+                        report=module.prune(argparse.Namespace(
+                            apply=True, builder_until='24h', min_free_gb=10,
+                            min_inode_free_percent=5,
+                        ))
+            argv=capture.call_args.args[0]
+            self.assertEqual(argv[:4], ['podman','image','prune','--force'])
+            self.assertIn('--build-cache', argv)
+            self.assertNotIn('system', argv)
+            self.assertTrue(report['applied'])
+            self.assertEqual(report['container_engine'], 'podman')
+
+    def test_untrusted_agent_podman_compatibility_does_not_grant_rootful_docker(self):
+        setup=(SCRIPTS/'setup-runner-identities.sh').read_text()
+        self.assertIn('usermod -G "$CLIENT_GROUP" "$AGENT_USER"', setup)
+        self.assertIn('id -nG "$AGENT_USER"', setup)
+        self.assertIn('/usr/bin/podman run --userns=keep-id', setup)
+        self.assertIn('runuser -u "$AGENT_USER"', setup)
+        self.assertNotIn('usermod -aG docker', setup)
 
     def test_doctor_includes_target_project_status_contract(self):
         workspace=self.base/'workspaces'/'doctor-contract';init_repo(workspace)

@@ -19,14 +19,30 @@ def run(argv, timeout=30):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
 
 
+def container_engine():
+    engine = os.getenv("AGENT_CONTAINER_ENGINE", "docker").strip().lower()
+    if engine not in ("docker", "podman"):
+        raise RuntimeError("AGENT_CONTAINER_ENGINE must be docker or podman")
+    return engine
+
+
+def engine_command(*args):
+    return [container_engine(), *args]
+
+
 def docker_root():
     override = os.getenv("AGENT_DOCKER_ROOT")
     if override:
         return Path(override).expanduser().resolve(), "override"
-    result = run(["docker", "info", "--format", "{{.DockerRootDir}}"], timeout=15)
+    if container_engine() == "podman":
+        result = run(engine_command("info", "--format", "{{.Store.GraphRoot}}"), timeout=15)
+        label = "podman-info"
+    else:
+        result = run(engine_command("info", "--format", "{{.DockerRootDir}}"), timeout=15)
+        label = "docker-info"
     if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError(result.stderr.strip() or "docker info did not return DockerRootDir")
-    return Path(result.stdout.strip()), "docker-info"
+        raise RuntimeError(result.stderr.strip() or f"{container_engine()} info did not return a storage root")
+    return Path(result.stdout.strip()), label
 
 
 def filesystem_stats(path):
@@ -80,7 +96,21 @@ def parse_size(value):
 
 
 def buildx_usage():
-    raw = capture(["docker", "buildx", "du", "--format=json"], timeout=30)
+    if container_engine() == "podman":
+        # Podman exposes aggregate storage via `podman system df`; it does not
+        # implement Docker Buildx's cache-record API. Do not fail storage health
+        # or pretend aggregate image bytes are BuildKit cache bytes.
+        return {
+            "ok": True,
+            "supported": False,
+            "engine": "podman",
+            "reason": "Podman does not expose Buildx cache records",
+            "records": 0,
+            "total_bytes": None,
+            "reclaimable_bytes": None,
+            "invalid_records": 0,
+        }
+    raw = capture(engine_command("buildx", "du", "--format=json"), timeout=30)
     if not raw.get("ok"):
         return raw
     total = reclaimable = records = 0
@@ -133,7 +163,8 @@ def status(args):
             "min_inode_free_percent": min_inode,
         },
         "healthy": healthy,
-        "docker_system_df": capture(["docker", "system", "df"], timeout=20),
+        "container_engine": container_engine(),
+        "container_system_df": capture(engine_command("system", "df"), timeout=20),
         "buildx_du": buildx_usage(),
     }
     return report
@@ -160,17 +191,23 @@ def prune(args):
             raise RuntimeError(f"refusing Docker prune while managed jobs are active: {','.join(active)}")
         before = status(args)
         min_free_gb, _ = thresholds(args)
-        builder = capture(
-            [
-                "docker", "buildx", "prune", "--force",
-                "--filter", f"until={builder_until}",
-                "--min-free-space", f"{min_free_gb:g}gb",
-            ],
-            timeout=120,
-        )
+        if container_engine() == "podman":
+            # Remove only old dangling images and Podman's explicit build cache;
+            # never use `podman system prune --all` or prune volumes here.
+            builder = capture(
+                engine_command("image", "prune", "--force", "--build-cache", "--filter", f"until={builder_until}"),
+                timeout=120,
+            )
+        else:
+            builder = capture(
+                engine_command("buildx", "prune", "--force", "--filter", f"until={builder_until}",
+                               "--min-free-space", f"{min_free_gb:g}gb"),
+                timeout=120,
+            )
         after = status(args)
     return {
         "applied": True,
+        "container_engine": container_engine(),
         "builder_until": builder_until,
         "builder_prune": builder,
         "before": before,

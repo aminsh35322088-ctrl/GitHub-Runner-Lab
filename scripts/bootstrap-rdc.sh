@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 RDC_DIR="$HOME/.desktop-commander-device"
 DEVICE_FILE="$RDC_DIR/device.json"
-LOG_FILE="${RDC_BOOTSTRAP_LOG:-/tmp/rdc-bootstrap.log}"
+LOG_FILE="${RDC_BOOTSTRAP_LOG:-$HOME/.run/rdc-bootstrap.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+chmod 0700 "$HOME/.run"
 TIMEOUT_SECONDS="${RDC_BOOTSTRAP_TIMEOUT_SECONDS:-600}"
 
 mkdir -p "$RDC_DIR"

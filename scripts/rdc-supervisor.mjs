@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 // Upstream may correct Date.now for server skew; health timestamps must use host time.
@@ -12,7 +13,7 @@ const metadata = execFileSync('node', ['-e',
 ], { encoding: 'utf8' }).trim();
 if (!metadata) throw new Error("RDC package version could not be read");
 const { MCPDevice } = await import(pathToFileURL(join(root, '@wonderwhy-er/desktop-commander/dist/remote-device/device.js')));
-const file = process.env.RDC_HEALTH_FILE || '/tmp/rdc-health.json';
+const file = process.env.RDC_HEALTH_FILE || join(homedir(), '.run', 'rdc-health.json');
 mkdirSync(dirname(file), { recursive: true });
 const device = new MCPDevice({ persistSession: true });
 let lastReady = null;
