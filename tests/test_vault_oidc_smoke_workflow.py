@@ -84,22 +84,49 @@ class VaultOidcSmokeWorkflowTests(unittest.TestCase):
         self.assertIn("- 'Vault smoke test'", self.workflow)
         self.assertNotIn("workflow_run:", self.workflow)
 
+    def smoke_job(self):
+        return self.workflow.split("  vault-smoke-test:", 1)[1].split("\n  runner-lab:", 1)[0]
+
     def test_smoke_test_uses_a_separate_short_lived_oidc_job(self):
+        smoke = self.smoke_job()
         self.assertIn("vault-smoke-test:", self.workflow)
-        self.assertIn("timeout-minutes: 5", self.workflow)
-        self.assertIn("id-token: write", self.workflow)
-        self.assertIn("inputs.action == 'Vault smoke test'", self.workflow)
+        self.assertIn("timeout-minutes: 15", smoke)
+        self.assertIn("id-token: write", smoke)
+        self.assertIn("inputs.action == 'Vault smoke test'", smoke)
         self.assertIn("inputs.action == 'Start / Resume'", self.workflow)
 
+    def test_smoke_test_runs_through_the_broker_not_an_in_step_session(self):
+        smoke = self.smoke_job()
+        # The broker-only client (Vault PR #48) fails closed without a broker,
+        # so the smoke job must provision the same identities and broker the
+        # runner-lab job uses, and drive the client as the isolated agent.
+        self.assertNotIn("VAULT_SESSION_FILE", self.workflow)
+        self.assertNotIn('node "$client"', smoke)
+        self.assertIn("sudo --preserve-env=PATH,GITHUB_WORKSPACE ./scripts/setup-runner-identities.sh", smoke)
+        self.assertIn("sudo --preserve-env=VAULT_URL,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_WORKSPACE ./scripts/start-vault-broker.sh", smoke)
+        self.assertIn("run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault status", smoke)
+        self.assertIn(".connected == true and .brokerProtocol == 1", smoke)
+        self.assertIn("run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault list", smoke)
+        stop = smoke.split("      - name: Stop Vault Broker after the smoke test", 1)[1]
+        self.assertIn("always()", stop)
+        self.assertIn("sudo ./scripts/stop-vault-broker.sh", stop)
+        # Order: identities -> broker start -> broker-backed verification.
+        identities = smoke.index("setup-runner-identities.sh")
+        broker = smoke.index("start-vault-broker.sh")
+        verify = smoke.index("vault status")
+        self.assertLess(identities, broker)
+        self.assertLess(broker, verify)
+
     def test_smoke_test_fetches_pinned_client_and_lists_metadata_only(self):
+        smoke = self.smoke_job()
         self.assertIn("./scripts/fetch-vault-client.sh", self.workflow)
         discovery_helper = (ROOT / "scripts" / "discover_vault.py").read_text()
         self.assertIn('f"{owner}/GitHub-runner-vault"', discovery_helper)
         self.assertIn('"VAULT_CLIENT_REF": client_ref', discovery_helper)
         self.assertNotIn("5712a78c7c6cff1da4dd662e506c73d459eb2527", self.workflow)
-        self.assertIn('node "$client" list', self.workflow)
-        self.assertIn('node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user', self.workflow)
-        self.assertIn('node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify', self.workflow)
+        self.assertIn('run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault list', smoke)
+        self.assertIn('run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault use GITHUB_API_TOKEN GET https://api.github.com/user', smoke)
+        self.assertIn('run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify', smoke)
         self.assertIn("Secret values logged or returned to summary: **never**", self.workflow)
         self.assertIn("CLOUDFLARE_API_TOKEN", self.workflow)
 
