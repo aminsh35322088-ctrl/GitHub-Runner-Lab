@@ -1494,6 +1494,8 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
     def test_prewarm_ready_is_gated_by_quick_runner_validation(self):
         bindir=self.base/'prewarm';bindir.mkdir()
         cache=self.base/'prewarm-cache';cache.mkdir()
+        rea_root=self.base/'rea-root'
+        rea_bin=self.base/'rea-bin';rea_bin.mkdir()
         prewarm=bindir/'agent-prewarm.sh'
         prewarm.write_text((SCRIPTS/'agent-prewarm.sh').read_text());prewarm.chmod(0o755)
         (bindir/'agent-lib.sh').write_text(f"""#!/bin/bash
@@ -1506,6 +1508,21 @@ agent_full_toolchain_ready() {{ return 0; }}
 agent_missing_full_commands() {{ :; }}
 """)
         bootstrap=bindir/'agent-bootstrap.sh';bootstrap.write_text('#!/bin/sh\nexit 0\n');bootstrap.chmod(0o755)
+        installer=bindir/'install-rea.sh'
+        installer.write_text(f"""#!/bin/bash
+set -e
+mkdir -p '{rea_root}'
+touch '{rea_root}/installer-ran'
+cat > '{rea_root}/providers.env' <<'EOF'
+export REA_INSTALL_ROOT='{rea_root}'
+export REA_VERSION='0.0.0-test'
+export PATH='{rea_bin}':"$PATH"
+EOF
+""")
+        installer.chmod(0o755)
+        rea=rea_bin/'rea'
+        rea.write_text('#!/bin/sh\ncase "$1" in --version) echo rea-test;; capabilities) echo \\'{"capabilities":[]}\\';; *) exit 2;; esac\n')
+        rea.chmod(0o755)
         validator=bindir/'lab_runner_validate.py'
         validator.write_text(
             "import os,pathlib,sys\n"
@@ -1514,14 +1531,16 @@ agent_missing_full_commands() {{ :; }}
         )
         (bindir/'lab_environment.py').write_text('import sys\n')
         record=self.base/'validate-args'
-        failed=command([prewarm,'--foreground'],
-                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'})
+        run_env={**self.env,'REA_INSTALL_ROOT':rea_root,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+                 'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'}
+        failed=command([prewarm,'--foreground'],env=run_env)
         self.assertEqual(failed.returncode,23,failed.stderr)
+        self.assertTrue((rea_root/'installer-ran').exists())
         state=(cache/'prewarm.env').read_text()
         self.assertIn('STATUS=FAILED',state)
         self.assertEqual(record.read_text().split()[0],'quick')
         passed=command([prewarm,'--foreground'],
-                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'0'})
+                       env={**run_env,'VALIDATE_EXIT':'0'})
         self.assertEqual(passed.returncode,0,passed.stderr)
         self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
 
