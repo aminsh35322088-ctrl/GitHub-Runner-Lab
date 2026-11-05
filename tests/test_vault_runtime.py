@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import os
+import pwd
 import subprocess
+import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -56,6 +60,92 @@ class VaultRuntimeVerifierTests(unittest.TestCase):
         self.assertIn("VAULT_RUNTIME=DEGRADED", result.stdout)
         self.assertIn("Broker status/registry verification", result.stdout)
         self.assertNotIn("VAULT_RUNTIME=READY", result.stdout)
+
+    def test_any_degraded_verification_stops_the_broker_and_removes_its_socket(self):
+        verifier = SCRIPT.read_text()
+        stop = (ROOT / "scripts" / "stop-vault-broker.sh").read_text()
+        workflow = WORKFLOW.read_text()
+        self.assertIn('sudo -n ./scripts/stop-vault-broker.sh', verifier)
+        self.assertIn('Broker endpoint removal could not be confirmed', verifier)
+        self.assertIn('sudo -n rm -f -- "$socket" "$pid_file"', verifier)
+        self.assertIn("argv[1] == entrypoint and argv[2] == 'serve'", stop)
+        self.assertIn("argv.index('--socket')", stop)
+        self.assertIn('sudo -n ./scripts/stop-vault-broker.sh', workflow)
+        self.assertIn('Broker socket revocation could not be confirmed', workflow)
+        self.assertIn('rm -f -- "$PID_FILE" "$SOCKET"', stop)
+
+    def test_broker_stop_terminates_only_the_matching_service_process(self):
+        stop_script = ROOT / "scripts" / "stop-vault-broker.sh"
+        with tempfile.TemporaryDirectory(prefix="vault-broker-stop-") as tmp:
+            root = Path(tmp)
+            home = root / "broker-home"
+            home.mkdir()
+            entrypoint = home / "vault_broker.py"
+            entrypoint.write_text("import time\ntime.sleep(60)\n")
+            socket_path = root / "broker.sock"
+            pid_file = root / "broker.pid"
+            socket_path.write_text("placeholder")
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_id = fake_bin / "id"
+            fake_id.write_text("#!/bin/sh\nif [ \"$1\" = -u ]; then echo 0; else exec /usr/bin/id \"$@\"; fi\n")
+            fake_id.chmod(0o755)
+            broker_user = pwd.getpwuid(os.getuid()).pw_name
+            process = subprocess.Popen([
+                sys.executable, str(entrypoint), "serve", "--socket", str(socket_path),
+                "--pid-file", str(pid_file), "--bootstrap-stdin",
+            ])
+            pid_file.write_text(f"{process.pid}\n")
+            try:
+                result = subprocess.run(
+                    ["bash", str(stop_script)],
+                    env={**os.environ, "PATH": str(fake_bin) + ":" + os.environ["PATH"],
+                         "VAULT_BROKER_USER": broker_user, "VAULT_BROKER_HOME": str(home),
+                         "VAULT_BROKER_SOCKET": str(socket_path),
+                         "VAULT_BROKER_PID_FILE": str(pid_file)},
+                    capture_output=True, text=True, timeout=8,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIsNotNone(process.poll())
+                self.assertFalse(socket_path.exists())
+                self.assertFalse(pid_file.exists())
+                self.assertIn("VAULT_BROKER=STOPPED", result.stdout)
+            finally:
+                if process.poll() is None:
+                    process.kill(); process.wait(timeout=2)
+
+    def test_broker_stop_does_not_kill_a_stale_pid_target(self):
+        stop_script = ROOT / "scripts" / "stop-vault-broker.sh"
+        with tempfile.TemporaryDirectory(prefix="vault-broker-stale-pid-") as tmp:
+            root = Path(tmp)
+            home = root / "broker-home"
+            home.mkdir()
+            (home / "vault_broker.py").write_text("import time\ntime.sleep(60)\n")
+            socket_path = root / "broker.sock"
+            pid_file = root / "broker.pid"
+            socket_path.write_text("placeholder")
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_id = fake_bin / "id"
+            fake_id.write_text("#!/bin/sh\nif [ \"$1\" = -u ]; then echo 0; else exec /usr/bin/id \"$@\"; fi\n")
+            fake_id.chmod(0o755)
+            unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            pid_file.write_text(f"{unrelated.pid}\n")
+            try:
+                result = subprocess.run(
+                    ["bash", str(stop_script)],
+                    env={**os.environ, "PATH": str(fake_bin) + ":" + os.environ["PATH"],
+                         "VAULT_BROKER_USER": pwd.getpwuid(os.getuid()).pw_name, "VAULT_BROKER_HOME": str(home),
+                         "VAULT_BROKER_SOCKET": str(socket_path),
+                         "VAULT_BROKER_PID_FILE": str(pid_file)},
+                    capture_output=True, text=True, timeout=8,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIsNone(unrelated.poll(), "stale PID file caused an unrelated process to be killed")
+                self.assertFalse(socket_path.exists())
+                self.assertFalse(pid_file.exists())
+            finally:
+                unrelated.terminate(); unrelated.wait(timeout=3)
 
     def test_broker_verifier_checks_separate_uids_socket_and_rootless_podman(self):
         verifier = SCRIPT.read_text()

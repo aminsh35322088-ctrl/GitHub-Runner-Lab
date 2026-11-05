@@ -131,6 +131,15 @@ class VaultBrokerTests(unittest.TestCase):
             allow_local_http=True,
         )
 
+    def test_oidc_request_endpoint_requires_trusted_https_host_and_port(self):
+        with self.assertRaises(broker.BrokerError):
+            broker._safe_oidc_request_url('https://token.actions.githubusercontent.com:444/request')
+        with self.assertRaises(broker.BrokerError):
+            broker._safe_oidc_request_url('https://token.actions.githubusercontent.com:notaport/request')
+        with self.assertRaises(broker.BrokerError):
+            broker._safe_oidc_request_url('https://attacker.example/request')
+        self.assertTrue(broker._safe_oidc_request_url('https://token.actions.githubusercontent.com/request').startswith('https://'))
+
     def test_only_fixed_operations_exist_and_status_never_returns_session(self):
         result = self.client.dispatch('status', {})
         self.assertTrue(result['connected'])
@@ -260,6 +269,65 @@ class VaultBrokerTests(unittest.TestCase):
                 self.assertEqual(response['error']['code'], 'OPERATION_NOT_ALLOWED')
             finally:
                 server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_server_bounds_threads_before_accepting_more_broker_work(self):
+        with tempfile.TemporaryDirectory(prefix='vault-broker-capacity-test-') as tmp:
+            socket_path = str(Path(tmp) / 'broker.sock')
+            entered = threading.Event()
+            release = threading.Event()
+            lock = threading.Lock()
+            state = {'active': 0, 'maximum': 0, 'started': 0}
+
+            class BlockingClient:
+                def dispatch(self, operation, request):
+                    with lock:
+                        state['active'] += 1
+                        state['started'] += 1
+                        state['maximum'] = max(state['maximum'], state['active'])
+                        if state['started'] >= 2:
+                            entered.set()
+                    release.wait(3)
+                    with lock:
+                        state['active'] -= 1
+                    return {'connected': True}
+
+            server = broker.ThreadedUnixServer(socket_path, BlockingClient(), os.getuid(), max_workers=2)
+            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+            responses = {}
+
+            def request(index):
+                frame = {'version': 1, 'id': format(index, '032x'), 'operation': 'status'}
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+                    peer.settimeout(3); peer.connect(socket_path)
+                    try:
+                        peer.sendall(json.dumps(frame).encode() + b'\n'); peer.shutdown(socket.SHUT_WR)
+                        responses[index] = peer.makefile('rb').readline()
+                    except (BrokenPipeError, ConnectionResetError):
+                        # Saturated server closes the socket before allocating a
+                        # worker thread; no unbounded work is queued.
+                        responses[index] = b''
+
+            clients = [threading.Thread(target=request, args=(index,), daemon=True) for index in (1, 2)]
+            try:
+                for worker in clients: worker.start()
+                self.assertTrue(entered.wait(2), 'two broker workers did not start')
+                request(3)
+                self.assertEqual(responses[3], b'')
+                self.assertEqual(state['active'], 2)
+                release.set()
+                for worker in clients: worker.join(timeout=3)
+                self.assertEqual(state['maximum'], 2)
+                for index in (1, 2):
+                    parsed = json.loads(responses[index])
+                    self.assertTrue(parsed['ok'])
+            finally:
+                release.set()
+                server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_server_rejects_an_unbounded_worker_limit(self):
+        with tempfile.TemporaryDirectory(prefix='vault-broker-worker-limit-') as tmp:
+            with self.assertRaises(ValueError):
+                broker.ThreadedUnixServer(str(Path(tmp) / 'broker.sock'), self.client, os.getuid(), max_workers=1000)
 
     def test_wrong_uid_peer_is_denied_before_any_operation(self):
         with tempfile.TemporaryDirectory(prefix='vault-broker-peer-test-') as tmp:

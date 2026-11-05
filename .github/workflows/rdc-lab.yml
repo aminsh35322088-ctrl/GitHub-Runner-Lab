@@ -271,11 +271,10 @@ jobs:
       cancel-in-progress: false
 
     # The Vault is optional and needs no Lab-side configuration: discovery exports
-    # the public deployment URL only. The OIDC requester is used by the trusted,
-    # one-shot Vault CLI step and is explicitly removed before RDC/Agent startup.
-    # Its short-lived Vault session stays in that CLI process's memory; no session
-    # file or bearer token is shared with RDC. Until a separately verified broker
-    # exists, Agent-side Vault operations remain disabled (degraded, non-blocking).
+    # the public deployment URL only. The OIDC requester is passed by the trusted
+    # startup step to a dedicated Broker UID over an anonymous pipe. The Broker
+    # owns the short-lived Session in memory; RDC/Agent never inherit either value.
+    # Any failed runtime boundary check stops the Broker and removes its socket.
 
     # Job-level permissions are required because GitHub Actions does not provide
     # per-step permissions. Keep OIDC use confined to the explicit Vault step and
@@ -507,7 +506,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo --preserve-env=VAULT_URL,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_WORKSPACE ./scripts/start-vault-broker.sh
-          if [[ -S /run/runner-vault/broker.sock ]]; then
+          if [[ -S /run/runner-vault/broker.sock && -s /run/runner-vault/broker.pid ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -557,7 +556,20 @@ jobs:
         if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
         shell: bash
         run: |
-          echo "::warning::Vault broker runtime verification failed. Agent Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
+          stop_status=0
+          sudo -n ./scripts/stop-vault-broker.sh >/dev/null 2>&1 || stop_status=$?
+          if [[ -S /run/runner-vault/broker.sock || -e /run/runner-vault/broker.pid ]]; then
+            sudo -n rm -f -- /run/runner-vault/broker.sock /run/runner-vault/broker.pid
+          fi
+          if [[ -S /run/runner-vault/broker.sock || -e /run/runner-vault/broker.pid ]]; then
+            echo "::error::Vault Broker socket revocation could not be confirmed."
+            exit 1
+          fi
+          if [[ "$stop_status" -ne 0 ]]; then
+            echo "::warning::Vault Broker socket was revoked, but process termination could not be confirmed."
+          else
+            echo "::warning::Vault Broker runtime verification failed; the Broker was stopped and its socket removed."
+          fi
           {
             echo "### Credential Vault"
             echo

@@ -74,7 +74,7 @@ BROKER_PID=$!
 unset BROKER_BOOTSTRAP_VAULT_URL BROKER_BOOTSTRAP_OIDC_URL BROKER_BOOTSTRAP_OIDC_TOKEN BROKER_BOOTSTRAP_ALLOWED_UID OIDC_REQUEST_URL OIDC_REQUEST_TOKEN
 
 for _ in $(seq 1 50); do
-  if [[ -S "$SOCKET" ]]; then
+  if [[ -S "$SOCKET" && -s "$PID_FILE" ]]; then
     chmod 0660 "$SOCKET"
     chgrp "$CLIENT_GROUP" "$SOCKET"
     echo 'VAULT_BROKER=STARTING'
@@ -102,7 +102,7 @@ PY_AGENT_PROBE
 then
   echo '::warning::RDC Agent could not connect to the Vault broker socket.'
   echo 'VAULT_BROKER=DEGRADED'
-  kill "$BROKER_PID" 2>/dev/null || true
+  ./scripts/stop-vault-broker.sh >/dev/null 2>&1 || true
   exit 0
 fi
 

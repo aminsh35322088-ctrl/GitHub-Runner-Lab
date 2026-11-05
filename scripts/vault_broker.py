@@ -69,7 +69,11 @@ def _safe_url(value: object, allow_local_http: bool = False) -> str:
         raise BrokerError("INVALID_CONFIG", "Vault origin must use HTTPS")
     if not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise BrokerError("INVALID_CONFIG", "Vault origin is invalid")
-    if parsed.port not in (None, 443) and not (allow_local_http and local):
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise BrokerError("INVALID_CONFIG", "Vault origin port is invalid") from exc
+    if port not in (None, 443) and not (allow_local_http and local):
         raise BrokerError("INVALID_CONFIG", "Vault origin port is not allowed")
     if parsed.path not in ("", "/") or parsed.query:
         raise BrokerError("INVALID_CONFIG", "Vault URL must be an origin")
@@ -87,6 +91,12 @@ def _safe_oidc_request_url(value: object, allow_local_http: bool = False) -> str
         raise BrokerError("INVALID_CONFIG", "OIDC request URL must use HTTPS")
     if parsed.username or parsed.password or parsed.fragment:
         raise BrokerError("INVALID_CONFIG", "OIDC request URL is invalid")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise BrokerError("INVALID_CONFIG", "OIDC request URL port is invalid") from exc
+    if port not in (None, 443) and not (allow_local_http and local):
+        raise BrokerError("INVALID_CONFIG", "OIDC request URL port is not allowed")
     return raw
 
 
@@ -322,7 +332,11 @@ class VaultClient:
             parsed = urlsplit(raw_url)
             if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
                 raise BrokerError("INVALID_REQUEST", "credential target must be an HTTPS URL")
-            if parsed.port not in (None, 443):
+            try:
+                target_port = parsed.port
+            except ValueError as exc:
+                raise BrokerError("INVALID_REQUEST", "credential target port is invalid") from exc
+            if target_port not in (None, 443):
                 raise BrokerError("INVALID_REQUEST", "credential target port is not allowed")
             headers_in = payload.get("headers", {})
             if not isinstance(headers_in, dict) or len(headers_in) > 20:
@@ -371,19 +385,10 @@ class VaultClient:
         raise BrokerError("OPERATION_NOT_ALLOWED", "Broker operation is not available")
 
 
-CLIENT_SLOTS = threading.BoundedSemaphore(16)
-
-
 class BrokerHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         self.request.settimeout(10)
-        if not CLIENT_SLOTS.acquire(blocking=False):
-            self._error(None, BrokerError("BROKER_BUSY", "Broker is busy; retry the request", True))
-            return
-        try:
-            self._handle_peer()
-        finally:
-            CLIENT_SLOTS.release()
+        self._handle_peer()
 
     def _handle_peer(self) -> None:
         if not hasattr(socket, "SO_PEERCRED"):
@@ -455,10 +460,32 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
     allow_reuse_address = False
     request_queue_size = 32
 
-    def __init__(self, socket_path: str, client: VaultClient, allowed_uid: int):
+    def __init__(self, socket_path: str, client: VaultClient, allowed_uid: int,
+                 max_workers: int = 16):
+        if not isinstance(max_workers, int) or not 1 <= max_workers <= 64:
+            raise ValueError("max_workers must be between 1 and 64")
         self.client = client
         self.allowed_uid = allowed_uid
+        self._worker_slots = threading.BoundedSemaphore(max_workers)
         super().__init__(socket_path, BrokerHandler)
+
+    def process_request(self, request, client_address):
+        # Bound threads before ThreadingMixIn creates them. Acquiring a slot
+        # inside the handler would still allow an unbounded thread-spawn flood.
+        if not self._worker_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
 
 
 def serve(args: argparse.Namespace) -> None:

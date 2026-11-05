@@ -11,7 +11,28 @@ report_state() {
 }
 degraded() {
   local reason="$1"
-  echo "::warning::Credential Vault Broker verification failed: $reason. Agent Vault operations remain unavailable; RDC and Tailscale continue."
+  local socket="${VAULT_BROKER_SOCKET:-/run/runner-vault/broker.sock}"
+  local pid_file="${VAULT_BROKER_PID_FILE:-/run/runner-vault/broker.pid}"
+  local stop_status=0
+  # Do not merely report DEGRADED while leaving a usable socket behind. A
+  # failed runtime boundary check revokes Agent access before the job continues.
+  if [[ -S "$socket" || -e "$pid_file" ]]; then
+    sudo -n ./scripts/stop-vault-broker.sh >/dev/null 2>&1 || stop_status=$?
+    if [[ -S "$socket" || -e "$pid_file" ]]; then
+      sudo -n rm -f -- "$socket" "$pid_file" >/dev/null 2>&1 || true
+    fi
+    if [[ -S "$socket" || -e "$pid_file" ]]; then
+      echo "::error::Vault Broker endpoint revocation could not be confirmed; Agent Vault access may still be available."
+      report_state DEGRADED "$reason; Broker endpoint removal could not be confirmed"
+      exit 1
+    fi
+    if [[ "$stop_status" -ne 0 ]]; then
+      reason="$reason; Broker socket/PID endpoint revoked but process termination could not be confirmed"
+    else
+      reason="$reason; Broker process stopped and socket removed"
+    fi
+  fi
+  echo "::warning::Credential Vault Broker verification failed: $reason. Agent cannot reconnect to the Broker; RDC and Tailscale continue."
   report_state DEGRADED "$reason"
   exit 0
 }

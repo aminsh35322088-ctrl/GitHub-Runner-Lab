@@ -68,9 +68,11 @@ to `/var/lib/rdc-agent/.run` rather than shared `/tmp` names.
 
 The local JSON protocol is versioned, length-bounded and uses one request per
 Unix-socket connection. It rejects unknown fields, mismatched request IDs,
-wrong peer UIDs, oversized frames and unsupported operations. The Broker has a
-bounded client pool, bounded upstream timeouts/responses and fails closed on
-redirects.
+wrong peer UIDs, oversized frames and unsupported operations. The server caps
+worker threads before spawning them; excess connections are closed without
+creating additional threads. Upstream timeouts/responses are bounded and
+redirects fail closed. If runtime verification fails, the runner terminates the
+Broker process and removes the socket before continuing in degraded mode.
 
 Only the following operations are available:
 
