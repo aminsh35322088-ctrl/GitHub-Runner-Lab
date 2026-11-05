@@ -142,7 +142,7 @@ jobs:
   vault-smoke-test:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Vault smoke test' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
@@ -185,21 +185,49 @@ jobs:
               raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
           PYURL
 
+      - name: Provision isolated identities for the smoke test
+        shell: bash
+        run: |
+          chmod +x scripts/*.sh
+          sudo --preserve-env=PATH,GITHUB_WORKSPACE ./scripts/setup-runner-identities.sh
+          id rdc-agent
+          id runner-vault-broker
+
       - name: Fetch the pinned Vault client
         env:
           VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
         shell: bash
         run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
+      - name: Install Vault client for the smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d -o rdc-agent -g rdc-agent -m 0700 /var/lib/rdc-agent/.local/share/runner-vault
+          sudo install -o rdc-agent -g rdc-agent -m 0500 "$RUNNER_TEMP/vault.mjs" /var/lib/rdc-agent/.local/share/runner-vault/vault.mjs
+          sudo ln -sfn /var/lib/rdc-agent/.local/share/runner-vault/vault.mjs /var/lib/rdc-agent/.local/bin/vault
+          sudo test -x /var/lib/rdc-agent/.local/bin/vault
+
+      - name: Start Vault Broker for the smoke test
+        id: vault-broker
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo --preserve-env=VAULT_URL,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN,GITHUB_WORKSPACE ./scripts/start-vault-broker.sh
+          if [[ ! -S /run/runner-vault/broker.sock || ! -s /run/runner-vault/broker.pid ]]; then
+            echo "::error::Vault broker did not become ready; the broker-only client cannot run without it."
+            exit 1
+          fi
+
       - name: Verify GitHub OIDC and read-only Vault registry access
         env:
-          VAULT_SESSION_FILE: /dev/null
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          client="$RUNNER_TEMP/vault.mjs"
-          node "$client" list > "$RUNNER_TEMP/vault-registry.json"
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault status > "$RUNNER_TEMP/vault-broker-status.json"
+          jq -e '.connected == true and .brokerProtocol == 1' "$RUNNER_TEMP/vault-broker-status.json" >/dev/null
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault list > "$RUNNER_TEMP/vault-registry.json"
           jq -e 'type == "array"' "$RUNNER_TEMP/vault-registry.json" >/dev/null
           count="$(jq 'length' "$RUNNER_TEMP/vault-registry.json")"
           {
@@ -213,12 +241,12 @@ jobs:
 
           # Exercise both saved provider credentials through the Vault proxy.
           # Raw responses stay in runner-temp files; only boolean outcomes reach logs.
-          node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user             > "$RUNNER_TEMP/vault-github-check.json"
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault use GITHUB_API_TOKEN GET https://api.github.com/user             > "$RUNNER_TEMP/vault-github-check.json"
           jq -e 'type == "object" and (.login | type == "string") and (.id | type == "number")'             "$RUNNER_TEMP/vault-github-check.json" >/dev/null
           # Try the User Token endpoint first, then the Account Token endpoint.
           # The account identifier is repository metadata; no credential value or raw response is logged.
           set +e
-          node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify --purpose "read-only token verification" \
+          ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify --purpose "read-only token verification" \
             > "$RUNNER_TEMP/vault-cloudflare-user-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-user.stderr"
           cf_user_exit=$?
           set -e
@@ -232,7 +260,7 @@ jobs:
               exit 1
             fi
             set +e
-            node "$client" use CLOUDFLARE_API_TOKEN GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/tokens/verify" --purpose "read-only account token verification" \
+            ./scripts/run-as-rdc-agent.sh /var/lib/rdc-agent/.local/bin/vault use CLOUDFLARE_API_TOKEN GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/tokens/verify" --purpose "read-only account token verification" \
               > "$RUNNER_TEMP/vault-cloudflare-account-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-account.stderr"
             cf_account_exit=$?
             set -e
@@ -260,6 +288,11 @@ jobs:
           echo "VAULT_OIDC_SMOKE_TEST=PASS"
           echo "VAULT_GITHUB_PROXY=PASS"
           echo "VAULT_CLOUDFLARE_PROXY=PASS"
+
+      - name: Stop Vault Broker after the smoke test
+        if: ${{ always() }}
+        continue-on-error: true
+        run: sudo ./scripts/stop-vault-broker.sh
 
   runner-lab:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}
