@@ -59,13 +59,13 @@ class EnvironmentTests(unittest.TestCase):
             mock_bin = install_root / 'mock-bin'
             mock_bin.mkdir(parents=True)
             rea = mock_bin / 'rea'
-            rea.write_text('#!/bin/sh\\necho rea-mock\\n')
+            rea.write_text("#!/bin/sh\nprintf 'rea-mock\\n'\n")
             rea.chmod(0o755)
             providers = install_root / 'providers.env'
             providers.write_text(
-                f"export REA_INSTALL_ROOT='{install_root}'\\n"
-                "export REA_PROVIDER_ENV_TEST='loaded'\\n"
-                f"export PATH='{mock_bin}':\\"$PATH\\"\\n"
+                f"export REA_INSTALL_ROOT='{install_root}'\n"
+                "export REA_PROVIDER_ENV_TEST='loaded'\n"
+                f"export PATH='{mock_bin}:/usr/bin:/bin'\n"
             )
             env = {**os.environ, 'HOME': str(home), 'PATH': os.environ['PATH']}
             result = subprocess.run(
