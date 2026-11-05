@@ -1199,7 +1199,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('sha512-cx7KTscLF951adHmDLVCDIVTqJ/Bg1LtdRILZoo5wa/UMeyOfMAuOJOEBulNMKBKb5Xd3nHDQnB9aXroN9Fw5A==',installer)
         self.assertNotIn('desktop-commander@latest',installer)
 
-    def test_optional_rea_toolset_is_explicit_and_integrity_verified(self):
+    def test_shared_rea_toolset_is_automatic_and_integrity_verified(self):
         data=json.loads((ROOT/'config/runner-toolset.json').read_text())
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
         self.assertNotIn('expected',data['node'])
@@ -1218,7 +1218,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         optional=data['optional_tools']['rea']
         self.assertEqual(optional['package'],'rea-agents')
         self.assertEqual(optional['entrypoint'],'rea')
-        self.assertFalse(optional['automatic_install'])
+        self.assertTrue(optional['automatic_install'])
         self.assertFalse(optional['automatic_setup'])
         self.assertEqual(optional['install_script'],'scripts/install-rea.sh')
         self.assertNotIn('required_node',optional)
