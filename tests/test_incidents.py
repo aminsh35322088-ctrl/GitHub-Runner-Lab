@@ -28,7 +28,7 @@ class IncidentTests(unittest.TestCase):
                                         'command not found', 2)
 
     def test_incident_destination_uses_current_repository_and_not_upstream_owner(self):
-        mod = self.module()
+        self.module()
         report = self.report()
         self.assertEqual(report["repository"], "octocat/runner-lab")
         self.assertTrue(report["fingerprint"])
