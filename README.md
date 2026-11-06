@@ -509,4 +509,3 @@ Only repeated default runner-validation failures are automatically published.
 Pending reports survive encrypted recovery and are retried from keepalive. Raw logs
 are never automatically published. This repository is public: manually summarize
 sensitive evidence instead of relying solely on redaction.
-

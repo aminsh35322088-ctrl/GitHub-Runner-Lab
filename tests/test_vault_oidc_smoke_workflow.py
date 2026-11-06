@@ -64,11 +64,22 @@ class VaultDiscoveryInputTests(unittest.TestCase):
         base = {"clientRef": self.SHA, "repository": self.OWNER + "/GitHub-runner-vault"}
         accepted = validate_deployment({**base, "url": "https://vault.example.net"}, self.OWNER)
         self.assertEqual(accepted["VAULT_URL"], "https://vault.example.net")
+        accepted_default_port = validate_deployment({**base, "url": "https://vault.example.net:443"}, self.OWNER)
+        self.assertEqual(accepted_default_port["VAULT_URL"], "https://vault.example.net:443")
         for url in (
             "https://runner-vault.example.workers.dev.evil.example:8443",
             "https://localhost",
+            "https://vault.local",
+            "https://vault.internal",
+            "https://vault.test",
+            "https://vault.invalid",
+            "https://vault.example",
+            "https://vault.onion",
+            "https://vault.home.arpa",
             "https://127.0.0.1",
             "https://10.0.0.5",
+            "https://[::1]",
+            "https://[fd00::1]",
             "https://invalid_host.example",
         ):
             with self.subTest(url=url):

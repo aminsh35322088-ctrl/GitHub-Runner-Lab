@@ -18,6 +18,7 @@ DOMAIN_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MAX_DOCUMENT_BYTES = 64 * 1024
 DEFAULT_VAULT_REPOSITORY = "GitHub-runner-vault"
+LOCAL_ONLY_SUFFIXES = frozenset({"localhost", "local", "internal", "test", "invalid", "example", "onion", "arpa"})
 
 
 def resolve_vault_repository(owner: str, configured: str | None = None) -> str:
@@ -38,8 +39,10 @@ def valid_public_hostname(hostname: str) -> bool:
         address = ipaddress.ip_address(hostname)
         return address.is_global
     except ValueError:
-        normalized = hostname.rstrip(".")
+        normalized = hostname.rstrip(".").lower()
         if len(normalized) > 253 or "." not in normalized:
+            return False
+        if any(normalized == suffix or normalized.endswith("." + suffix) for suffix in LOCAL_ONLY_SUFFIXES):
             return False
         labels = normalized.split(".")
         return all(DOMAIN_LABEL_RE.fullmatch(label) for label in labels)
@@ -81,7 +84,7 @@ def validate_deployment(
         or parsed.query
         or parsed.fragment
         or not parsed.netloc
-        or parsed.port is not None
+        or parsed.port not in (None, 443)
         or url not in (f"https://{parsed.netloc}", f"https://{parsed.netloc}/")
     ):
         raise ValueError("deployment URL must be a public HTTPS origin with no path, query or credentials")
