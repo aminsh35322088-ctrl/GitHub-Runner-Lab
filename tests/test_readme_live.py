@@ -8,6 +8,20 @@ spec = importlib.util.spec_from_file_location('readme_live', Path(__file__).reso
 status = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(status)
 
+class RepositoryIdentityTests(unittest.TestCase):
+    def test_actions_identity_is_used_when_available(self):
+        self.assertEqual(status.resolve_repository_identity("octocat/lab", "git@github.com:other/repo.git"), "octocat/lab")
+
+    def test_repository_identity_is_derived_from_supported_git_remotes(self):
+        self.assertEqual(status.resolve_repository_identity("", "https://github.com/octocat/lab.git"), "octocat/lab")
+        self.assertEqual(status.resolve_repository_identity(None, "git@github.com:octocat/lab.git"), "octocat/lab")
+        self.assertEqual(status.resolve_repository_identity(None, "ssh://git@github.com/octocat/lab.git"), "octocat/lab")
+
+    def test_invalid_or_non_github_identity_fails_closed(self):
+        for value in ("owner/repo/extra", "owner name/repo", "https://github.com.evil.example/o/r"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                status.resolve_repository_identity("", value)
+
 class LiveStatusTest(unittest.TestCase):
     def test_active_push_run_takes_precedence_over_old_failure(self):
         runs = [dict(id=2, head_repository={'full_name':'x/y'}, event='push', status='in_progress', created_at='2026-10-14T01:00:00Z', html_url='https://example/2'), dict(id=1, head_repository={'full_name':'x/y'}, event='workflow_dispatch', status='completed', conclusion='failure', created_at='2026-10-14T00:00:00Z', html_url='https://example/1')]

@@ -14,7 +14,7 @@ class IncidentTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = patch.dict(os.environ, {'AGENT_KIT_CACHE_DIR': self.tmp.name})
+        self.env = patch.dict(os.environ, {'AGENT_KIT_CACHE_DIR': self.tmp.name, 'GITHUB_REPOSITORY': 'octocat/runner-lab'})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -27,6 +27,18 @@ class IncidentTests(unittest.TestCase):
                                         'Run cmake --version twice', 'version printed',
                                         'command not found', 2)
 
+    def test_incident_destination_uses_current_repository_and_not_upstream_owner(self):
+        self.module()
+        report = self.report()
+        self.assertEqual(report["repository"], "octocat/runner-lab")
+        self.assertTrue(report["fingerprint"])
+
+    def test_incident_repository_fails_closed_without_actions_or_git_identity(self):
+        mod = self.module()
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "", "PATH": "/nonexistent"}, clear=False):
+            with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError):
+                with self.assertRaises(ValueError):
+                    mod.resolve_repository()
     def test_redacts_credentials_and_private_keys(self):
         mod = self.module()
         raw = ('Authorization: Bearer privatevalue\npassword=hunter2\n'
@@ -78,7 +90,7 @@ class IncidentTests(unittest.TestCase):
         with patch.object(mod, 'api', api):
             self.assertEqual(mod.publish(report)['status'], 'commented')
         self.assertEqual([c[1] for c in calls if c[0] == 'POST'],
-                         ['repos/' + mod.REPOSITORY + '/issues/7/comments'])
+                         ['repos/' + report['repository'] + '/issues/7/comments'])
 
     def test_dry_run_has_no_api_calls(self):
         mod = self.module()
