@@ -46,11 +46,7 @@ API calls. Response bodies stay in runner-temp files; logs and summaries contain
 The normal runner startup also connects automatically after RDC and Tailscale are ready. A missing,
 slow or unavailable Vault degrades Vault access only and does not block either access path.
 
-To deploy a Vault, use the Vault's own setup wizard at
-https://aminsh35322088-ctrl.github.io/GitHub-runner-vault/ — it walks through the one supported
-deployment, and the Lab needs nothing at all: after each successful deploy, the Vault's deploy
-workflow publishes `deployment.json` (the Worker URL and the deployed Vault commit) back to the
-Vault repository, and that file is all the Lab reads. Before trusting it, the Lab still validates
+To deploy a Vault, enable GitHub Pages for that Vault repository and open its own setup wizard. The Lab looks by default for `GitHub-runner-vault` under the same GitHub owner. If the Vault is in a different owner or uses a different repository name, set the Lab repository variable `RUNNER_VAULT_REPOSITORY` to the full `owner/name` value. The Wizard and deployment metadata verify that the Vault identity matches the selected repository; copied metadata from another fork is rejected. Before trusting it, the Lab still validates
 that the URL is an HTTPS origin with no path, query or credentials and that the client revision
 is an immutable 40-character commit SHA, so the client stays pinned to a reviewed revision — the
 pin is now maintained by the Vault's deploy instead of by hand. If no Vault is deployed (no
@@ -126,7 +122,7 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | Keepalive completion | 89% (9 samples) |
 | Handoff ≤15 min | 100% (8 samples) |
 | Median handoff gap | 0.7 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/42228772461) |
+| Run details | [Open this repository's Actions](/actions) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
@@ -512,3 +508,8 @@ Only repeated default runner-validation failures are automatically published.
 Pending reports survive encrypted recovery and are retried from keepalive. Raw logs
 are never automatically published. This repository is public: manually summarize
 sensitive evidence instead of relying solely on redaction.
+
+
+### Vault repository selection
+
+By default, the Lab discovers a Vault in the same GitHub owner under the historical repository name `GitHub-runner-vault`. To use a differently named Vault repository, define the repository variable `RUNNER_VAULT_REPOSITORY` as its full `owner/name` value. Deployment metadata must identify that same repository; copied `deployment.json` files from another fork are rejected. Custom HTTPS domains are supported as well as `workers.dev` origins.

@@ -279,10 +279,31 @@ def unknown_state(now):
             "headroom":None,"auto_handoff_minutes":20,"work_mode":"unknown","successor_queued":False,"verify_rate":None,"verify_sample":0,
             "keepalive_rate":None,"keepalive_sample":0,"handoff_rate":None,"handoff_sample":0,"median_gap":None}
 
+def resolve_repository_identity(actions_repository=None, git_remote=None):
+    repository = actions_repository.strip() if isinstance(actions_repository, str) else ""
+    if repository:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}", repository):
+            raise ValueError("Invalid GITHUB_REPOSITORY")
+        return repository
+    remote = git_remote or ""
+    if not remote:
+        try:
+            result = subprocess.run(["git", "remote", "get-url", "origin"], check=True, capture_output=True, text=True, timeout=5)
+            remote = result.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            remote = ""
+    match = re.fullmatch(r"(?:https?://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)([A-Za-z0-9-]{1,39})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?", remote)
+    if not match:
+        raise ValueError("Could not identify this Runner Lab repository; set GITHUB_REPOSITORY")
+    repository = match.group(1) + "/" + match.group(2)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}", repository):
+        raise ValueError("Git origin is not a valid GitHub owner/name")
+    return repository
+
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument("--publish",action="store_true"); parser.add_argument("--snapshot")
     args=parser.parse_args()
-    repo=os.environ.get("GITHUB_REPOSITORY","aminsh35322088-ctrl/GitHub-Runner-Lab")
+    repo=resolve_repository_identity(os.environ.get("GITHUB_REPOSITORY"))
     branch=os.environ.get("DEFAULT_BRANCH","main")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repo): raise ValueError("Invalid repository name")
     if args.snapshot:

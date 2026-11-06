@@ -11,9 +11,24 @@ import time
 
 from lab_common import atomic, kit, lock
 
-REPOSITORY = 'aminsh35322088-ctrl/GitHub-Runner-Lab'
+REPOSITORY_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$')
 CATEGORIES = ('HOST', 'TOOLCHAIN', 'NETWORK', 'RDC', 'DOCKER', 'MEDIA', 'PERSISTENCE')
 
+
+def resolve_repository():
+    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repository:
+        try:
+            result = subprocess.run(["git", "remote", "get-url", "origin"], check=True, capture_output=True, text=True, timeout=5)
+            remote = result.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            remote = ""
+        match = re.fullmatch(r"(?:https?://(?:[^@/]+@)?github\.com/|ssh://git@github\.com/|git@github\.com:)([A-Za-z0-9-]{1,39})/([A-Za-z0-9_.-]{1,100}?)(?:\.git)?/?", remote)
+        if match:
+            repository = match.group(1) + "/" + match.group(2)
+    if not REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("Could not identify a valid GitHub owner/name for Lab incident reporting")
+    return repository
 
 def sanitize(text):
     text = str(text)
@@ -43,7 +58,8 @@ def make_report(category, key, title, steps, expected, actual, occurrences):
         raise ValueError('Reproduce the failure at least twice before reporting')
     if any(not value.strip() for value in (title, steps, expected, actual)):
         raise ValueError('Title, reproduction, expected and actual results are required')
-    fingerprint = hashlib.sha256(f'{REPOSITORY}:{category}:{key}'.encode()).hexdigest()[:24]
+    repository = resolve_repository()
+    fingerprint = hashlib.sha256(f'{repository}:{category}:{key}'.encode()).hexdigest()[:24]
     fields = {name: sanitize(value) for name, value in
               [('title', title[:160]), ('steps', steps), ('expected', expected), ('actual', actual)]}
     digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:24]
@@ -56,7 +72,7 @@ def make_report(category, key, title, steps, expected, actual, occurrences):
             f'### Reproduction\n{fields["steps"]}\n\n### Expected\n{fields["expected"]}\n\n'
             f'### Actual\n{fields["actual"]}\n\nConfirmed observations: {occurrences}\n')
     body += f'\n### Environment\n```json\n{context}\n```\n'
-    return {'schema_version': 1, 'fingerprint': fingerprint, 'marker': marker,
+    return {'schema_version': 1, 'repository': repository, 'fingerprint': fingerprint, 'marker': marker,
             'evidence_marker': evidence, 'title': f'[{category}] {fields["title"]}',
             'body': body, 'created': int(time.time())}
 
@@ -108,7 +124,10 @@ def publish(report, dry_run=False):
     queue_report(report)
     # Network serialization must never hold the state lock used by checkpoints.
     with lock(root / '.publish.lock'):
-        endpoint = f'repos/{REPOSITORY}/issues'
+        repository = report.get('repository') or resolve_repository()
+        if not isinstance(repository, str) or not REPOSITORY_RE.fullmatch(repository):
+            raise ValueError('Pending incident has an invalid repository identity')
+        endpoint = f'repos/{repository}/issues'
         for issue in pages(endpoint + '?state=open'):
             if 'pull_request' in issue or report['marker'] not in (issue.get('body') or ''):
                 continue

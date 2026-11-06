@@ -13,14 +13,16 @@ Vault client if its repository is private or the anonymous GitHub API is rate li
 
 ## Optional: deploy the Vault on Cloudflare
 
-Deploy the Vault through its setup wizard — the one supported build method:
+Deploy the Vault through the setup wizard published by your own Vault repository. Enable GitHub
+Pages for that repository (Settings → Pages → Deploy from a branch → main → /docs), then open
+the generated Pages URL. The wizard walks through creating a Cloudflare token and running the
+Vault repository's Deploy workflow.
 
-https://aminsh35322088-ctrl.github.io/GitHub-runner-vault/
-
-The wizard walks through creating a Cloudflare token and running the Vault repository's Deploy
-workflow. Nothing is configured in this Lab repository: once the Vault is deployed, this Lab
-discovers it automatically on its next run (see below). The rest of this section describes how
-the Vault deployment itself establishes the owner identity the Lab later relies on.
+The Lab looks by default for `GitHub-runner-vault` under the same GitHub owner. If the Vault is
+in a different owner or uses a different repository name, define the Lab repository variable
+`RUNNER_VAULT_REPOSITORY` as its full `owner/name` value. The selected Vault's deployment metadata
+must identify that same repository; metadata copied from a different fork is rejected. Once
+deployed, the Lab discovers it on the next run (see below).
 The deploy provisions the resources declared by the Worker and deploys it. It does not pass any
 browser GitHub OAuth token into the Worker. Instead,
 the production build resolves the owner from the checked-out Git origin using GitHub's typed JSON User API and
@@ -36,12 +38,12 @@ documented override. The build/deploy helper refuses to deploy if the generated 
 numeric `OWNER_GITHUB_ID`.
 
 Deploying the Vault does **not** deploy, modify or reconfigure GitHub Runner Lab. The connection
-is one-directional and configuration-free: the Vault's deploy workflow publishes `deployment.json`
-(the Worker URL and the deployed Vault commit) at the root of the Vault repository, and the Lab
-reads that file at the start of a run. There is no Lab-side opt-in step and nothing to set.
+is one-directional: the Vault's deploy workflow publishes `deployment.json` (the Worker URL,
+deployed Vault commit and repository identity) at the root of the Vault repository, and the Lab
+reads that file at the start of a run. No Vault URL or client SHA is copied into Lab settings.
 
-After deployment, complete the Vault's owner sign-in and runner-repository policy setup using the
-[Vault deployment guide](https://github.com/aminsh35322088-ctrl/GitHub-runner-vault#deployment).
+After deployment, complete the Vault's owner sign-in and runner-repository policy setup using
+the deployment guide in the Vault repository's README.
 The discovered client revision is an immutable 40-character commit SHA — the deployed Vault
 commit — and the Lab validates it (and the HTTPS-origin shape of the URL) before use.
 `AGENT_GITHUB_TOKEN` is not a new
@@ -79,8 +81,9 @@ it does not grant repository access or any additional GitHub scopes.
 
 The Vault verifies all of the following claims before it issues a short-lived runner
 session. The owner does not manually enter a repository name or numeric ID: on the first
-valid request the Worker binds the caller to its deployment-pinned owner ID, main branch
-and exact rdc-lab.yml workflow, then atomically saves the repository's immutable ID in D1.
+valid request the Worker binds the caller to its deployment-pinned owner ID, configured
+bootstrap branch and workflow (defaults: main and rdc-lab.yml), then atomically saves
+the repository's immutable ID in D1.
 Later requests must match that pinned identity. Concurrent first runs cannot replace it.
 
 | Claim | Required value |
@@ -89,9 +92,9 @@ Later requests must match that pinned identity. Concurrent first runs cannot rep
 | aud | exact Vault origin |
 | repository_owner_id | Exact numeric GitHub owner ID pinned by the Vault deployment |
 | repository / repository_id | First valid owner-owned Lab repository; its immutable numeric ID is pinned atomically in D1 |
-| ref | refs/heads/main |
+| ref | Configured bootstrap branch (default: refs/heads/main) |
 | event_name | workflow_dispatch, schedule or push; PR events excluded |
-| workflow_ref | Exact repository/.github/workflows/rdc-lab.yml@refs/heads/main |
+| workflow_ref | Exact configured workflow and branch (defaults: .github/workflows/rdc-lab.yml on main) |
 | job_workflow_ref | If present, must not point to a different reusable workflow |
 
 The account-switch and relaunch jobs do not receive id-token. A same-workflow push
@@ -101,7 +104,8 @@ the Vault policy.
 ## Client installation and environment propagation
 
 After RDC health and Tailscale SSH are verified, the runner-lab job optionally downloads
-client/vault.mjs from the Vault repository of the same account (`<owner>/GitHub-runner-vault`).
+client/vault.mjs from the Vault repository selected by `RUNNER_VAULT_REPOSITORY` (or the
+same-owner `GitHub-runner-vault` default).
 The `clientRef` published in `deployment.json` pins that file to a reviewed immutable
 40-character commit SHA: the very commit the Vault deploy ran from.
 The existing AGENT_GITHUB_TOKEN is separately consumed by the Lab's trusted GitHub
@@ -109,13 +113,15 @@ bootstrap for gh, HTTPS Git and GHCR. During this Vault fetch step only, it is a
 as a scoped fallback for private client sources or anonymous API rate limiting. The Vault
 client does not receive it, and it is not exported as a normal agent environment variable.
 
-The optional Vault integration needs no Lab-side configuration at all. For reference, the
-values the workflow works with come from discovery, not from repository settings:
+With the default same-owner Vault repository, no Lab-side setting is needed. If the Vault
+uses a different owner or repository name, set the repository variable RUNNER_VAULT_REPOSITORY
+to its full owner/name value. The URL, selected repository identity and client revision still come
+from validated deployment metadata rather than manually copied URLs or commit SHAs:
 
 | Name | Source | Value |
 | --- | --- | --- |
 | Vault URL | `deployment.json` in the Vault repository | HTTPS origin of the deployed Vault Worker, with no path/query |
-| Vault client repository | Derived from the account | `<owner>/GitHub-runner-vault`, the repository that contains the reviewed `client/vault.mjs` |
+| Vault client repository | `deployment.json` repository identity | The exact owner/name selected for this Vault deployment |
 | Vault client revision | `deployment.json` in the Vault repository | Immutable 40-character commit SHA pinning the client source |
 | AGENT_GITHUB_TOKEN | Existing Actions secret | Trusted Agent GitHub CLI/Git/GHCR bootstrap; scoped fallback for private Vault-client downloads/rate limits |
 

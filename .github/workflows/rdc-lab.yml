@@ -159,6 +159,8 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          RUNNER_VAULT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
         shell: bash
         run: python3 scripts/discover_vault.py
       - name: Validate Vault configuration
@@ -307,6 +309,8 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          RUNNER_VAULT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
         shell: bash
         run: python3 scripts/discover_vault.py
       - name: Prepare scripts and initialize lifecycle clock
@@ -733,6 +737,8 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          RUNNER_VAULT_REPOSITORY: ${{ vars.RUNNER_VAULT_REPOSITORY }}
         shell: bash
         run: python3 scripts/discover_vault.py
       - name: Report missing Vault deployment
