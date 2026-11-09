@@ -351,7 +351,7 @@ jobs:
           auth_json="$RUNNER_TEMP/sigillo-auth-check.json"
           auth_err="$RUNNER_TEMP/sigillo-auth-check.stderr"
           if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me --json >"$auth_json" 2>"$auth_err"; then
-            http_status="$(sed -nE 's/.*failed (([0-9]{3})):.*/\1/p' "$auth_err" | tail -n1)"
+            http_status="$(grep -oE '\\([0-9]{3}\\)' "$auth_err" | tail -n1 | tr -d '()')"
             case "${http_status:-unknown}" in
               401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN (HTTP 401); replace the GitHub secret with an active API token from the correct Sigillo instance" ;;
               403) sigillo_unavailable "Sigillo denied SIGILLO_API_TOKEN (HTTP 403); check the token and its project/environment access" ;;
