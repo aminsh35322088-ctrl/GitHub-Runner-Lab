@@ -65,11 +65,25 @@ def validate_deployment(payload: object, owner: str) -> dict[str, str]:
     }
 
 
-def load_deployment(owner: str) -> object:
+def load_deployment(owner: str, token: str | None = None) -> object:
+    """Read deployment.json through the Contents API, including from a private Vault repo."""
     if not isinstance(owner, str) or not OWNER_RE.fullmatch(owner):
         raise ValueError("repository owner is not a valid GitHub owner name")
-    url = f"https://raw.githubusercontent.com/{owner}/GitHub-runner-vault/main/deployment.json"
-    request = Request(url, headers={"Accept": "application/json", "Cache-Control": "no-cache"})
+    if token and any(char in token for char in ("\r", "\n")):
+        raise ValueError("GitHub API credential has an invalid format")
+    url = (
+        f"https://api.github.com/repos/{owner}/GitHub-runner-vault/"
+        "contents/deployment.json?ref=main"
+    )
+    headers = {
+        "Accept": "application/vnd.github.raw+json",
+        "Cache-Control": "no-cache",
+        "User-Agent": "github-runner-lab",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, headers=headers)
     with urlopen(request, timeout=10) as response:
         raw = response.read(MAX_DOCUMENT_BYTES + 1)
     if len(raw) > MAX_DOCUMENT_BYTES:
@@ -86,7 +100,8 @@ def main() -> int:
         return 1
 
     try:
-        payload = load_deployment(owner)
+        token = os.environ.pop("GITHUB_API_TOKEN", None)
+        payload = load_deployment(owner, token)
         values = validate_deployment(payload, owner)
     except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         with open(output_path, "a", encoding="utf-8") as output:
