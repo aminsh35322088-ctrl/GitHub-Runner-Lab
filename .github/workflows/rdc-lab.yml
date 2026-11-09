@@ -141,7 +141,7 @@ jobs:
           esac
 
   sigillo-smoke-test:
-    if: "${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'Sigillo smoke test') || (github.event_name == 'push' && github.event.head_commit.message == 'ci: verify Sigillo Agent GitHub token') }}"
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Sigillo smoke test' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
