@@ -13,7 +13,7 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "rdc-lab.yml").read_text()
 class SigilloDocumentationTests(unittest.TestCase):
     def test_runner_bootstrap_uses_actions_secret_and_optional_api_origin(self):
         step = WORKFLOW.split(
-            "      - name: Install and authenticate Sigillo CLI (optional)", 1
+            "      - name: Install and authenticate Sigillo CLI", 1
         )[1].split("\n      - name:", 1)[0]
 
         self.assertIn("SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}", step)
@@ -43,6 +43,13 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("GH_TOKEN: ${{ github.token }}", WORKFLOW)
         self.assertNotIn("SIGILLO_TOKEN", WORKFLOW.split("      - name: Queue Successor Run", 1)[1])
         self.assertNotIn("GITHUB_API_TOKEN", WORKFLOW.split("      - name: Queue Successor Run", 1)[1])
+
+    def test_runner_handoff_outputs_remain_wired_to_relaunch(self):
+        runner = WORKFLOW.split("  runner-lab:", 1)[1].split("\n  relaunch:", 1)[0]
+        self.assertIn("configured: ${{ steps.verify.outputs.ready }}", runner)
+        self.assertIn("queued: ${{ steps.handover.outputs.queued }}", runner)
+        self.assertIn("needs.runner-lab.outputs.configured", WORKFLOW)
+        self.assertIn("needs.runner-lab.outputs.queued", WORKFLOW)
 
     def test_sigillo_is_required_for_agent_credentials_but_smoke_test_is_separate(self):
         self.assertIn("SIGILLO_API_TOKEN", README)
