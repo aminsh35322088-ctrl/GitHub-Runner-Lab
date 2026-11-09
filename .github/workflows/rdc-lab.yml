@@ -200,7 +200,7 @@ jobs:
           auth_err="$RUNNER_TEMP/sigillo-smoke-auth.stderr"
           projects_file="$RUNNER_TEMP/sigillo-smoke-projects.txt"
           if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me >/dev/null 2>"$auth_err"; then
-            http_status="$(grep -oE '\\([0-9]{3}\\)' "$auth_err" | tail -n1 | tr -d '()' || true)"
+            http_status="$(grep -oE '\([0-9]{3}\)' "$auth_err" | tail -n1 | tr -d '()' || true)"
             rm -f "$auth_err" "$projects_file"
             report "rejected (HTTP ${http_status:-unknown})" "API did not accept the supplied token on $api_origin"
           fi
