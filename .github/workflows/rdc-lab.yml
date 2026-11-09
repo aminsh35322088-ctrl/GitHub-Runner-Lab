@@ -24,7 +24,6 @@ on:
           - 'Start / Resume'
           - 'Connect a new RDC account'
           - 'Sigillo smoke test'
-          - 'Create Northflank credential link'
 
 permissions:
   contents: write
