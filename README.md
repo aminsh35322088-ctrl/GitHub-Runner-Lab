@@ -111,8 +111,8 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-11-09 09:33:17 UTC |
-| Last checked | 2026-11-09 09:33:17 UTC |
+| Status freshness | ✅ current as of 2026-11-09 09:33:48 UTC |
+| Last checked | 2026-11-09 09:33:48 UTC |
 | Runner/job started | 2026-11-09 09:00:07 UTC |
 | Keepalive started | 2026-11-09 09:01:00 UTC |
 | Runner age | 33 min |
@@ -122,10 +122,10 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | Hard job timeout | 2026-11-09 14:50:07 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | ✅ yes |
-| RDC verification success | 100% (3 samples) |
-| Keepalive completion | 100% (2 samples) |
-| Handoff ≤15 min | 100% (2 samples) |
-| Median handoff gap | 0.7 min |
+| RDC verification success | 100% (2 samples) |
+| Keepalive completion | 100% (1 samples) |
+| Handoff ≤15 min | 100% (1 samples) |
+| Median handoff gap | 0.6 min |
 | Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/42589912423) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
