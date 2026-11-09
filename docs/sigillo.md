@@ -27,7 +27,7 @@ The configured Sigillo project ID is `01M6ZRTJGTG7RNMSMVMVRJB3HY`; the Runner La
 Required:
 - Add a Sigillo API bearer token as the Actions secret `SIGILLO_API_TOKEN`.
 - Ensure the Sigillo project above contains `GITHUB_API_TOKEN` in the `prod` environment.
-- The GitHub PAT should be a classic PAT for `gh auth login --with-token`. Grant only the repository/org scopes required for the work; include `write:packages` when GHCR publishing is required.
+- The GitHub PAT must be a classic PAT for `gh auth login --with-token`, with the CLI's minimum scopes `repo`, `read:org`, and `gist`. This Lab also requires `write:packages` for its GHCR credential helper. Do not add broader scopes unless a documented task requires them.
 
 Optional:
 - Set repository variable `SIGILLO_API_URL` only when using a self-hosted Sigillo instance. It must be an HTTPS origin; otherwise the workflow defaults to `https://sigillo.dev`.
