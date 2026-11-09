@@ -211,6 +211,35 @@ the current Actions job. They are job-scoped capabilities, not personal API toke
 If vault list reports a missing OIDC requester, report it as an integration defect;
 do not request a new PAT as a workaround.
 
+## Sigillo secret manager and agent skill
+
+Sigillo is an optional CLI secret manager and is **not** the Runner Credential Vault or the GitHub credential helper.
+
+Before using Sigillo, read [`skills/sigillo/SKILL.md`](skills/sigillo/SKILL.md). The skill contains the upstream Sigillo agent rules and Runner Lab-specific integration notes. Check the current official README and the installed CLI help when a task depends on command flags or behavior; CLI features can change between releases.
+
+On the current Runner, unattended authentication is performed by the existing `.github/workflows/rdc-lab.yml` bootstrap:
+
+- GitHub Actions secret: `SIGILLO_API_TOKEN`.
+- Optional repository variable: `SIGILLO_API_URL`; default is `https://sigillo.dev`.
+- The workflow maps the secret to `SIGILLO_TOKEN`, validates it using `sigillo me`, stores it with `sigillo login --scope /`, locks `~/.sigillo` to owner-only permissions, and verifies the saved token again.
+- A missing or invalid token degrades Sigillo only; it must not block RDC or Tailscale.
+- Every ephemeral runner generation bootstraps from the Actions secret. Do not checkpoint, cache, commit, copy, or manually restore `~/.sigillo/config.json`.
+
+Agent rules:
+
+1. Start with `sigillo me`, then use `sigillo projects` and `sigillo environments --project PROJECT_ID` to discover scope. Always use the actual project ID, not a project display name.
+2. Use `sigillo secrets --project PROJECT_ID --env SLUG` to inspect names/metadata only. Never print secret values into a model/tool output, GitHub log, issue, summary, or chat.
+3. Prefer `sigillo run --project PROJECT_ID --env SLUG -- COMMAND` to inject secrets into a trusted child process without writing a dotenv file.
+4. Never read `.env` files or any file under `~/.sigillo/` directly. The config contains bearer credentials and directory bindings. Use CLI status commands; never use `cat`, `jq`, `grep`, or a custom script to inspect its contents.
+5. Never put a token in command-line arguments, shell history, source files, process output, a GitHub Actions output, a checkpoint, or a cache. Do not use `--disable-redaction` to reveal values.
+6. Sigillo redaction is defense in depth, not a security boundary. It may not redact short or low-entropy values, and the child process receives the real values. Do not run untrusted repository code in the trusted RDC shell or a trusted host job just because it is wrapped in `sigillo run`; use the isolated untrusted container path, which intentionally does not inherit Sigillo credentials.
+7. Do not pipe `sigillo run` output into another program to transport a secret; redaction applies to pipes too. For a tool that accepts one secret on stdin, use `sigillo secrets get NAME --project ID --env SLUG --raw | TOOL --stdin` so the value never enters agent context. Never print the pipe's contents.
+8. For `401`, verify token validity and the configured API origin. For `403`, inspect project/environment scope and the documented access rules. For `not logged in` on the Lab runner, inspect the workflow's Sigillo bootstrap summary and the Actions secret/variable; do not start a browser/device flow or ask the owner to log in manually.
+9. Do not create, rotate, broaden, or revoke Sigillo tokens or project secrets unless the user explicitly requests. Prefer the narrowest project/environment scope that supports the requested task.
+10. Use the Runner Credential Vault instead when the raw provider credential must never be present on this machine. GitHub repository/Package access continues to use the Lab's separate GitHub CLI/Git/GHCR bootstrap.
+
+The smoke-test action in `.github/workflows/rdc-lab.yml` is a short-lived diagnostic job. It checks Sigillo authentication and project visibility without starting the persistent runner. It is distinct from the Vault OIDC/Cloudflare checks that run later in that job.
+
 ## Heavy workloads
 
 This Lab is the preferred place for heavy local work when the target repository permits it, including:
