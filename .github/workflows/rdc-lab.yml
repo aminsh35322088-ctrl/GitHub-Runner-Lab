@@ -229,6 +229,29 @@ jobs:
           echo "SIGILLO_API_AUTH=PASS"
           echo "SIGILLO_AMIN_CREDITONAL=$result"
 
+      - name: Verify Agent GitHub credential from Sigillo
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          chmod 700 "$tmpdir"
+          export GH_CONFIG_DIR="$tmpdir/gh"
+          export DOCKER_CONFIG="$tmpdir/docker"
+          export AGENT_GITHUB_DOCKER_HELPER="$tmpdir/docker-credential-github-cli"
+          export AGENT_GITHUB_JOB_GIT_CONFIG="$tmpdir/github-auth.gitconfig"
+          mkdir -p "$GH_CONFIG_DIR" "$DOCKER_CONFIG"
+          trap 'rm -rf "$tmpdir"' EXIT
+
+          # Exercise the exact host bootstrap path without a repository PAT secret.
+          # Sigillo injects the token into the child; the installer receives stdin only.
+          sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" --command 'set -o pipefail; printf "%s" "${GITHUB_API_TOKEN:?GITHUB_API_TOKEN is missing from Sigillo}" | env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install'
+          ./scripts/agent-github.sh verify
+          ./scripts/agent-github.sh remove
+          echo "AGENT_GITHUB_SIGILLO_SMOKE=PASS"
+
   runner-lab:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}
     runs-on: ubuntu-latest
