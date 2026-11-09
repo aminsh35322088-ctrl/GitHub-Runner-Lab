@@ -78,6 +78,10 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("sigillo run", SIGILLO_DOC)
         self.assertIn("stdin", SIGILLO_DOC)
         self.assertIn("GitHub Actions API", SIGILLO_DOC)
+        self.assertIn("repo", SIGILLO_DOC)
+        self.assertIn("read:org", SIGILLO_DOC)
+        self.assertIn("gist", SIGILLO_DOC)
+        self.assertIn("write:packages", SIGILLO_DOC)
         self.assertIn("Never use `sigillo run` output as secret data", SIGILLO_SKILL)
 
     def test_vendored_skill_keeps_upstream_frontmatter_and_runner_notes(self):
