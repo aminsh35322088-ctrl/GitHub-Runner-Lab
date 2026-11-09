@@ -305,6 +305,31 @@ jobs:
         with:
           node-version: 24.22.2
 
+      # Install and authenticate Sigillo before RDC starts. The CLI stores its
+      # token in the runner user's owner-only config, so the RDC session can use
+      # Sigillo without keeping the bootstrap token in its process environment.
+      - name: Install and authenticate Sigillo CLI
+        id: sigillo
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            echo "::error::SIGILLO_API_TOKEN is missing. Add the Sigillo API token under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          npm install --global sigillo
+          umask 077
+          SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null
+          unset SIGILLO_TOKEN
+          chmod 700 "$HOME/.sigillo"
+          chmod 600 "$HOME/.sigillo/config.json"
+          sigillo me >/dev/null
+          echo "SIGILLO_CLI_READY=true"
+          echo "Sigillo CLI installed and authenticated for the RDC runner user."
+
+
       - name: Discover Vault deployment
         id: vault-discovery
         shell: bash
