@@ -520,6 +520,7 @@ jobs:
           fi
           # Keep the GitHub PAT out of the installer process environment: it is
           # delivered only over stdin, then stored by GitHub CLI's credential helper.
+          # shellcheck disable=SC2016 # Sigillo evaluates this command in its child shell.
           sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" --command 'set -o pipefail; printf "%s" "${GITHUB_API_TOKEN:?GITHUB_API_TOKEN is missing from Sigillo}" | env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install'
           ./scripts/agent-github.sh verify
       - name: Identify Agent cache runtime
