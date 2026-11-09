@@ -247,6 +247,7 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
           fi
+
       - name: Validate Vault configuration
         shell: bash
         run: |
@@ -513,6 +514,7 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
           fi
+
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
         run: |
@@ -933,6 +935,9 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Install Sigillo CLI
+        run: npm install --global sigillo
+
       - name: Discover Vault deployment
         id: vault-discovery
         env:
@@ -949,6 +954,7 @@ jobs:
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
           fi
+
       - name: Report missing Vault deployment
         if: steps.vault-discovery.outputs.configured != 'true'
         shell: bash
