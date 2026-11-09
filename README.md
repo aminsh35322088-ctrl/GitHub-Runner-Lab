@@ -111,14 +111,14 @@ Repository setup requires these secrets:
 | Secret | Purpose |
 | --- | --- |
 | `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and Agent checkpoints. Use at least 32 random characters. |
-| `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |\n| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
+| `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
+| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
 
 Optional Sigillo endpoint override:
 
 | Setting | GitHub type | Purpose |
 | --- | --- | --- |
-| `SIGILLO_API_TOKEN` | Actions secret | Sigillo API bearer token for non-interactive CLI authentication. |
 | `SIGILLO_API_URL` | Repository variable | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
 
 Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
@@ -131,9 +131,9 @@ Create a Sigillo API token and save it in **Repository → Settings → Secrets 
 
 For a self-hosted Sigillo instance, add the repository variable `SIGILLO_API_URL` with its HTTPS origin. Leave it unset for `https://sigillo.dev`.
 
-The existing `runner-lab` job performs non-interactive authentication before RDC starts: it validates the token with `sigillo me`, stores it using `sigillo login --scope /`, locks the config to owner-only permissions, then verifies the saved credential again. No browser/device login is required. The config is created for each ephemeral runner generation from the Actions secret; it is not committed, cached, or checkpointed.
+The `runner-lab` job performs non-interactive authentication before RDC starts: it validates the token with `sigillo me`, stores it using `sigillo login --scope /`, locks the config to owner-only permissions, then verifies the saved credential again. No browser/device login is required. The config is created for each ephemeral runner generation from the Actions secret; it is not committed, cached, or checkpointed. The `Amin-creditonal` Sigillo project must contain `GITHUB_API_TOKEN` in its `prod` environment; the workflow uses it to bootstrap `gh`, HTTPS Git, and GHCR access over stdin, without a second GitHub PAT Actions secret.
 
-Sigillo remains optional. A missing, invalid, unreachable, or misconfigured token disables only Sigillo and must not block RDC or Tailscale. See [docs/sigillo.md](docs/sigillo.md).
+Sigillo is required for full Agent GitHub/provider access, but its failure must not prevent RDC or Tailscale from becoming reachable. The Agent GitHub bootstrap reports a clear failure if the Sigillo API token or `GITHUB_API_TOKEN` credential is unavailable. See [docs/sigillo.md](docs/sigillo.md).
 
 ## Access model
 
