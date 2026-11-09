@@ -37,6 +37,18 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("./scripts/agent-github.sh verify", step)
         self.assertNotIn('GITHUB_API_TOKEN: ${{ secrets.', WORKFLOW)
 
+    def test_sigillo_smoke_test_exercises_agent_github_bootstrap_in_temporary_home(self):
+        step = WORKFLOW.split(
+            "      - name: Verify Agent GitHub credential from Sigillo", 1
+        )[1].split("\n      - name:", 1)[0]
+        self.assertIn('sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT"', step)
+        self.assertIn('printf "%s" "${GITHUB_API_TOKEN:', step)
+        self.assertIn("agent-github.sh install", step)
+        self.assertIn("agent-github.sh verify", step)
+        self.assertIn("agent-github.sh remove", step)
+        self.assertIn('GH_CONFIG_DIR="$tmpdir/gh"', step)
+        self.assertIn("trap 'rm -rf \"$tmpdir\"' EXIT", step)
+
     def test_github_actions_api_remains_independent_from_sigillo(self):
         self.assertIn("secrets.ACTIONS_WATCHDOG_TOKEN || github.token", WORKFLOW)
         self.assertIn("GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}", WORKFLOW)
