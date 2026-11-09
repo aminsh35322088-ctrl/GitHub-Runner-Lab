@@ -311,7 +311,6 @@ jobs:
       # The optional Sigillo integration must never block RDC/Tailscale startup.
       - name: Install and authenticate Sigillo CLI (optional)
         id: sigillo
-        continue-on-error: true
         env:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
           # Optional override for self-hosted Sigillo; defaults to https://sigillo.dev.
@@ -320,15 +319,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Do not let an empty Actions variable override the CLI's hosted default.
+          # Normalize to a credential-safe HTTPS origin. The CLI sends the
+          # bearer token to this URL, so credentials, paths, queries and HTTP
+          # endpoints are deliberately rejected.
           if [[ -z "${SIGILLO_API_URL:-}" ]]; then
-            unset SIGILLO_API_URL
-          elif [[ "$SIGILLO_API_URL" != https://* ]]; then
-            echo "::warning::SIGILLO_API_URL must use HTTPS; Sigillo will remain disabled."
+            SIGILLO_API_URL="https://sigillo.dev"
+          fi
+          if ! sigillo_api_origin="$(SIGILLO_API_URL="$SIGILLO_API_URL" node -e 'const u = new URL(process.env.SIGILLO_API_URL); if (u.protocol !== "https:" || !u.hostname || u.username || u.password || u.pathname !== "/" || u.search || u.hash) process.exit(2); process.stdout.write(u.origin)')"; then
+            echo "::warning::SIGILLO_API_URL must be a valid HTTPS origin without credentials, path, query, or fragment."
             echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          sigillo_api_origin="${SIGILLO_API_URL:-https://sigillo.dev}"
+          export SIGILLO_API_URL="$sigillo_api_origin"
 
           sigillo_unavailable() {
             local reason="$1"
@@ -344,6 +346,14 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           }
+
+          # Keep unexpected optional-integration errors from failing the lab.
+          on_unexpected_failure() {
+            local code=$?
+            trap - ERR
+            sigillo_unavailable "bootstrap command failed (exit code $code)"
+          }
+          trap on_unexpected_failure ERR
 
           if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
             sigillo_unavailable "SIGILLO_API_TOKEN GitHub Actions secret is missing"
