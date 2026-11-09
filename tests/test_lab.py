@@ -340,13 +340,13 @@ class LabTest(unittest.TestCase):
         gitconfig=home/'.config/agent-lab/github-auth/gitconfig'
         gitconfig.parent.mkdir(parents=True); gitconfig.write_text('[credential "https://github.com"]\n\thelper = !gh auth git-credential\n')
         env={**self.env,'HOME':home,'GH_TOKEN':'must-not-pass','GITHUB_TOKEN':'must-not-pass',
-             'AGENT_GITHUB_TOKEN':'must-not-pass'}
+             'GITHUB_API_TOKEN':'must-not-pass'}
         code=(
             'import os;'
             'print("HOME="+os.environ.get("HOME",""));'
             'print("GH_CONFIG_DIR="+os.environ.get("GH_CONFIG_DIR",""));'
             'print("GIT_CONFIG_GLOBAL="+os.environ.get("GIT_CONFIG_GLOBAL",""));'
-            'print("TOKENS="+str(any(os.environ.get(k) for k in ("GH_TOKEN","GITHUB_TOKEN","AGENT_GITHUB_TOKEN"))))'
+            'print("TOKENS="+str(any(os.environ.get(k) for k in ("GH_TOKEN","GITHUB_TOKEN","GITHUB_API_TOKEN"))))'
         )
         result=command([sys.executable,SCRIPTS/'lab_jobs.py','start','--cwd',workspace,'--timeout','10',
                         '--','python3','-c',code],env=env)
@@ -458,8 +458,7 @@ class LabTest(unittest.TestCase):
         script=(SCRIPTS/'agent-prewarm.sh').read_text()
         launch = script.split('nohup env', 1)[1].split('"$SELF" --foreground', 1)[0]
         for name in (
-            'RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','AGENT_GITHUB_TOKEN',
-            'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+            'RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','GITHUB_API_TOKEN',
         ):
             self.assertIn('-u '+name,launch)
 
@@ -666,7 +665,10 @@ class LabTest(unittest.TestCase):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
         self.assertNotIn('RDC_VERSION:',workflow)
         self.assertNotIn('desktop-commander@latest',workflow)
-        self.assertIn('AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}',workflow)
+        self.assertIn("Configure Agent GitHub access from Sigillo",workflow)
+        self.assertIn("SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}",workflow)
+        self.assertIn('sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT"',workflow)
+        self.assertNotIn("secrets.GITHUB_API_TOKEN",workflow)
         self.assertIn('./scripts/checkpoint-sync.sh restore',workflow)
         self.assertIn('./scripts/checkpoint-sync.sh save finalizer',workflow)
         self.assertIn('uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',workflow)
@@ -715,12 +717,12 @@ class LabTest(unittest.TestCase):
         env={**self.env,'HOME':home,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
              'AGENT_GITHUB_DOCKER_HELPER':self.base/'docker-helper-fresh',
              'DOCKER_CONFIG':self.base/'docker-config-fresh'}
-        env.pop('AGENT_GITHUB_TOKEN',None);env.pop('GH_TOKEN',None);env.pop('GITHUB_TOKEN',None)
+        env.pop('GITHUB_API_TOKEN',None);env.pop('GH_TOKEN',None);env.pop('GITHUB_TOKEN',None)
         installed=subprocess.run([SCRIPTS/'agent-github.sh','install'],cwd=ROOT,env=env,
                                  input='github_pat_FAKE_TEST_ONLY\n',capture_output=True,text=True)
         self.assertEqual(installed.returncode,0,installed.stderr)
         self.assertIn('AGENT_GITHUB=CONFIGURED',installed.stdout)
-        fresh={k:v for k,v in env.items() if k not in ('AGENT_GITHUB_TOKEN','GH_TOKEN','GITHUB_TOKEN')}
+        fresh={k:v for k,v in env.items() if k not in ('GITHUB_API_TOKEN','GH_TOKEN','GITHUB_TOKEN')}
         status=command([SCRIPTS/'agent-github.sh','status'],env=fresh)
         self.assertEqual(status.returncode,0,status.stderr)
         self.assertIn('AGENT_GITHUB=CONFIGURED',status.stdout)
@@ -885,10 +887,13 @@ class LabTest(unittest.TestCase):
         self.assertNotEqual(result.returncode,0)
         self.assertNotIn('AGENT_GITHUB=READY',result.stdout)
 
-    def test_workflow_pipes_agent_secret_into_persistent_login(self):
+    def test_workflow_pipes_sigillo_agent_credential_into_persistent_login(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
-        self.assertIn("printf '%s' \"$AGENT_GITHUB_TOKEN\" | ./scripts/agent-github.sh install",workflow)
+        self.assertIn("Configure Agent GitHub access from Sigillo",workflow)
+        self.assertIn('printf "%s" "${GITHUB_API_TOKEN:',workflow)
+        self.assertIn("env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install",workflow)
         self.assertIn('./scripts/agent-github.sh verify',workflow)
+        self.assertNotIn("secrets.GITHUB_API_TOKEN",workflow)
 
     def test_tailscale_handoff_keeps_stable_name_and_disconnects_before_successor(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
@@ -1180,7 +1185,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertNotIn('expected',data['node'])
         self.assertNotIn('node-version: latest',workflow)
         self.assertNotIn('node-version: 24\n',workflow)
-        self.assertEqual(workflow.count('node-version: 24.22.2'),4)
+        self.assertEqual(workflow.count('node-version: 24.22.2'),3)
         self.assertNotIn('version: latest',workflow)
         self.assertIn('version: 1.104.5',workflow)
         self.assertIn('./scripts/install-rdc.sh',workflow)
@@ -1200,7 +1205,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         # no workflow job may be pinned to the REA Node version.
         self.assertNotIn('node-version: 26.12.1',workflow)
         self.assertNotIn('node-version: latest',workflow)
-        self.assertEqual(workflow.count('node-version: 24.22.2'),4)
+        self.assertEqual(workflow.count('node-version: 24.22.2'),3)
         
         rdc_installer=(SCRIPTS/'install-rdc.sh').read_text()
         self.assertIn('RDC_VERSION="0.3.1"',rdc_installer)

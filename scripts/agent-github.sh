@@ -120,8 +120,7 @@ configured() {
 
 case "${1:-status}" in
   install)
-    # Read the repository secret from stdin exactly once. The caller should pipe
-    # AGENT_GITHUB_TOKEN into this command; it is never persisted by this script
+    # Read the repository secret from stdin exactly once. The caller pipes the Sigillo-injected GitHub token into this command; it is never persisted by this script
     # outside GitHub CLI's own authentication store.
     if [[ -t 0 ]]; then
       echo 'AGENT_GITHUB=NOT_CONFIGURED'

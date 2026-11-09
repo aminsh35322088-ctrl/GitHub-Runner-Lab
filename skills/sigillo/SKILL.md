@@ -408,7 +408,6 @@ These notes extend the upstream skill for this repository; the upstream rules ab
 - In this Lab, the GitHub Actions secret is named `SIGILLO_API_TOKEN`. The startup workflow maps it to the CLI's `SIGILLO_TOKEN` environment variable.
 - The optional Actions repository variable `SIGILLO_API_URL` selects a self-hosted HTTPS origin. If absent, the workflow uses `https://sigillo.dev`.
 - Normal runner startup uses a non-interactive API-token bootstrap and validates it with `sigillo me` before and after saving it. Do not initiate browser/device login to repair an unattended runner.
-- The bootstrap is optional and must not block RDC or Tailscale. Diagnose the workflow step/summary before changing credentials.
+- Agent GitHub CLI, HTTPS Git and GHCR authentication is bootstrapped from `GITHUB_API_TOKEN` in the configured Sigillo project/environment. The workflow pipes this value to GitHub CLI over stdin and removes it from the installer environment.
+- The GitHub Actions API remains independent: run control, watchdog, cancellation, dispatch, and status publishing use the built-in `github.token` (or optional `ACTIONS_WATCHDOG_TOKEN`), never Sigillo.
 - The local `~/.sigillo/config.json` is recreated for each ephemeral runner from GitHub Actions Secrets. Never include it in checkpoints, caches, artifacts, or commits.
-- The Lab's Runner Credential Vault is a different, proxy-only system. Prefer it when a provider credential must never enter the runner process environment.
-- GitHub `gh`, HTTPS Git and GHCR access continue to use the Lab's separate GitHub authentication bootstrap; Sigillo does not replace it.
