@@ -314,9 +314,21 @@ jobs:
         continue-on-error: true
         env:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          # Optional override for self-hosted Sigillo; defaults to https://sigillo.dev.
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL }}
         shell: bash
         run: |
           set -euo pipefail
+
+          # Do not let an empty Actions variable override the CLI's hosted default.
+          if [[ -z "${SIGILLO_API_URL:-}" ]]; then
+            unset SIGILLO_API_URL
+          elif [[ "$SIGILLO_API_URL" != https://* ]]; then
+            echo "::warning::SIGILLO_API_URL must use HTTPS; Sigillo will remain disabled."
+            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sigillo_api_origin="${SIGILLO_API_URL:-https://sigillo.dev}"
 
           sigillo_unavailable() {
             local reason="$1"
@@ -353,7 +365,7 @@ jobs:
           if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me --json >"$auth_json" 2>"$auth_err"; then
             http_status="$(grep -oE '\([0-9]{3}\)' "$auth_err" | tail -n1 | tr -d '()')"
             case "${http_status:-unknown}" in
-              401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN (HTTP 401); replace the GitHub secret with an active API token from the correct Sigillo instance" ;;
+              401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN on ${sigillo_api_origin} (HTTP 401); check the instance URL or replace the GitHub secret with an active API token created on that instance" ;;
               403) sigillo_unavailable "Sigillo denied SIGILLO_API_TOKEN (HTTP 403); check the token and its project/environment access" ;;
               *) sigillo_unavailable "API token preflight failed (HTTP ${http_status:-unknown})" ;;
             esac
