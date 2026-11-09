@@ -35,8 +35,7 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn('printf "%s" "${GITHUB_API_TOKEN:', step)
         self.assertIn("env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install", step)
         self.assertIn("./scripts/agent-github.sh verify", step)
-        self.assertNotIn("secrets.AGENT_GITHUB_TOKEN", WORKFLOW)
-        self.assertNotIn("AGENT_GITHUB_TOKEN:", WORKFLOW)
+        self.assertNotIn('GITHUB_API_TOKEN: ${{ secrets.', WORKFLOW)
 
     def test_github_actions_api_remains_independent_from_sigillo(self):
         self.assertIn("secrets.ACTIONS_WATCHDOG_TOKEN || github.token", WORKFLOW)
