@@ -157,6 +157,78 @@ jobs:
         with:
           node-version: 24.22.2
 
+      - name: Verify Sigillo API token (optional)
+        id: sigillo-auth
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          report() {
+            local status="$1"
+            local detail="$2"
+            unset SIGILLO_TOKEN
+            echo "::notice::Sigillo smoke test: $status"
+            {
+              echo "### Sigillo API smoke test"
+              echo
+              echo "- Authentication: **$status**"
+              echo "- Detail: $detail"
+              echo "- Token values: **not logged**"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            report "not configured" "SIGILLO_API_TOKEN GitHub Actions secret is missing"
+          fi
+
+          if [[ -z "${SIGILLO_API_URL:-}" ]]; then
+            SIGILLO_API_URL="https://sigillo.dev"
+          fi
+          if ! api_origin="$(SIGILLO_API_URL="$SIGILLO_API_URL" node -e 'const u = new URL(process.env.SIGILLO_API_URL); if (u.protocol !== "https:" || !u.hostname || u.username || u.password || u.pathname !== "/" || u.search || u.hash) process.exit(2); process.stdout.write(u.origin)')"; then
+            report "invalid endpoint" "SIGILLO_API_URL must be an HTTPS origin"
+          fi
+          export SIGILLO_API_URL="$api_origin"
+
+          if ! npm install --global sigillo >/dev/null 2>&1; then
+            report "unavailable" "Sigillo CLI installation failed"
+          fi
+
+          auth_err="$RUNNER_TEMP/sigillo-smoke-auth.stderr"
+          projects_file="$RUNNER_TEMP/sigillo-smoke-projects.txt"
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me >/dev/null 2>"$auth_err"; then
+            http_status="$(grep -oE '\\([0-9]{3}\\)' "$auth_err" | tail -n1 | tr -d '()' || true)"
+            rm -f "$auth_err" "$projects_file"
+            report "rejected (HTTP ${http_status:-unknown})" "API did not accept the supplied token on $api_origin"
+          fi
+          rm -f "$auth_err"
+
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo projects >"$projects_file" 2>"$auth_err"; then
+            rm -f "$auth_err" "$projects_file"
+            report "authenticated; project listing failed" "The API accepted the token, but project listing failed"
+          fi
+
+          if grep -Fqi -- "Amin-creditonal" "$projects_file"; then
+            result="found"
+          else
+            result="not visible to this token"
+          fi
+          rm -f "$auth_err" "$projects_file"
+          unset SIGILLO_TOKEN
+          {
+            echo "### Sigillo API smoke test"
+            echo
+            echo "- Authentication: **passed**"
+            echo "- Project Amin-creditonal: **$result**"
+            echo "- API endpoint: $api_origin"
+            echo "- Token values: **not logged**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "SIGILLO_API_AUTH=PASS"
+          echo "SIGILLO_AMIN_CREDITONAL=$result"
+
       - name: Discover Vault deployment
         id: vault-discovery
         shell: bash
