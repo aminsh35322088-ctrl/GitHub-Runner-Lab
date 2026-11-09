@@ -154,8 +154,13 @@ Repository setup requires these secrets:
 | `AGENT_GITHUB_TOKEN` | Bootstraps the agent's persistent GitHub CLI/Git/GHCR authentication. A classic PAT is used when package publishing is required. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
-| `SIGILLO_API_TOKEN` *(optional)* | Sigillo API bearer token for non-interactive CLI authentication. Store only as an Actions secret. |
-| `SIGILLO_API_URL` *(optional variable)* | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
+
+Optional Sigillo settings (not required to run the Lab):
+
+| Setting | GitHub type | Purpose |
+| --- | --- | --- |
+| `SIGILLO_API_TOKEN` | Actions secret | Sigillo API bearer token for non-interactive CLI authentication. |
+| `SIGILLO_API_URL` | Repository variable | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
 
 Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
 
