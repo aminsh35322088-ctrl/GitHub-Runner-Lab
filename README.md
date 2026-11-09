@@ -27,6 +27,8 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 
 ## Optional: Runner Credential Vault
 
+The Runner Credential Vault is a separate proxy-only integration. Unlike Sigillo, it does not inject provider secret values into a child process; the raw credential remains in the Vault Worker while an owner-approved API request is proxied and filtered.
+
 For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens), an agent can use a
 separate Cloudflare Worker vault to make the API call without receiving the raw token, or ask the owner to register
 a missing credential through a one-time link.
@@ -152,10 +154,22 @@ Repository setup requires these secrets:
 | `AGENT_GITHUB_TOKEN` | Bootstraps the agent's persistent GitHub CLI/Git/GHCR authentication. A classic PAT is used when package publishing is required. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
+| `SIGILLO_API_TOKEN` *(optional)* | Sigillo API bearer token for non-interactive CLI authentication. Store only as an Actions secret. |
+| `SIGILLO_API_URL` *(optional variable)* | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
 
 Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
 
 To move the Lab to another Desktop Commander account, run the same workflow with **Connect a new RDC account**. The account switch validates the replacement identity before overwriting saved state; a failed switch keeps the previous encrypted identity available for recovery.
+
+### Optional Sigillo setup
+
+Create a Sigillo API token and save it in **Repository → Settings → Secrets and variables → Actions** as `SIGILLO_API_TOKEN`. Prefer a project-scoped token restricted to only the environments agents need. If agents need all environments, allow only the required slugs such as `dev`, `preview`, and `prod`.
+
+For a self-hosted Sigillo instance, add the repository variable `SIGILLO_API_URL` with its HTTPS origin. Leave it unset for `https://sigillo.dev`.
+
+The existing `runner-lab` job performs non-interactive authentication before RDC starts: it validates the token with `sigillo me`, stores it using `sigillo login --scope /`, locks the config to owner-only permissions, then verifies the saved credential again. No browser/device login is required. The config is created for each ephemeral runner generation from the Actions secret; it is not committed, cached, or checkpointed.
+
+Sigillo remains optional. A missing, invalid, unreachable, or misconfigured token disables only Sigillo and must not block RDC or Tailscale. See [docs/sigillo.md](docs/sigillo.md).
 
 ## Access model
 
@@ -208,6 +222,8 @@ or prepare an explicit branch/PR workspace:
 ```
 
 The Lab has no built-in target project. An installation that intentionally uses one default repository may set `AGENT_DEFAULT_REPO`; otherwise the target must be explicit.
+
+For Sigillo work, agents should read the vendored [Sigillo skill](skills/sigillo/SKILL.md) and [Lab integration guide](docs/sigillo.md). The upstream skill can also be installed globally with `npx -y skills add remorses/sigillo -g -y`.
 
 ## Project contract
 
@@ -281,6 +297,32 @@ Fresh trusted RDC/Agent shells therefore use normal commands such as `gh`, `git 
 For GHCR publishing, the classic PAT must include `write:packages` in addition to the repository/organization scopes required by the intended work. The bootstrap path fails closed if the GitHub API identity, Git credential lookup, required package scope, or GHCR credential lookup cannot be verified.
 
 The PAT is not intentionally copied into Docker config, repository config, checkpoints, caches, URLs, or command-line arguments.
+
+## Sigillo secret manager
+
+Sigillo is the Lab's optional CLI-based secret manager for trusted build/deployment commands. It is separate from GitHub authentication and the Runner Credential Vault.
+
+| Credential path | Purpose | Security model |
+| --- | --- | --- |
+| `AGENT_GITHUB_TOKEN` bootstrap | GitHub CLI, HTTPS Git and GHCR access. | Independent GitHub credential-helper state. |
+| Sigillo | Inject selected project/environment secrets into a child process. | API token lives in GitHub Actions Secrets and a private config for the current runner. `sigillo run` redacts matching child output by default. |
+| Runner Credential Vault | Proxy owner-approved provider API requests. | Raw credential stays in the Vault Worker; only filtered API responses return to the runner. |
+
+Sigillo redaction is not a hostile-code security boundary: the child receives real values, and a process running as the same runner user can potentially use the CLI to request whatever the API token is allowed to read. Use the proxy-only Runner Credential Vault when a credential must never enter the runner.
+
+The workflow maps Actions secret `SIGILLO_API_TOKEN` to the CLI's `SIGILLO_TOKEN` variable. It optionally reads repository variable `SIGILLO_API_URL` and accepts only an HTTPS origin. It validates the bearer token before storing it because `sigillo login` saves a token but does not itself validate it. `SIGILLO_CLI_READY=true` is emitted only after a second `sigillo me` check. Failure is non-blocking.
+
+Use project IDs, not display names, for explicit CLI operations:
+
+```bash
+sigillo me
+sigillo projects
+sigillo environments --project <PROJECT_ID>
+sigillo secrets --project <PROJECT_ID> --env dev
+sigillo run --project <PROJECT_ID> --env dev -- npm test
+```
+
+Never read `~/.sigillo/` or `.env` files directly, print secret values, or use `sigillo run` output as a secret transport. For agent rules and current CLI references, see [docs/sigillo.md](docs/sigillo.md) and [skills/sigillo/SKILL.md](skills/sigillo/SKILL.md).
 
 ## Lifecycle and handoff
 
@@ -449,6 +491,9 @@ scripts/                  lifecycle, access, workspace, job, validation and reco
 tests/                    Lab regression suite
 AGENTS.md                  authoritative instructions for AI agents working in this Lab
 README.md                  architecture, purpose and operator-facing overview
+docs/sigillo.md            Sigillo operator, CLI and troubleshooting guide
+skills/README.md           project-local agent skills index
+skills/sigillo/SKILL.md    vendored upstream Sigillo agent skill
 ```
 
 The main operator/agent entry point is:
