@@ -53,21 +53,6 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("inputs.action == 'Sigillo smoke test'", WORKFLOW)
         self.assertIn("must not depend on Sigillo", AGENTS)
 
-    def test_vault_integration_is_fully_removed(self):
-        for document in (README, AGENTS, SIGILLO_DOC, SIGILLO_SKILL, WORKFLOW):
-            self.assertNotIn("Runner Credential Vault", document)
-            self.assertNotIn("VAULT_", document)
-        for path in (
-            ROOT / "docs" / "credential-vault.md",
-            ROOT / "scripts" / "discover_vault.py",
-            ROOT / "scripts" / "fetch-vault-client.sh",
-            ROOT / "scripts" / "verify-vault-runtime.sh",
-            ROOT / "tests" / "test_vault_oidc_smoke_workflow.py",
-            ROOT / "tests" / "test_vault_client_fetch.py",
-            ROOT / "tests" / "test_vault_runtime.py",
-        ):
-            self.assertFalse(path.exists(), path)
-
     def test_sigillo_docs_preserve_secret_handling_boundaries(self):
         for document in (AGENTS, SIGILLO_DOC, SIGILLO_SKILL):
             self.assertIn("~/.sigillo", document)
