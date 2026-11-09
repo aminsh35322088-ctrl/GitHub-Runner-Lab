@@ -1,184 +1,93 @@
 # Sigillo integration
 
-This guide describes how Sigillo is integrated into GitHub Runner Lab, how operators configure it, and how agents should use it safely. It complements the vendored [Sigillo agent skill](../skills/sigillo/SKILL.md); the upstream project documentation remains authoritative for current CLI behavior.
+Sigillo is the Lab's central credential source for trusted agent work. It supplies the Agent's GitHub provider credential and other provider/API credentials to only the process that needs them. GitHub Actions workflow-control operations remain on GitHub's built-in Actions token and do not depend on Sigillo.
 
-- Upstream project: https://github.com/remorses/sigillo
-- Official hosted service: https://sigillo.dev/
-- Upstream agent skill: https://github.com/remorses/sigillo/blob/main/skills/sigillo/SKILL.md
-- Official CLI reference: https://github.com/remorses/sigillo/tree/main/app/src/docs/cli
+Official references:
+- [Sigillo](https://sigillo.dev/)
+- [Sigillo CLI documentation](https://github.com/remorses/sigillo)
+- [Sigillo agent skill](https://github.com/remorses/sigillo/blob/main/skills/sigillo/SKILL.md)
+- [GitHub CLI authentication](https://cli.github.com/manual/gh_auth_login)
 
-## 1. What Sigillo does in the Lab
+## 1. Credential layout
 
-Sigillo is an optional secrets manager exposed through its CLI. It authenticates the runner to a Sigillo instance, lets an agent discover projects/environments and secret names, and can inject selected secret values into child processes with `sigillo run`.
-
-The Lab uses the standard non-interactive Sigillo API-token path. It does not use a browser/device flow during normal runner startup.
-
-### Keep the three credential paths separate
-
-| Credential path | Purpose | Secret exposure model |
+| Credential | Location | Purpose |
 | --- | --- | --- |
-| `AGENT_GITHUB_TOKEN` bootstrap | GitHub CLI, HTTPS Git and GHCR access. | Bootstrapped into GitHub's credential helpers; independent of Sigillo and Runner Vault. |
-| Sigillo | Project/environment secrets for commands that need values in their process environment. | The CLI holds an API bearer token in the current runner user's private config. `sigillo run` gives the selected values to its child process and redacts matching output by default. |
-| Runner Credential Vault | Owner-managed provider API access. | Raw credential values stay in the separately deployed Worker; the runner receives only filtered API responses. |
+| `SIGILLO_API_TOKEN` | GitHub Actions repository secret | Allows each ephemeral runner to authenticate to Sigillo non-interactively. |
+| `GITHUB_API_TOKEN` | Sigillo project `Amin-creditonal`, environment `prod` | Agent GitHub CLI, HTTPS Git and GHCR authentication. |
+| Other provider/API credentials | Sigillo project/environment | Credentials for services used by trusted agent tasks. |
+| `github.token` | Automatically provided by GitHub Actions | Workflow-control API: list/cancel/dispatch runs, watchdog recovery and repository status publishing. |
+| `ACTIONS_WATCHDOG_TOKEN` | Optional GitHub Actions repository secret | Optional override for workflow-control operations when the built-in token's repository-scoped permissions are insufficient. |
 
-Sigillo is not proxy-only. A process running as the same Unix user can potentially use the CLI and request whatever the API token is allowed to read. Redaction does not make an untrusted process safe and does not stop a malicious program from using the injected credential. Use Runner Credential Vault when the raw credential must never enter the runner.
+The configured Sigillo project ID is `01M6ZRTJGTG7RNMSMVMVRJB3HY`; the Runner Lab currently uses environment `prod`. The workflow pins these values in its top-level environment.
+
+**Do not move GitHub Actions API operations to Sigillo.** The Actions API path stays authenticated by `github.token` or the optional `ACTIONS_WATCHDOG_TOKEN`. `GITHUB_API_TOKEN` is for the Agent's GitHub identity only.
 
 ## 2. GitHub Actions configuration
 
-### Required for the optional integration
+Required:
+- Add a Sigillo API bearer token as the Actions secret `SIGILLO_API_TOKEN`.
+- Ensure the Sigillo project above contains `GITHUB_API_TOKEN` in the `prod` environment.
+- The GitHub PAT should be a classic PAT for `gh auth login --with-token`. Grant only the repository/org scopes required for the work; include `write:packages` when GHCR publishing is required.
 
-| GitHub setting | Type | Required | Description |
-| --- | --- | --- | --- |
-| `SIGILLO_API_TOKEN` | Actions secret | Optional for the Lab; required to enable Sigillo | Sigillo bearer API token. The value is never printed by the workflow. |
-| `SIGILLO_API_URL` | Repository variable | Optional | HTTPS origin of a self-hosted Sigillo instance. Defaults to `https://sigillo.dev`. |
+Optional:
+- Set repository variable `SIGILLO_API_URL` only when using a self-hosted Sigillo instance. It must be an HTTPS origin; otherwise the workflow defaults to `https://sigillo.dev`.
 
-Create the API token in the Sigillo dashboard. Prefer a token scoped to the one project the agents need. If the workflow task needs to list/read multiple environments, restrict the token to only those required environments. Avoid broad organization-wide access when project/environment scope is sufficient.
+The workflow validates the Sigillo token using `sigillo me` before saving it, then uses `sigillo login --scope /`, restricts `~/.sigillo` and its config file to owner-only permissions, and verifies the saved credential. The config is created on each ephemeral runner. It is never committed, cached, checkpointed, or uploaded as an artifact.
 
-Add the token only in GitHub **Settings → Secrets and variables → Actions → New repository secret**. Do not put the raw token in a workflow YAML file, repository variable, `.env`, issue, chat, or command argument.
+## 3. Agent GitHub bootstrap
 
-For self-hosted Sigillo, add `SIGILLO_API_URL` as a repository variable. It must be an HTTPS origin only. The workflow rejects a value containing credentials, a path, query string, or fragment before it can be used as the API base URL.
-
-### Startup sequence
-
-The existing `.github/workflows/rdc-lab.yml` step named **Install and authenticate Sigillo CLI (optional)** runs early in the `runner-lab` job, before RDC starts.
-
-1. Read `SIGILLO_API_TOKEN` from GitHub Actions Secrets and expose it to the process as `SIGILLO_TOKEN` (the variable name expected by Sigillo).
-2. Normalize/validate `SIGILLO_API_URL`; use `https://sigillo.dev` when the variable is empty.
-3. Install the Sigillo CLI with npm.
-4. Call `SIGILLO_TOKEN=... sigillo me` as a preflight. This is important because `sigillo login` with a bearer token saves the token but does not prove that the API accepts it.
-5. Only after preflight succeeds, run `sigillo login --scope /` to save the token in the runner user's config.
-6. Apply permissions (`700` to `~/.sigillo`, `600` to `~/.sigillo/config.json`) and call `sigillo me` again.
-7. Mark the step ready only after post-save verification. The token itself, API response body and config content are not emitted to logs or summaries.
-
-The step reports `SIGILLO_CLI_READY=true` only after successful API authentication and persistence. Any known or unexpected bootstrap failure is converted to a warning and Sigillo remains unavailable; RDC/Tailscale startup must continue.
-
-The file `~/.sigillo/config.json` belongs to the current ephemeral runner user. It is not a repository file and must not be added to encrypted workspaces, GitHub caches, or artifacts. A successor generation receives the Actions secret again and performs a fresh non-interactive bootstrap.
-
-## 3. Verify the integration
-
-Run these commands from a trusted RDC shell:
+After RDC and Tailscale health checks, the workflow runs the equivalent of:
 
 ```bash
-sigillo --version
-sigillo me
-sigillo projects
+sigillo run --project 01M6ZRTJGTG7RNMSMVMVRJB3HY --env prod \
+  --command 'set -o pipefail; printf "%s" "${GITHUB_API_TOKEN:?GITHUB_API_TOKEN is missing from Sigillo}" | env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install'
 ```
 
-Use the project ID from `sigillo projects`, not the display name:
+The bootstrap:
+1. Receives `GITHUB_API_TOKEN` from Sigillo only inside the `sigillo run` child.
+2. Pipes it over stdin to `gh auth login --with-token`; it is not passed in argv.
+3. Removes `GITHUB_API_TOKEN` from the installer environment.
+4. Configures the GitHub CLI credential helper for HTTPS Git and the GHCR Docker credential helper.
+5. Verifies API identity, a usable Git credential, the required package scope, and the GHCR helper.
 
-```bash
-PROJECT_ID='<project-id-from-sigillo-projects>'
+Once that succeeds, trusted RDC/Agent shells use ordinary `gh`, `git`, and `docker` commands. The PAT is not added to a persistent environment variable and is not separately stored as a GitHub Actions secret.
 
-sigillo projects get "$PROJECT_ID"
-sigillo environments --project "$PROJECT_ID"
-sigillo secrets --project "$PROJECT_ID" --env dev
-sigillo secrets --project "$PROJECT_ID" --env preview
-sigillo secrets --project "$PROJECT_ID" --env prod
-```
+GitHub documents `gh auth login --with-token` as reading a classic PAT from standard input. It notes that the minimum scopes for this flow are `repo`, `read:org`, and `gist`; the Lab additionally checks `write:packages` when configuring GHCR access. See the [official gh auth login documentation](https://cli.github.com/manual/gh_auth_login).
 
-`sigillo secrets` lists names and metadata, not the secret values. The CLI accepts explicit `--project` and `--env` overrides, so the Lab does not need to run interactive `sigillo setup` for each workspace.
+## 4. Use Sigillo for other provider credentials
 
-### Dedicated smoke test
-
-Open **Actions → Remote Desktop Commander Lab → Run workflow → Vault smoke test**. This selects the existing `vault-smoke-test` job and does not start or restart the persistent `runner-lab` job.
-
-The smoke test:
-
-- checks the Actions secret using `sigillo me`;
-- lists projects and checks whether the configured `Amin-creditonal` project is visible to the token;
-- writes only a small pass/fail status to the step log/summary, never the token or secret values;
-- proceeds to the separate Runner Credential Vault OIDC/registry and GitHub/Cloudflare credential checks.
-
-A successful Sigillo step does not imply that the later Vault provider checks passed; review each step independently.
-
-## 4. Use Sigillo from an agent
-
-### List project/environment metadata
+Use project IDs and environment slugs explicitly:
 
 ```bash
 sigillo me
 sigillo projects
-sigillo environments --project <PROJECT_ID>
-sigillo secrets --project <PROJECT_ID> --env dev
+sigillo environments --project 01M6ZRTJGTG7RNMSMVMVRJB3HY
+sigillo secrets --project 01M6ZRTJGTG7RNMSMVMVRJB3HY --env prod
+sigillo run --project 01M6ZRTJGTG7RNMSMVMVRJB3HY --env prod -- your-command
 ```
 
-The CLI uses project IDs, not project names, for `--project`. A project-scoped API token may still be restricted to a subset of that project's environments; a successful `sigillo me` does not guarantee access to every environment.
+For a command that needs one or more credentials, prefer `sigillo run` instead of reading values into the agent context or writing a dotenv file. Keep the operation narrow and run only trusted code on the host.
 
-### Run a trusted command with secret injection
+Never:
+- Read `~/.sigillo/` or `.env` files directly.
+- Print, serialize, log, screenshot, copy to chat, or commit secret values.
+- Put credential values in command-line arguments, Git URLs, shell history, GitHub outputs, issues, checkpoints, or caches.
+- Use `sigillo run` output as a raw-secret transport; Sigillo's output redaction also applies to pipes.
+- Run untrusted repository code in the trusted RDC shell or a host managed job merely because the command is wrapped in `sigillo run`. Use the isolated untrusted container execution path.
 
-```bash
-sigillo run --project <PROJECT_ID> --env dev -- npm test
-```
+Sigillo redaction is defense in depth, not a hostile-code security boundary. The child receives the real values, and another process running under the same Unix user may be able to use the same Sigillo access.
 
-Use `--command` only for shell operations such as `&&`, pipes, redirects or variable expansion. Quote the command to keep expansion inside the child shell:
+## 5. Smoke test and troubleshooting
 
-```bash
-sigillo run --project <PROJECT_ID> --env preview --command 'node deploy.js --token "$DEPLOY_TOKEN"'
-```
-
-### Send a single value directly to a tool
-
-Do not print a value for debugging or move it through model output. Keep it inside a direct pipe:
-
-```bash
-sigillo secrets get DEPLOY_TOKEN --project <PROJECT_ID> --env dev --raw | deploy-tool --token-stdin
-```
-
-The exact command and flags should be confirmed with the installed CLI help when working against a different Sigillo release:
-
-```bash
-sigillo --help
-sigillo secrets get --help
-sigillo run --help
-```
-
-### Important redaction limit
-
-Sigillo redacts matching secret values from `sigillo run` stdout/stderr by default, including when the output is piped. A downstream command receiving the output of `sigillo run` may therefore receive literal asterisks instead of the secret. Do not use `sigillo run` output as a raw-secret transport.
-
-Redaction is defense in depth, not a guarantee that every possible secret is removed. Short or low-entropy values may not match the redaction heuristic. Avoid commands that print credentials, do not disable redaction for inspection, and do not run untrusted code on the trusted host just because it is wrapped with `sigillo run`.
-
-For files, prefer `sigillo run` environment injection. The optional `--mount` mode writes a temporary owner-only file and deletes it after execution, but it still puts secret material on disk while the child is running; use it only when the consuming application requires a file.
-
-## 5. Agent safety rules
-
-- Never read `.env` files or any file under `~/.sigillo/` directly. Use `sigillo me` to inspect authentication and setup status.
-- Never echo, cat, serialize, log, screenshot, paste or commit token/config/secret values.
-- Never pass a Sigillo token as a CLI argument. Use the runner's Actions-secret bootstrap or a protected `SIGILLO_TOKEN` environment variable in a controlled CI environment.
-- Never add `~/.sigillo` to checkpoints, caches, artifacts, workspace archives or repository files.
-- Never use `--disable-redaction` to obtain a secret for the agent context.
-- Do not treat host-side Sigillo as a sandbox. Trusted agent processes share the runner Unix identity.
-- Managed jobs use a clean isolated HOME; do not assume they inherit the interactive runner's Sigillo login. Do not pass the bearer token through `--pass-env` as a workaround.
-- Do not create, rotate, broaden, revoke or delete tokens/secrets unless the user explicitly requests it. Keep scope as narrow as the task allows.
-- Prefer Runner Credential Vault for credentials whose raw value must remain off the runner.
-
-## 6. Troubleshooting
+Run **Actions → Remote Desktop Commander Lab → Run workflow → Sigillo smoke test**. This short-lived job validates Sigillo authentication and visibility of the configured project without starting or restarting the long-lived runner.
 
 | Symptom | Likely cause | Safe action |
 | --- | --- | --- |
-| `error: not logged in` on the current runner | Bootstrap did not create a local config, the step was skipped, or the agent is in a managed job with a clean HOME. | Check the **Install and authenticate Sigillo CLI (optional)** step and its summary. On the Lab runner, verify `SIGILLO_API_TOKEN` exists in Actions Secrets; do not start browser login. |
-| HTTP `401 unauthorized` | Token is revoked/incorrect, or it belongs to a different Sigillo API instance. | Confirm the Actions secret was replaced with the current bearer token and that `SIGILLO_API_URL` points to the instance that created it. |
-| HTTP `403` | Token authenticated but the requested project/environment or operation is outside its access scope. | Check project ID and allowed environment scope. Do not broaden the token without owner approval. |
-| Project list is empty or expected project is missing | Token belongs to another project/org, has limited visibility, or the project ID/name was confused. | Run `sigillo projects`, use the returned project ID, and confirm the intended account/instance. |
-| Environment not configured/found | Display name was passed instead of project ID, env slug is wrong, or the project has no access to that slug. | Run `sigillo environments --project PROJECT_ID` and use the exact slug. |
-| Saved config is rejected after login | The supplied token did not pass the post-save API check or the API URL changed. | Check the workflow summary; update the GitHub Actions secret/variable and rerun Start / Resume. Never edit the config file by hand. |
+| Sigillo authentication rejected (401) | Revoked/wrong API token or wrong Sigillo API origin | Check `SIGILLO_API_TOKEN` and `SIGILLO_API_URL`; do not print either value. |
+| Project not visible | Token is scoped to another project/account | Run `sigillo projects` and confirm the configured project ID and scope. |
+| Environment missing | Wrong slug or token scope | Run `sigillo environments --project PROJECT_ID` and use the exact slug. |
+| `GITHUB_API_TOKEN` missing during Agent bootstrap | Secret is absent from the Sigillo `prod` environment or has a different name | Add/repair it in Sigillo's UI; do not add a second GitHub PAT Actions secret. |
+| GitHub bootstrap fails | PAT type/scope, Git credential-helper, package scope, or GHCR helper issue | Inspect the safe `AGENT_GITHUB_*` status markers; never print token values. |
+| Workflow API requests fail | Built-in Actions token lacks the required repository permission | Review the job's `permissions` block or configure the optional `ACTIONS_WATCHDOG_TOKEN`; do not route workflow API through Sigillo. |
 
-A successful `sigillo login` command alone is not an authentication test; it can save a bearer string without the server accepting it. The Lab's preflight and post-login `sigillo me` checks are intentional.
-
-## 7. Vendored agent skill and upstream references
-
-The full upstream Sigillo skill is vendored at [`skills/sigillo/SKILL.md`](../skills/sigillo/SKILL.md), with Lab-specific integration notes appended. It contains the upstream guidance for project bootstrap, secret-safe pipelines, package scripts, worktree scoping, CI, and self-hosted instances.
-
-Install the official upstream skill globally when desired:
-
-```bash
-npx -y skills add remorses/sigillo -g -y
-```
-
-Official references:
-
-- [Sigillo README](https://github.com/remorses/sigillo)
-- [Sigillo agent skill](https://github.com/remorses/sigillo/blob/main/skills/sigillo/SKILL.md)
-- [CLI reference](https://github.com/remorses/sigillo/tree/main/app/src/docs/cli)
-- [CLI changelog](https://github.com/remorses/sigillo/blob/main/cli/CHANGELOG.md)
-- [Hosted Sigillo](https://sigillo.dev/)
+The Sigillo smoke test is diagnostic only; successful Sigillo authentication does not by itself prove the later Agent GitHub credential is valid. The main Runner Lab workflow verifies the GitHub identity and Git/GHCR credential paths as part of bootstrap.
