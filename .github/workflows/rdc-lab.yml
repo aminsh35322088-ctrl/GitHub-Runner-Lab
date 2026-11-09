@@ -34,6 +34,8 @@ env:
   ONLINE_MINUTES: 330
   AGENT_AUTO_HANDOFF_MINUTES: 20
   TAILSCALE_HOSTNAME: GitHub-Lab
+  SIGILLO_PROJECT_ID: 01M6ZRTJGTG7RNMSMVMVRJB3HY
+  SIGILLO_ENVIRONMENT: prod
 
 jobs:
   account-switch:
@@ -231,8 +233,20 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
-        run: python3 scripts/discover_vault.py
+        run: |
+          set -euo pipefail
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            python3 scripts/discover_vault.py
+            exit 0
+          fi
+          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
+          fi
       - name: Validate Vault configuration
         shell: bash
         run: |
@@ -259,9 +273,10 @@ jobs:
 
       - name: Fetch the pinned Vault client
         env:
-          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
-        run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
+        run: sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Verify GitHub OIDC and read-only Vault registry access
         env:
@@ -484,8 +499,20 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
-        run: python3 scripts/discover_vault.py
+        run: |
+          set -euo pipefail
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            python3 scripts/discover_vault.py
+            exit 0
+          fi
+          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
+          fi
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
         run: |
@@ -639,9 +666,8 @@ jobs:
         timeout-minutes: 2
         continue-on-error: true
         env:
-          # Optional token fallback; source and immutable revision come from
-          # the discovered deployment.json (see the vault-discovery step).
-          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -654,7 +680,7 @@ jobs:
           PYURL
           mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
           chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
+          sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
           chmod 500 "$HOME/.local/share/runner-vault/vault.mjs"
           ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
           test -x "$HOME/.local/bin/vault"
@@ -714,23 +740,22 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Configure Agent GitHub access
+      - name: Configure Agent GitHub access from Sigillo
         if: steps.mode.outputs.ready == 'true'
         env:
-          AGENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
         run: |
-          if [[ -z "${AGENT_GITHUB_TOKEN:-}" ]]; then
-            echo "::error::AGENT_GITHUB_TOKEN is required for transparent Agent GitHub access."
+          set -euo pipefail
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            echo "::error::SIGILLO_API_TOKEN is required to retrieve the runner GitHub credential from Sigillo."
             exit 1
           fi
-          printf '%s' "$AGENT_GITHUB_TOKEN" | ./scripts/agent-github.sh install
-          unset AGENT_GITHUB_TOKEN
+          # Keep the GitHub PAT out of the installer process environment: it is
+          # delivered only over stdin, then stored by GitHub CLI's credential helper.
+          sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" --command 'set -o pipefail; printf "%s" "${GITHUB_API_TOKEN:?GITHUB_API_TOKEN is missing from Sigillo}" | env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install'
           ./scripts/agent-github.sh verify
-
-      # Restore dependency/download caches only after RDC is already reachable.
-      # Target-repository setup scripts own the cache contents; the Lab only
-      # persists this generic, secret-free cache between ephemeral runners.
       - name: Identify Agent cache runtime
         id: cache-runtime
         if: steps.mode.outputs.ready == 'true'
@@ -910,8 +935,20 @@ jobs:
 
       - name: Discover Vault deployment
         id: vault-discovery
+        env:
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
-        run: python3 scripts/discover_vault.py
+        run: |
+          set -euo pipefail
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            python3 scripts/discover_vault.py
+            exit 0
+          fi
+          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
+          fi
       - name: Report missing Vault deployment
         if: steps.vault-discovery.outputs.configured != 'true'
         shell: bash
@@ -922,9 +959,10 @@ jobs:
       - name: Fetch the pinned Vault client
         if: steps.vault-discovery.outputs.configured == 'true'
         env:
-          VAULT_CLIENT_GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
+          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
-        run: ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
+        run: sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
 
       - name: Create one-time Northflank credential registration
         if: steps.vault-discovery.outputs.configured == 'true'
