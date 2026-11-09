@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Download the pinned Runner Credential Vault client to $1.
 #
-# The Vault repository is public, so no credential is needed. VAULT_CLIENT_GITHUB_TOKEN
-# is only a fallback (for example if the repository is made private again, or the
-# anonymous GitHub API rate limit is hit). The Vault stays optional either way: this
-# script exits non-zero on failure and callers treat that as "Vault unavailable".
+# The Vault repository may be private. The caller runs this script under Sigillo,
+# which injects GITHUB_API_TOKEN only for this process. Anonymous access remains a
+# fast path for public sources. The Vault stays optional: callers treat failure as
+# "Vault unavailable".
 #
 # The fallback token is sent to curl through its stdin config stream. It is never
 # placed in curl/timeout arguments or exported as GH_TOKEN to a child process.
@@ -23,8 +23,8 @@ if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-token="${VAULT_CLIENT_GITHUB_TOKEN:-}"
-unset VAULT_CLIENT_GITHUB_TOKEN
+token="${GITHUB_API_TOKEN:-}"
+unset GITHUB_API_TOKEN
 api_path="repos/$repository/contents/client/vault.mjs?ref=$ref"
 api_url="https://api.github.com/$api_path"
 tmp="$(mktemp --suffix=.mjs)"
@@ -57,7 +57,7 @@ elif [[ -n "$token" ]]; then
   fi
   unset token curl_token
   [[ -s "$tmp" ]] || { echo "::warning::Downloaded Vault client is empty."; exit 1; }
-  echo "VAULT_CLIENT_SOURCE=token-fallback"
+  echo "VAULT_CLIENT_SOURCE=sigillo-authenticated"
 else
   echo "::warning::Could not download the Vault client anonymously and no fallback token is available; Vault integration will be degraded."
   exit 1
