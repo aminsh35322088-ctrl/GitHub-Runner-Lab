@@ -157,7 +157,7 @@ jobs:
         with:
           node-version: 24.22.2
 
-      - name: Verify Sigillo API token (optional)
+      - name: Verify Sigillo API token
         id: sigillo-auth
         env:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
@@ -238,6 +238,10 @@ jobs:
       group: rdc-runner-lab
       cancel-in-progress: false
 
+    outputs:
+      configured: ${{ steps.verify.outputs.ready }}
+      queued: ${{ steps.handover.outputs.queued }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -253,8 +257,8 @@ jobs:
       # Authenticate non-interactively with the long-lived Sigillo API token.
       # Validate the supplied token BEFORE replacing any saved runner credential:
       # `sigillo login` only stores a bearer token; it does not validate it.
-      # The optional Sigillo integration must never block RDC/Tailscale startup.
-      - name: Install and authenticate Sigillo CLI (optional)
+      # A temporary Sigillo failure must not block RDC/Tailscale startup; Agent GitHub bootstrap fails closed later.
+      - name: Install and authenticate Sigillo CLI
         id: sigillo
         env:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
