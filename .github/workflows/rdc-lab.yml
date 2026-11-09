@@ -23,7 +23,7 @@ on:
         options:
           - 'Start / Resume'
           - 'Connect a new RDC account'
-          - 'Vault smoke test'
+          - 'Sigillo smoke test'
           - 'Create Northflank credential link'
 
 permissions:
@@ -141,13 +141,12 @@ jobs:
             *) exit "$code" ;;
           esac
 
-  vault-smoke-test:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Vault smoke test' }}
+  sigillo-smoke-test:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Sigillo smoke test' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -231,124 +230,6 @@ jobs:
           echo "SIGILLO_API_AUTH=PASS"
           echo "SIGILLO_AMIN_CREDITONAL=$result"
 
-      - name: Discover Vault deployment
-        id: vault-discovery
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            python3 scripts/discover_vault.py
-            exit 0
-          fi
-          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
-          fi
-
-      - name: Validate Vault configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${VAULT_URL:-}" ]]; then
-            echo "::error::No Vault deployment was discovered. Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
-            exit 1
-          fi
-          if [[ ! "${VAULT_CLIENT_REPOSITORY:-}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-            echo "::error::The discovered Vault client repository must be in owner/name form."
-            exit 1
-          fi
-          if [[ ! "${VAULT_CLIENT_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::The discovered Vault client revision must be an immutable 40-character commit SHA."
-            exit 1
-          fi
-          python3 - <<'PYURL'
-          import os
-          from urllib.parse import urlparse
-          u = urlparse(os.environ["VAULT_URL"])
-          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
-          PYURL
-
-      - name: Fetch the pinned Vault client
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
-
-      - name: Verify GitHub OIDC and read-only Vault registry access
-        env:
-          VAULT_SESSION_FILE: ${{ runner.temp }}/vault-session.json
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          client="$RUNNER_TEMP/vault.mjs"
-          node "$client" list > "$RUNNER_TEMP/vault-registry.json"
-          jq -e 'type == "array"' "$RUNNER_TEMP/vault-registry.json" >/dev/null
-          count="$(jq 'length' "$RUNNER_TEMP/vault-registry.json")"
-          {
-            echo "### Safe credential metadata"
-            echo
-            echo "| Name | Service | Delivery | Validation | Lifetime | External |"
-            echo "| --- | --- | --- | --- | --- | --- |"
-            jq -r '.[] | "| \(.name) | \(.service) | \(.delivery) | \(.validation) | \(.lifetime) | \(.externallyManaged) |"' "$RUNNER_TEMP/vault-registry.json"
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          # Exercise both saved provider credentials through the Vault proxy.
-          # Raw responses stay in runner-temp files; only boolean outcomes reach logs.
-          node "$client" use GITHUB_API_TOKEN GET https://api.github.com/user             > "$RUNNER_TEMP/vault-github-check.json"
-          jq -e 'type == "object" and (.login | type == "string") and (.id | type == "number")'             "$RUNNER_TEMP/vault-github-check.json" >/dev/null
-          # Try the User Token endpoint first, then the Account Token endpoint.
-          # The account identifier is repository metadata; no credential value or raw response is logged.
-          set +e
-          node "$client" use CLOUDFLARE_API_TOKEN GET https://api.cloudflare.com/client/v4/user/tokens/verify --purpose "read-only token verification" \
-            > "$RUNNER_TEMP/vault-cloudflare-user-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-user.stderr"
-          cf_user_exit=$?
-          set -e
-          cf_token_type=""
-          if [[ "$cf_user_exit" -eq 0 ]] && jq -e '.success == true and .result.status == "active"' "$RUNNER_TEMP/vault-cloudflare-user-check.json" >/dev/null; then
-            cf_token_type="User API Token"
-          else
-            account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
-            if [[ ! "$account_id" =~ ^[a-fA-F0-9]{32}$ ]]; then
-              echo "::error::User Token verification did not pass and CLOUDFLARE_ACCOUNT_ID is missing or malformed."
-              exit 1
-            fi
-            set +e
-            node "$client" use CLOUDFLARE_API_TOKEN GET "https://api.cloudflare.com/client/v4/accounts/${account_id}/tokens/verify" --purpose "read-only account token verification" \
-              > "$RUNNER_TEMP/vault-cloudflare-account-check.json" 2> "$RUNNER_TEMP/vault-cloudflare-account.stderr"
-            cf_account_exit=$?
-            set -e
-            if [[ "$cf_account_exit" -eq 0 ]] && jq -e '.success == true and .result.status == "active"' "$RUNNER_TEMP/vault-cloudflare-account-check.json" >/dev/null; then
-              cf_token_type="Account API Token"
-            else
-              cf_user_status="$(sed -n 's/^vault: upstream status \\([0-9][0-9][0-9]\\)$/\\1/p' "$RUNNER_TEMP/vault-cloudflare-user.stderr" | tail -n1)"
-              cf_account_status="$(sed -n 's/^vault: upstream status \\([0-9][0-9][0-9]\\)$/\\1/p' "$RUNNER_TEMP/vault-cloudflare-account.stderr" | tail -n1)"
-              echo "::error::Cloudflare verification failed: User endpoint HTTP ${cf_user_status:-unknown}; Account endpoint HTTP ${cf_account_status:-unknown}. Raw responses and credential values were not logged."
-              exit 1
-            fi
-          fi
-          echo "CLOUDFLARE_TOKEN_TYPE=$cf_token_type"
-
-          {
-            echo "## Runner Credential Vault end-to-end smoke test"
-            echo
-            echo "- GitHub OIDC token exchange: **success**"
-            echo "- Vault runner session: **success**"
-            echo "- Read-only credential registry: **success ($count visible entries)**"
-            echo "- GitHub API credential proxy: **success**"
-            echo "- Cloudflare API credential proxy: **success ($cf_token_type)**"
-            echo "- Secret values logged or returned to summary: **never**"
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "VAULT_OIDC_SMOKE_TEST=PASS"
-          echo "VAULT_GITHUB_PROXY=PASS"
-          echo "VAULT_CLOUDFLARE_PROXY=PASS"
-
   runner-lab:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'Start / Resume' }}
     runs-on: ubuntu-latest
@@ -357,29 +238,6 @@ jobs:
     concurrency:
       group: rdc-runner-lab
       cancel-in-progress: false
-
-    # The Vault is optional and needs no Lab-side configuration: the
-    # vault-discovery step below reads deployment.json from the Vault
-    # repository and exports VAULT_URL / VAULT_CLIENT_REPOSITORY /
-    # VAULT_CLIENT_REF for the rest of the job (including the RDC process,
-    # which inherits this job's environment at launch) only when a Vault is
-    # actually deployed.
-
-    # A job-level block replaces the workflow-level one, so the two existing
-    # permissions are repeated. `id-token: write` only lets this job REQUEST a GitHub
-    # OIDC token (used to authenticate to the Runner Credential Vault); it grants no
-    # access to repository contents or secrets. The runner exposes its OIDC requester
-    # variables to this job's steps; RDC inherits them at launch, while the later Vault
-    # CLI connection writes the session into the same runner-private cache for reuse.
-    # This lets RDC and Tailscale become healthy before optional Vault network work.
-    permissions:
-      contents: write
-      actions: write
-      id-token: write
-
-    outputs:
-      configured: ${{ steps.verify.outputs.ready }}
-      queued: ${{ steps.handover.outputs.queued }}
 
     steps:
       - name: Checkout
@@ -497,23 +355,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Sigillo API authentication verified; no interactive login required."
 
-
-      - name: Discover Vault deployment
-        id: vault-discovery
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            python3 scripts/discover_vault.py
-            exit 0
-          fi
-          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
-          fi
 
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
@@ -662,86 +503,6 @@ jobs:
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"
 
-      - name: Install Runner Credential Vault client
-        id: vault-client
-        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true' && steps.vault-discovery.outputs.configured == 'true'
-        timeout-minutes: 2
-        continue-on-error: true
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYURL'
-          import os
-          from urllib.parse import urlparse
-          u = urlparse(os.environ["VAULT_URL"])
-          if u.scheme != "https" or not u.hostname or u.username or u.password or u.path not in ("", "/") or u.query or u.fragment:
-              raise SystemExit("VAULT_URL must be an HTTPS origin with no path, query or credentials")
-          PYURL
-          mkdir -p "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          chmod 700 "$HOME/.local/share/runner-vault" "$HOME/.local/bin"
-          sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$HOME/.local/share/runner-vault/vault.mjs"
-          chmod 500 "$HOME/.local/share/runner-vault/vault.mjs"
-          ln -sfn "$HOME/.local/share/runner-vault/vault.mjs" "$HOME/.local/bin/vault"
-          test -x "$HOME/.local/bin/vault"
-          echo "VAULT_CLIENT_INSTALLED=true"
-
-      - name: Connect runner to Credential Vault
-        id: vault-connect
-        if: steps.vault-client.outcome == 'success'
-        timeout-minutes: 1
-        continue-on-error: true
-        env:
-          VAULT_REQUEST_TIMEOUT_MS: '5000'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          registry="$RUNNER_TEMP/vault-registry.json"
-          if node "$HOME/.local/share/runner-vault/vault.mjs" list > "$registry" &&
-             jq -e 'type == "array"' "$registry" >/dev/null; then
-            count="$(jq 'length' "$registry")"
-            echo "VAULT_OIDC_CONNECTION=READY"
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "VAULT_VISIBLE_CREDENTIALS=$count"
-            {
-              echo "### Credential Vault connection"
-              echo
-              echo "- GitHub OIDC exchange: **success**"
-              echo "- Short-lived runner session: **issued**"
-              echo "- Metadata-only registry read: **success**"
-              echo "- Visible credentials: **$count**"
-              echo "- Secret values exposed: **never**"
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning::Credential Vault connection failed; RDC and Tailscale will continue without Vault."
-            echo "VAULT_OIDC_CONNECTION=DEGRADED"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Verify Vault environment reached RDC
-        id: vault-runtime
-        if: steps.verify.outputs.ready == 'true' && steps.tailscale.outputs.ready == 'true'
-        continue-on-error: true
-        env:
-          VAULT_CONNECT_STATE: ${{ steps.vault-connect.outputs.ready }}
-        run: ./scripts/verify-vault-runtime.sh
-
-      - name: Report Vault verifier failure without blocking connectivity
-        if: steps.verify.outputs.ready == 'true' && steps.vault-runtime.outcome == 'failure'
-        shell: bash
-        run: |
-          echo "::warning::Vault runtime verification failed unexpectedly. Vault operations remain unavailable, but RDC and Tailscale startup are independent and will continue."
-          {
-            echo "### Credential Vault"
-            echo
-            echo "- Status: **DEGRADED**"
-            echo "- The runtime verifier did not complete; this does not block RDC or Tailscale."
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Configure Agent GitHub access from Sigillo
         if: steps.mode.outputs.ready == 'true'
         env:
@@ -795,9 +556,6 @@ jobs:
           DISABLED: ${{ vars.RDC_LAB_DISABLED }}
         shell: bash
         run: |
-          # Prewarm and keepalive do not mint Vault sessions. Keep the job-scoped
-          # OIDC requester capability out of their process trees.
-          unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
           ./scripts/agent-prewarm.sh --background
           ./scripts/keepalive.sh "$ONLINE_MINUTES"
 
@@ -917,109 +675,3 @@ jobs:
             *) exit "$code" ;;
           esac
 
-  northflank-credential-link:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'Create Northflank credential link' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.22.2
-
-      - name: Install Sigillo CLI
-        run: npm install --global sigillo
-
-      - name: Discover Vault deployment
-        id: vault-discovery
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            python3 scripts/discover_vault.py
-            exit 0
-          fi
-          if ! sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- python3 scripts/discover_vault.py; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Private Vault discovery could not use Sigillo; Vault integration is disabled for this run."
-          fi
-
-      - name: Report missing Vault deployment
-        if: steps.vault-discovery.outputs.configured != 'true'
-        shell: bash
-        run: |
-          echo "No Vault deployment was discovered, so there is no Vault to link a Northflank credential to."
-          echo "Deploy the Vault first; its deploy workflow publishes deployment.json for the Lab to discover."
-
-      - name: Fetch the pinned Vault client
-        if: steps.vault-discovery.outputs.configured == 'true'
-        env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
-          SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
-        shell: bash
-        run: sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" -- ./scripts/fetch-vault-client.sh "$RUNNER_TEMP/vault.mjs"
-
-      - name: Create one-time Northflank credential registration
-        if: steps.vault-discovery.outputs.configured == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/northflank-doc.json" <<'JSON'
-          {
-            "overview": "Store a Northflank API token in Runner Vault for authenticated Northflank API access.",
-            "task": "Use Northflank CLI and API operations from the Runner environment.",
-            "token_type": "Northflank personal, team, or organization API token",
-            "creation_link": {
-              "title": "Northflank API access and token documentation",
-              "url": "https://northflank.com/docs/v1/application/secure/grant-api-access"
-            },
-            "creation_steps": [
-              "Open API tokens in the relevant Northflank team or organization settings.",
-              "Create an API token and select an RBAC role with only the permissions required for your tasks.",
-              "Choose a team-scoped token for one team, or an organization-scoped token only if cross-team access is required.",
-              "Choose an appropriate expiry and copy the token when Northflank displays it."
-            ],
-            "required_permissions": [
-              {
-                "name": "Northflank API access",
-                "level": "Only the operations needed for the intended CLI tasks",
-                "why": "The token inherits its permissions from the selected RBAC role."
-              }
-            ],
-            "unnecessary_permissions": [
-              "Unrelated organization administration",
-              "Access to teams or resources not needed by the Runner"
-            ],
-            "security_notes": [
-              "Never paste the token into chat, a repository, or workflow logs.",
-              "The token secret is displayed only once by Northflank.",
-              "Use a team-scoped token unless cross-team operations are explicitly required."
-            ],
-            "expiration_guidance": [
-              "Prefer a short lifetime and rotate the token when it expires."
-            ],
-            "official_documentation_links": [
-              {
-                "title": "Northflank API authentication and token scope",
-                "url": "https://northflank.com/docs/v1/api/use-the-api"
-              },
-              {
-                "title": "Northflank CLI",
-                "url": "https://northflank.com/docs/v1/api/use-the-cli"
-              }
-            ],
-            "verification": "verified"
-          }
-          JSON
-          node "$RUNNER_TEMP/vault.mjs" request --name NORTHFLANK_API_TOKEN --service Northflank --doc "$RUNNER_TEMP/northflank-doc.json"
