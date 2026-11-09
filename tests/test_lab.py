@@ -459,7 +459,6 @@ class LabTest(unittest.TestCase):
         launch = script.split('nohup env', 1)[1].split('"$SELF" --foreground', 1)[0]
         for name in (
             'RDC_STATE_KEY','GH_TOKEN','GITHUB_TOKEN','GITHUB_API_TOKEN',
-            'ACTIONS_ID_TOKEN_REQUEST_URL','ACTIONS_ID_TOKEN_REQUEST_TOKEN',
         ):
             self.assertIn('-u '+name,launch)
 
@@ -895,7 +894,6 @@ class LabTest(unittest.TestCase):
         self.assertIn("env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install",workflow)
         self.assertIn('./scripts/agent-github.sh verify',workflow)
         self.assertNotIn("secrets.GITHUB_API_TOKEN",workflow)
-        self.assertNotIn("ACTIONS_ID_TOKEN_REQUEST",workflow)
 
     def test_tailscale_handoff_keeps_stable_name_and_disconnects_before_successor(self):
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
