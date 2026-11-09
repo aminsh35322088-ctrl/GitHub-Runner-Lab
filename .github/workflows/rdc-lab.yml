@@ -305,9 +305,10 @@ jobs:
         with:
           node-version: 24.22.2
 
-      # Install and authenticate Sigillo before RDC starts. The CLI stores its
-      # token in the runner user's owner-only config, so the RDC session can use
-      # Sigillo without keeping the bootstrap token in its process environment.
+      # Authenticate non-interactively with the long-lived Sigillo API token.
+      # Validate the supplied token BEFORE replacing any saved runner credential:
+      # `sigillo login` only stores a bearer token; it does not validate it.
+      # The optional Sigillo integration must never block RDC/Tailscale startup.
       - name: Install and authenticate Sigillo CLI (optional)
         id: sigillo
         continue-on-error: true
@@ -315,38 +316,74 @@ jobs:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
         shell: bash
         run: |
-          # Sigillo is an optional capability: no token, registry outage, or
-          # install/auth failure must prevent the RDC/Tailscale runner startup.
-          set +e
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            echo "::warning::SIGILLO_API_TOKEN is not configured; continuing without Sigillo."
+          set -euo pipefail
+
+          sigillo_unavailable() {
+            local reason="$1"
+            echo "::warning::Sigillo unavailable: $reason. RDC/Tailscale startup will continue."
             echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Sigillo authentication"
+              echo
+              echo "- Status: **unavailable**"
+              echo "- Reason: $reason"
+              echo "- Runner connectivity: **not blocked**"
+              echo "- Credential values: **not logged**"
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          }
+
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            sigillo_unavailable "SIGILLO_API_TOKEN GitHub Actions secret is missing"
           fi
 
           if ! npm install --global sigillo; then
-            echo "::warning::Sigillo CLI installation failed; continuing without Sigillo."
-            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            sigillo_unavailable "CLI installation failed"
           fi
 
           umask 077
-          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null; then
+          mkdir -p "$HOME/.sigillo"
+          chmod 700 "$HOME/.sigillo"
+
+          # A successful `login` command only writes the token to config.
+          # Probe the API with the supplied secret first so a malformed, revoked,
+          # wrong-instance, or otherwise unknown token can never be marked ready.
+          auth_json="$RUNNER_TEMP/sigillo-auth-check.json"
+          auth_err="$RUNNER_TEMP/sigillo-auth-check.stderr"
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me --json >"$auth_json" 2>"$auth_err"; then
+            http_status="$(sed -nE 's/.*failed (([0-9]{3})):.*/\1/p' "$auth_err" | tail -n1)"
+            case "${http_status:-unknown}" in
+              401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN (HTTP 401); replace the GitHub secret with an active API token from the correct Sigillo instance" ;;
+              403) sigillo_unavailable "Sigillo denied SIGILLO_API_TOKEN (HTTP 403); check the token and its project/environment access" ;;
+              *) sigillo_unavailable "API token preflight failed (HTTP ${http_status:-unknown})" ;;
+            esac
+          fi
+
+          # Persist only after the preflight succeeded. The CLI writes config
+          # atomically with owner-only permissions; no token is passed in argv.
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null 2>"$auth_err"; then
             unset SIGILLO_TOKEN
-            echo "::warning::Sigillo authentication failed; continuing without Sigillo."
-            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            sigillo_unavailable "could not persist the validated API token"
           fi
           unset SIGILLO_TOKEN
 
-          if ! chmod 700 "$HOME/.sigillo" || ! chmod 600 "$HOME/.sigillo/config.json" || ! sigillo me >/dev/null; then
-            echo "::warning::Sigillo post-login verification failed; continuing without Sigillo."
-            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          if ! chmod 700 "$HOME/.sigillo" ||
+             ! chmod 600 "$HOME/.sigillo/config.json" ||
+             ! sigillo me --json >"$auth_json" 2>"$auth_err"; then
+            sigillo_unavailable "saved credential did not pass post-login API verification"
           fi
 
           echo "SIGILLO_CLI_READY=true" >> "$GITHUB_OUTPUT"
-          echo "Sigillo CLI is ready for the RDC runner user."
+          {
+            echo "### Sigillo authentication"
+            echo
+            echo "- Status: **ready**"
+            echo "- Authentication: **GitHub Actions API secret (non-interactive)**"
+            echo "- API verification: **passed**"
+            echo "- Config permissions: **700/600**"
+            echo "- Credential values: **not logged**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Sigillo API authentication verified; no interactive login required."
 
 
       - name: Discover Vault deployment
