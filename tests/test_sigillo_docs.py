@@ -52,7 +52,7 @@ class SigilloDocumentationTests(unittest.TestCase):
             self.assertIn("~/.sigillo", document)
         self.assertIn("Never read", SIGILLO_DOC)
         self.assertIn("Never read", AGENTS)
-        self.assertIn("never print secret values", SIGILLO_DOC.lower())
+        self.assertIn("never echo", SIGILLO_DOC.lower())
 
     def test_vendored_skill_keeps_upstream_frontmatter_and_runner_notes(self):
         self.assertTrue(SIGILLO_SKILL.startswith("---\n"))
@@ -60,7 +60,7 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("ALWAYS fetch the latest README", SIGILLO_SKILL)
         self.assertIn("Never use `sigillo run` output as secret data", SIGILLO_SKILL)
         self.assertIn("GitHub Runner Lab integration notes", SIGILLO_SKILL)
-        self.assertIn("skills add remorses/sigillo", SIGILLO_SKILL)
+        self.assertIn("skills add remorses/sigillo", (ROOT / "skills" / "README.md").read_text())
 
 
 if __name__ == "__main__":
