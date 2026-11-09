@@ -334,6 +334,7 @@ jobs:
 
           sigillo_unavailable() {
             local reason="$1"
+            if [[ -n "${auth_err:-}" ]]; then rm -f "$auth_err" || true; fi
             echo "::warning::Sigillo unavailable: $reason. RDC/Tailscale startup will continue."
             echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
             {
@@ -370,9 +371,8 @@ jobs:
           # A successful `login` command only writes the token to config.
           # Probe the API with the supplied secret first so a malformed, revoked,
           # wrong-instance, or otherwise unknown token can never be marked ready.
-          auth_json="$RUNNER_TEMP/sigillo-auth-check.json"
           auth_err="$RUNNER_TEMP/sigillo-auth-check.stderr"
-          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me --json >"$auth_json" 2>"$auth_err"; then
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me >/dev/null 2>"$auth_err"; then
             http_status="$(grep -oE '\([0-9]{3}\)' "$auth_err" | tail -n1 | tr -d '()' || true)"
             case "${http_status:-unknown}" in
               401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN on ${sigillo_api_origin} (HTTP 401); check the instance URL or replace the GitHub secret with an active API token created on that instance" ;;
@@ -380,6 +380,7 @@ jobs:
               *) sigillo_unavailable "API token preflight failed (HTTP ${http_status:-unknown})" ;;
             esac
           fi
+          rm -f "$auth_err"
 
           # Persist only after the preflight succeeded. The CLI writes config
           # atomically with owner-only permissions; no token is passed in argv.
@@ -391,9 +392,10 @@ jobs:
 
           if ! chmod 700 "$HOME/.sigillo" ||
              ! chmod 600 "$HOME/.sigillo/config.json" ||
-             ! sigillo me --json >"$auth_json" 2>"$auth_err"; then
+             ! sigillo me >/dev/null 2>"$auth_err"; then
             sigillo_unavailable "saved credential did not pass post-login API verification"
           fi
+          rm -f "$auth_err"
 
           echo "SIGILLO_CLI_READY=true" >> "$GITHUB_OUTPUT"
           {
