@@ -308,26 +308,45 @@ jobs:
       # Install and authenticate Sigillo before RDC starts. The CLI stores its
       # token in the runner user's owner-only config, so the RDC session can use
       # Sigillo without keeping the bootstrap token in its process environment.
-      - name: Install and authenticate Sigillo CLI
+      - name: Install and authenticate Sigillo CLI (optional)
         id: sigillo
+        continue-on-error: true
         env:
           SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
         shell: bash
         run: |
-          set -Eeuo pipefail
+          # Sigillo is an optional capability: no token, registry outage, or
+          # install/auth failure must prevent the RDC/Tailscale runner startup.
+          set +e
           if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            echo "::error::SIGILLO_API_TOKEN is missing. Add the Sigillo API token under Settings > Secrets and variables > Actions."
-            exit 1
+            echo "::warning::SIGILLO_API_TOKEN is not configured; continuing without Sigillo."
+            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          npm install --global sigillo
+
+          if ! npm install --global sigillo; then
+            echo "::warning::Sigillo CLI installation failed; continuing without Sigillo."
+            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           umask 077
-          SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null
+          if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null; then
+            unset SIGILLO_TOKEN
+            echo "::warning::Sigillo authentication failed; continuing without Sigillo."
+            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           unset SIGILLO_TOKEN
-          chmod 700 "$HOME/.sigillo"
-          chmod 600 "$HOME/.sigillo/config.json"
-          sigillo me >/dev/null
-          echo "SIGILLO_CLI_READY=true"
-          echo "Sigillo CLI installed and authenticated for the RDC runner user."
+
+          if ! chmod 700 "$HOME/.sigillo" || ! chmod 600 "$HOME/.sigillo/config.json" || ! sigillo me >/dev/null; then
+            echo "::warning::Sigillo post-login verification failed; continuing without Sigillo."
+            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "SIGILLO_CLI_READY=true" >> "$GITHUB_OUTPUT"
+          echo "Sigillo CLI is ready for the RDC runner user."
 
 
       - name: Discover Vault deployment
