@@ -68,8 +68,7 @@ sigillo run --project 01M6ZRTJGTG7RNMSMVMVRJB3HY --env prod -- your-command
 
 For a command that needs one or more credentials, prefer `sigillo run` instead of reading values into the agent context or writing a dotenv file. Keep the operation narrow and run only trusted code on the host.
 
-Never:
-- Read `~/.sigillo/` or `.env` files directly.
+Never read `~/.sigillo/` or `.env` files directly. Also never:
 - Print, serialize, log, screenshot, copy to chat, or commit secret values.
 - Put credential values in command-line arguments, Git URLs, shell history, GitHub outputs, issues, checkpoints, or caches.
 - Use `sigillo run` output as a raw-secret transport; Sigillo's output redaction also applies to pipes.

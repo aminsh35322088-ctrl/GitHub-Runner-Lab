@@ -40,7 +40,7 @@ class SigilloDocumentationTests(unittest.TestCase):
 
     def test_github_actions_api_remains_independent_from_sigillo(self):
         self.assertIn("secrets.ACTIONS_WATCHDOG_TOKEN || github.token", WORKFLOW)
-        self.assertIn("GH_TOKEN: ${{ github.token }}", WORKFLOW)
+        self.assertIn("GH_TOKEN: ${{ secrets.ACTIONS_WATCHDOG_TOKEN || github.token }}", WORKFLOW)
         self.assertNotIn("SIGILLO_TOKEN", WORKFLOW.split("      - name: Queue Successor Run", 1)[1])
         self.assertNotIn("GITHUB_API_TOKEN", WORKFLOW.split("      - name: Queue Successor Run", 1)[1])
 
@@ -55,7 +55,7 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn("SIGILLO_API_TOKEN", README)
         self.assertIn("GITHUB_API_TOKEN", README)
         self.assertIn("SIGILLO_API_TOKEN", AGENTS)
-        self.assertIn("SIGILLO smoke test", WORKFLOW)
+        self.assertIn("Sigillo smoke test", WORKFLOW)
         self.assertIn("sigillo-smoke-test:", WORKFLOW)
         self.assertIn("inputs.action == 'Sigillo smoke test'", WORKFLOW)
         self.assertIn("must not depend on Sigillo", AGENTS)

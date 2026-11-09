@@ -1185,7 +1185,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertNotIn('expected',data['node'])
         self.assertNotIn('node-version: latest',workflow)
         self.assertNotIn('node-version: 24\n',workflow)
-        self.assertEqual(workflow.count('node-version: 24.22.2'),4)
+        self.assertEqual(workflow.count('node-version: 24.22.2'),3)
         self.assertNotIn('version: latest',workflow)
         self.assertIn('version: 1.104.5',workflow)
         self.assertIn('./scripts/install-rdc.sh',workflow)
@@ -1205,7 +1205,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         # no workflow job may be pinned to the REA Node version.
         self.assertNotIn('node-version: 26.12.1',workflow)
         self.assertNotIn('node-version: latest',workflow)
-        self.assertEqual(workflow.count('node-version: 24.22.2'),4)
+        self.assertEqual(workflow.count('node-version: 24.22.2'),3)
         
         rdc_installer=(SCRIPTS/'install-rdc.sh').read_text()
         self.assertIn('RDC_VERSION="0.3.1"',rdc_installer)
