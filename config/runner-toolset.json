@@ -234,7 +234,7 @@
         "Frida tools 14.11.0 with Frida runtime 17.25.2",
         "pwntools 4.15.0, Capstone 5.0.9, pyelftools 0.33 and Unicorn 2.1.2",
         "Unblob 26.6.4 and Binwalk 3.1.0 native CLI (Cargo) plus Binwalk3 Python API 3.2.0",
-        "Google Chrome 156.0.8078.x from the Runner image, launched through the installed REA's bundled Playwright Core"
+        "Google Chrome supplied by the Runner image, launched through the installed REA's bundled Playwright Core"
       ],
       "commercial_providers": "caller-managed; no automatic IDA, Hopper or JEB installation",
       "mcp_registration": "manual; rea setup is not run by installer",
@@ -261,7 +261,7 @@
         "unblob": "26.6.4",
         "binwalk_native": "3.1.0",
         "binwalk_python_api": "3.2.0",
-        "google_chrome": "156.0.8078.x (Runner image patch)"
+        "google_chrome": "Runner image version (Playwright smoke-tested)"
       }
     }
   }
