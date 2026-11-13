@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dedicated encrypted branch retaining exactly the latest authenticated archive.
+# Failure-only encrypted Git branch fallback retaining the latest authenticated archive.
 set -Eeuo pipefail
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAB_ROOT="$(cd "$SELF_DIR/.." && pwd)"
@@ -141,3 +141,4 @@ else
 fi
 date -u +%FT%TZ > "$CACHE/checkpoint-persisted-at"
 echo 'CHECKPOINT_DURABLE=true'
+echo 'CHECKPOINT_BACKEND=git-branch'
