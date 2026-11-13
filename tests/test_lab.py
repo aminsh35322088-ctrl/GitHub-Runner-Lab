@@ -248,7 +248,7 @@ class LabTest(unittest.TestCase):
 
         self.assertIn('restore_from_restic', sync)
         self.assertIn('save_to_restic', sync)
-        self.assertIn('restic backup --json', sync)
+        self.assertIn('restic backup --json --group-by host,tags', sync)
         self.assertIn('restic forget --group-by host,tags', sync)
         self.assertIn('Restic backup unavailable or unsuccessful', sync)
         self.assertIn('CHECKPOINT_BACKEND=restic', sync)
