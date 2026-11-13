@@ -13,7 +13,6 @@ readonly REA_PACKAGE_NAME='rea-agents'
 readonly REA_DIST_TAG='latest'
 readonly NODE_VERSION_PIN='26.12.1'
 readonly PYTHON_VERSION_LINE='3.13'
-readonly CHROME_VERSION_PREFIX='156.0.8078.'
 readonly NODE_X64_ARCHIVE='node-v26.12.1-linux-x64.tar.xz'
 readonly NODE_X64_URL='https://nodejs.org/dist/v26.12.1/node-v26.12.1-linux-x64.tar.xz'
 readonly NODE_X64_SHA256='6170b2d474e1c626f43cff3adc118df9fe3b573258a4fc3d850c8dbc6b079bbd'
@@ -77,7 +76,7 @@ Temurin JDK 21.0.13+9, WABT 1.0.42, JADX bridge 0.7.1, Apktool 2.12.1,
 TShark from the distribution's current Wireshark 4.x package, mitmproxy 12.2.3, Frida tools 14.11.0,
 Frida runtime 17.25.2, pwntools 4.15.0, capstone 5.0.9, pyelftools 0.33,
 Unicorn 2.1.2, Unblob 26.6.4, Binwalk 3.1.0, Binwalk3 Python API 3.2.0,
-and system Google Chrome 156.0.8078.x from the Runner image. REA itself carries
+and system Google Chrome supplied by the Runner image, checked with a Playwright launch smoke test. REA itself carries
 no version pin in this script; each run resolves and verifies the current
 latest release as described above.
 
@@ -488,7 +487,7 @@ if [[ "$SKIP_BROWSER" != true && "$DRY_RUN" != true ]]; then
   REA_BROWSER_EXECUTABLE="$(command -v google-chrome-stable || command -v google-chrome || true)"
   [[ -n "$REA_BROWSER_EXECUTABLE" && -x "$REA_BROWSER_EXECUTABLE" ]] || die 'Google Chrome is missing; use --skip-browser to omit browser-dependent REA tools.'
   CHROME_BANNER="$("$REA_BROWSER_EXECUTABLE" --version 2>&1)"
-  [[ "$CHROME_BANNER" == *"$CHROME_VERSION_PREFIX"* ]] || die "Expected Google Chrome ${CHROME_VERSION_PREFIX%?}.x, found: $CHROME_BANNER"
+  [[ "$CHROME_BANNER" == "Google Chrome "* ]] || die "Unexpected Google Chrome version banner: $CHROME_BANNER"
   PLAYWRIGHT_CLI="$REA_ROOT/node_modules/playwright-core/cli.js"
   [[ -f "$PLAYWRIGHT_CLI" ]] || die 'Installed REA package does not contain its expected Playwright Core CLI.'
   node --input-type=module - "$REA_ROOT" "$REA_BROWSER_EXECUTABLE" <<'NODE'
@@ -505,9 +504,9 @@ if ((await page.title()) !== 'REA browser smoke') throw new Error('Chrome smoke 
 console.log(`Chrome ${browser.version()} Playwright smoke passed.`);
 await browser.close();
 NODE
-  log "Google Chrome ${CHROME_VERSION_PREFIX%?}.x verified through bundled Playwright Core."
+  log "$CHROME_BANNER verified through bundled Playwright Core."
 elif [[ "$DRY_RUN" == true && "$SKIP_BROWSER" != true ]]; then
-  log "DRY-RUN: verify host Google Chrome ${CHROME_VERSION_PREFIX%?}.x using bundled Playwright Core."
+  log "DRY-RUN: verify the Runner image Google Chrome using bundled Playwright Core."
 fi
 
 if [[ "$DRY_RUN" != true ]]; then

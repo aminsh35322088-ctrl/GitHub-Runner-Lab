@@ -21,6 +21,21 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-rea.sh"
 
 
+class BrowserCompatibilityContractTests(unittest.TestCase):
+    def test_runner_image_chrome_is_validated_by_playwright_not_patch_pin(self):
+        installer = INSTALLER.read_text()
+        self.assertNotIn("CHROME_VERSION_PREFIX", installer)
+        self.assertIn('[[ "$CHROME_BANNER" == "Google Chrome "* ]]', installer)
+        self.assertIn(
+            "chromium.launch({ headless: true, executablePath: executable })",
+            installer,
+        )
+        self.assertIn(
+            'log "$CHROME_BANNER verified through bundled Playwright Core."',
+            installer,
+        )
+
+
 def extract_function(source: str, name: str) -> str:
     match = re.search(rf"^{name}\(\) \{{\n(.*?)^\}}", source, re.M | re.S)
     if not match:
