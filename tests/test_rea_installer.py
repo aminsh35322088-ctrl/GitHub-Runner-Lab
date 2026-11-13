@@ -149,11 +149,11 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             harness.write_text(
                 "#!/usr/bin/env bash\\nset -Eeuo pipefail\\n"
                 "log() { :; }\\n"
-                "die() { echo \\"$*\\" >&2; exit 1; }\\n"
+                "die() { echo \\\"$*\\\" >&2; exit 1; }\\n"
                 f"{function}\\n"
-                f"link_binwalk_cli \\"{binary}\\" \\"{shared_bin}\\" 3.1.0\\n"
-                f"PATH=\\"{shared_bin}:$PATH\\"\\nexport PATH\\n"
-                "test \\"$(command -v binwalk)\\" = \\"$shared_bin/binwalk\\"\\n"
+                f"link_binwalk_cli \\\"{binary}\\\" \\\"{shared_bin}\\\" 3.1.0\\n"
+                f"PATH=\\\"{shared_bin}:$PATH\\\"\\nexport PATH\\n"
+                "test \\\"$(command -v binwalk)\\\" = \\\"$shared_bin/binwalk\\\"\\n"
                 "binwalk --version | grep -q 'binwalk 3.1.0'\\n"
             )
             result = subprocess.run(["bash", str(harness)], capture_output=True, text=True, timeout=30)
@@ -174,19 +174,9 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             fake_rea.write_text("#!/usr/bin/env bash\\necho rea-shell-smoke\\n")
             fake_rea.chmod(0o755)
             env_file = root / "providers.env"
-            env_file.write_text(
-                f"export PATH={bin_dir}:\\\"$PATH\\\"\\n"
-                "export REA_TEST_MARKER=loaded\\n"
-            )
+            env_file.write_text(f"export PATH={bin_dir}:\\\"$PATH\\\"\\nexport REA_TEST_MARKER=loaded\\n")
             bashrc = home / ".bashrc"
-            bashrc.write_text(
-                "# stock bashrc\\n"
-                "case $- in\\n"
-                "  *i*) ;;\\n"
-                "  *) return;;\\n"
-                "esac\\n"
-                "export BASHRC_BODY_REACHED=1\\n"
-            )
+            bashrc.write_text("# stock bashrc\\ncase $- in\\n  *i*) ;;\\n  *) return;;\\nesac\\nexport BASHRC_BODY_REACHED=1\\n")
             profile = home / ".profile"
             profile.write_text("# profile body\\n")
             bash_profile = home / ".bash_profile"
@@ -195,8 +185,8 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             harness.write_text(
                 "#!/usr/bin/env bash\\nset -Eeuo pipefail\\n"
                 f"{function}\\n"
-                f"install_provider_shell_environment \\"{env_file}\\"\\n"
-                f"install_provider_shell_environment \\"{env_file}\\"\\n"
+                f"install_provider_shell_environment \\\"{env_file}\\\"\\n"
+                f"install_provider_shell_environment \\\"{env_file}\\\"\\n"
             )
             run_env = os.environ.copy()
             run_env["HOME"] = str(home)
@@ -204,24 +194,25 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             result = subprocess.run(["bash", str(harness)], capture_output=True, text=True, env=run_env, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-            start = "# >>> GitHub Runner Lab REA environment >>>"
-            end = "# <<< GitHub Runner Lab REA environment <<<"
+            start_marker = "# >>> GitHub Runner Lab REA environment >>>"
+            end_marker = "# <<< GitHub Runner Lab REA environment <<<"
             for startup in (profile, bashrc, bash_profile):
                 text = startup.read_text()
-                self.assertEqual(text.count(start), 1, startup.name)
-                self.assertEqual(text.count(end), 1, startup.name)
-                self.assertTrue(text.startswith(start), startup.name)
-            self.assertLess(bashrc.read_text().index(start), bashrc.read_text().index("*) return;;"))
+                self.assertEqual(text.count(start_marker), 1, startup.name)
+                self.assertEqual(text.count(end_marker), 1, startup.name)
+                self.assertTrue(text.startswith(start_marker), startup.name)
+            self.assertLess(bashrc.read_text().index(start_marker), bashrc.read_text().index("*) return;;"))
             self.assertIn("EXISTING_LOGIN_SETUP=preserved", bash_profile.read_text())
 
             for startup in (bashrc, bash_profile, profile):
                 shell = [
                     "bash", "--noprofile", "--norc", "-c",
-                    f"source \\"{startup}\\"; test \\"$REA_TEST_MARKER\\" = loaded; command -v rea",
+                    f"source \\\"{startup}\\\"; test \\\"$REA_TEST_MARKER\\\" = loaded; command -v rea",
                 ]
                 checked = subprocess.run(shell, capture_output=True, text=True, env=run_env, timeout=30)
                 self.assertEqual(checked.returncode, 0, f"{startup.name}: {checked.stderr}")
                 self.assertEqual(checked.stdout.strip(), str(fake_rea))
+
 class ResolutionContractTests(unittest.TestCase):
     def test_rea_resolution_is_single_exact_and_verified(self):
         text = INSTALLER.read_text()
