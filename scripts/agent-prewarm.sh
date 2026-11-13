@@ -80,7 +80,12 @@ trap finish EXIT
 
 {
   echo "[agent-prewarm] started=$started_at host=$(hostname) version=$TOOLCHAIN_VERSION"
+  RUNNER_TOOLS_ROOT="${RUNNER_TOOLS_ROOT:-/opt/runner-tools}"
+  export RUNNER_TOOLS_ROOT
   "$SELF_DIR/agent-bootstrap.sh" --full
+  mkdir -p "$RUNNER_TOOLS_ROOT/registry"
+  install -m 0644 "$SELF_DIR/../config/runner-tools.json" "$RUNNER_TOOLS_ROOT/registry/runner-tools.json"
+  python3 "$SELF_DIR/lab_tools.py" index --output "$RUNNER_TOOLS_ROOT/registry/TOOL-INDEX.md"
   if ! agent_full_toolchain_ready; then
     echo "[agent-prewarm] Required commands still missing after bootstrap:"
     agent_missing_full_commands
@@ -91,8 +96,10 @@ trap finish EXIT
   # this runner. This runs only after RDC is already reachable because prewarm
   # itself is started in the background by the keepalive workflow step.
   echo "[agent-prewarm] Installing shared REA CLI and providers."
+  REA_INSTALL_ROOT="${REA_INSTALL_ROOT:-$RUNNER_TOOLS_ROOT/tools/reverse-engineering/rea}"
+  export REA_INSTALL_ROOT
   "$SELF_DIR/install-rea.sh"
-  REA_ENV_FILE="${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+  REA_ENV_FILE="$REA_INSTALL_ROOT/providers.env"
   [[ -r "$REA_ENV_FILE" ]] || { echo "[agent-prewarm] REA providers.env was not created." >&2; exit 21; }
   # shellcheck disable=SC1090
   source "$REA_ENV_FILE"

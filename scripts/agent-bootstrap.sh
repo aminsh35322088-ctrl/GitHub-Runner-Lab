@@ -4,7 +4,20 @@ set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_BIN="$HOME/.local/bin"
+RUNNER_TOOLS_ROOT="${RUNNER_TOOLS_ROOT:-/opt/runner-tools}"
+sudo install -d -o "$(id -un)" -g "$(id -gn)" \
+  "$RUNNER_TOOLS_ROOT/bin" "$RUNNER_TOOLS_ROOT/tools/development" \
+  "$RUNNER_TOOLS_ROOT/tools/testing" "$RUNNER_TOOLS_ROOT/tools/devops" \
+  "$RUNNER_TOOLS_ROOT/tools/networking" "$RUNNER_TOOLS_ROOT/tools/security" \
+  "$RUNNER_TOOLS_ROOT/tools/reverse-engineering" "$RUNNER_TOOLS_ROOT/tools/database" \
+  "$RUNNER_TOOLS_ROOT/tools/media" "$RUNNER_TOOLS_ROOT/runtimes" \
+  "$RUNNER_TOOLS_ROOT/cache" "$RUNNER_TOOLS_ROOT/registry"
 mkdir -p "$LOCAL_BIN"
+export RUNNER_TOOLS_ROOT
+export PATH="$RUNNER_TOOLS_ROOT/bin:$LOCAL_BIN:$PATH"
+if [[ -n "${GITHUB_PATH:-}" ]]; then
+  printf '%s\n' "$RUNNER_TOOLS_ROOT/bin" "$LOCAL_BIN" >> "$GITHUB_PATH"
+fi
 
 PROFILE="core"
 case "${1:-}" in
@@ -77,6 +90,7 @@ install_actionlint() {
   printf '%s  %s\n' "$sha256" "$tmpdir/$filename" | sha256sum -c -
   tar -xzf "$tmpdir/$filename" -C "$tmpdir" actionlint
   install -m 0755 "$tmpdir/actionlint" "$LOCAL_BIN/actionlint"
+  ln -sfn "$LOCAL_BIN/actionlint" "$RUNNER_TOOLS_ROOT/bin/actionlint"
   rm -rf "$tmpdir"
   echo "[agent-bootstrap] actionlint=$("$LOCAL_BIN/actionlint" -version 2>/dev/null | awk 'NR==1 {print $1; exit}')"
 }

@@ -224,11 +224,31 @@ The standard prewarm covers:
 - actionlint and Goss resolve the latest official GitHub release at install time and verify the asset SHA-256 digest; Node.js and the RDC npm package use their latest stable releases; keep GitHub Actions pinned to immutable commit SHAs;
 - build-essential, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS and common native headers;
-- shellcheck, sqlite, network/process diagnostics;
-- FFmpeg and ImageMagick;
+- shellcheck, shfmt, sqlite, PostgreSQL/Redis/MariaDB clients and protobuf compiler;
+- network diagnostics including Nmap, MTR, iperf3, tcpdump, traceroute, whois and socat;
+- media/document tools including FFmpeg, ImageMagick, MediaInfo, SoX, MKVToolNix, libvips and Poppler;
 - hosted Node.js/npm recovery when PATH is incomplete.
 
 The reverse-engineering toolkit (REA) is the exception: the background prewarm automatically runs the repository's official `scripts/install-rea.sh` on every runner generation, after RDC is healthy. Prewarm does not report `READY` until the installer, REA capability check, and provider smoke tests succeed. This shared installation is available to every model/agent using the runner account; it is not installed separately per client.
+
+## Runner Tool Center
+
+The Runner has one local catalog for installed tools. It is a discovery layer over the real Shell, not an RPC service.
+
+Start with intent-based search instead of searching the web or guessing package names:
+
+agent-lab tools search "inspect APK or Android package"
+agent-lab tools search "debug packet loss and TCP throughput"
+agent-lab tools search "convert or inspect video and audio"
+agent-lab tools info TOOL_ID
+agent-lab tools list
+agent-lab tools check
+agent-lab tools report
+agent-lab tools index
+
+The catalog includes aliases, task keywords, exact command names, examples, provider ownership, and live availability. Use listed commands directly in Shell. REA-managed capabilities must go through rea; never run rea setup or add MCP registrations. /opt/runner-tools is the common root for custom binaries, REA providers, runtimes, registry and caches. APT-managed programs remain in standard system locations and are indexed in the same catalog.
+
+Before installing a tool, check the local catalog. Do not duplicate a utility under a second package manager. Add or change catalog entries in config/runner-tools.json; add package provisioning to config/runner-toolset.json and keep readiness checks aligned.
 
 ## REA usage on every runner
 

@@ -1570,6 +1570,9 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         rea_bin=self.base/'rea-bin';rea_bin.mkdir()
         prewarm=bindir/'agent-prewarm.sh'
         prewarm.write_text((SCRIPTS/'agent-prewarm.sh').read_text());prewarm.chmod(0o755)
+        (self.base/'config').mkdir(exist_ok=True)
+        (self.base/'config'/'runner-tools.json').write_text('{"schema_version":1}')
+        (bindir/'lab_tools.py').write_text('import sys\n')
         (bindir/'agent-lib.sh').write_text(f"""#!/bin/bash
 agent_cache_dir() {{ echo '{cache}'; }}
 agent_status_file() {{ echo '{cache}/prewarm.env'; }}
@@ -1609,7 +1612,7 @@ esac
         )
         (bindir/'lab_environment.py').write_text('import sys\n')
         record=self.base/'validate-args'
-        run_env={**self.env,'REA_INSTALL_ROOT':rea_root,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+        run_env={**self.env,'REA_INSTALL_ROOT':rea_root,'RUNNER_TOOLS_ROOT':self.base/'runner-tools','PATH':str(bindir)+os.pathsep+os.environ['PATH'],
                  'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'}
         failed=command([prewarm,'--foreground'],env=run_env)
         self.assertEqual(failed.returncode,23,failed.stderr)
