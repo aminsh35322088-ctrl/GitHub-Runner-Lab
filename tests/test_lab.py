@@ -252,7 +252,7 @@ class LabTest(unittest.TestCase):
         self.assertIn('restic forget --group-by host,tags', sync)
         self.assertIn('Restic backup unavailable or unsuccessful', sync)
         self.assertIn('CHECKPOINT_BACKEND=restic', sync)
-        self.assertIn('RECOVERY_BACKEND=restic', sync)
+        self.assertIn('echo "RECOVERY_BACKEND=$source"', sync)
         self.assertIn('git push --quiet', sync)
 
         restore_step = workflow.split('Restore latest Agent checkpoint (Restic, then Git fallback)', 1)[1].split('\n      # RDC', 1)[0]
