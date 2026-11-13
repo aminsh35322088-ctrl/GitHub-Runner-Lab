@@ -21,7 +21,7 @@ restic_ready() {
     [[ -n "${RESTIC_REPOSITORY:-}" && -n "${RESTIC_PASSWORD:-}" ]]
 }
 restic_snapshots() {
-  restic snapshots --json --tag agent-checkpoint --tag "repo-${repo_tag}"
+  restic snapshots --json --tag "agent-checkpoint,repo-${repo_tag}"
 }
 latest_restic_snapshot() {
   python3 -c 'import json,sys; rows=json.load(sys.stdin); rows.sort(key=lambda x:x.get("time","")); print(rows[-1]["id"] if rows else "")'
@@ -80,7 +80,7 @@ save_to_restic() {
   snapshot_dir="$(readlink -f "${AGENT_CHECKPOINT_DIR:-$HOME/agent-checkpoints}/latest")"
   [[ -f "$snapshot_dir/manifest.json" && -f "$snapshot_dir/sha256.json" ]] || return 1
   restic backup --json --group-by host,tags --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" "$snapshot_dir" || return 1
-  restic forget --group-by host,tags --tag agent-checkpoint --tag "repo-${repo_tag}" \
+  restic forget --group-by host,tags --tag "agent-checkpoint,repo-${repo_tag}" \
     --keep-daily "${RESTIC_KEEP_DAILY:-7}" --keep-weekly "${RESTIC_KEEP_WEEKLY:-4}" \
     --keep-monthly "${RESTIC_KEEP_MONTHLY:-3}" --prune || return 1
   snapshots="$(restic_snapshots)" || return 1
