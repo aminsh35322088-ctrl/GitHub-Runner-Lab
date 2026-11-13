@@ -908,12 +908,18 @@
       "id": "sigillo",
       "name": "Sigillo CLI",
       "category": "devops",
-      "description": "Credential lifecycle and scoped secret retrieval",
+      "description": "Optional credential lifecycle CLI; authenticated sessions provide scoped secret injection to trusted agent processes",
       "keywords": [
         "credentials",
         "secrets",
         "vault",
-        "auth"
+        "auth",
+        "credential vault",
+        "credential lifecycle",
+        "api token",
+        "secret injection",
+        "agent credentials",
+        "sigillo run"
       ],
       "commands": [
         "sigillo"
@@ -926,7 +932,8 @@
       "version_command": [
         "sigillo",
         "--version"
-      ]
+      ],
+      "required": false
     },
     {
       "id": "dns-tools",
