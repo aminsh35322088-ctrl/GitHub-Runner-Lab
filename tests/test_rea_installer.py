@@ -154,7 +154,8 @@ log() { :; }
 die() { printf '%s\\n' "$*" >&2; exit 1; }
 """ + function + f"""
 link_binwalk_cli "{binary}" "{shared_bin}" 3.1.0
-PATH="{shared_bin}:$PATH"
+shared_bin="{shared_bin}"
+PATH="$shared_bin:$PATH"
 export PATH
 test "$(command -v binwalk)" = "$shared_bin/binwalk"
 binwalk --version | grep -q 'binwalk 3.1.0'
