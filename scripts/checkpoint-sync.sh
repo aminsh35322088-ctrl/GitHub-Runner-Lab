@@ -66,6 +66,9 @@ save_to_restic() {
   snapshot_dir="$(readlink -f "${AGENT_CHECKPOINT_DIR:-$HOME/agent-checkpoints}/latest")"
   [[ -f "$snapshot_dir/manifest.json" && -f "$snapshot_dir/sha256.json" ]] || return 1
   restic backup --json --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" "$snapshot_dir" || return 1
+  restic forget --group-by host,tags --tag agent-checkpoint --tag "repo-${repo_tag}" \
+    --keep-daily "${RESTIC_KEEP_DAILY:-7}" --keep-weekly "${RESTIC_KEEP_WEEKLY:-4}" \
+    --keep-monthly "${RESTIC_KEEP_MONTHLY:-3}" --prune || return 1
   snapshots="$(restic_snapshots)" || return 1
   snapshot_id="$(printf '%s' "$snapshots" | latest_restic_snapshot)" || return 1
   [[ -n "$snapshot_id" ]] || { echo 'Restic did not expose a committed checkpoint snapshot.' >&2; return 1; }
