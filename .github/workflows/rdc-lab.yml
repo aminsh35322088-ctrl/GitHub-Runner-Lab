@@ -292,28 +292,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Normalize to a credential-safe HTTPS origin. The CLI sends the
-          # bearer token to this URL, so credentials, paths, queries and HTTP
-          # endpoints are deliberately rejected.
-          if [[ -z "${SIGILLO_API_URL:-}" ]]; then
-            SIGILLO_API_URL="https://sigillo.dev"
-          fi
-          if ! sigillo_api_origin="$(SIGILLO_API_URL="$SIGILLO_API_URL" node -e 'const u = new URL(process.env.SIGILLO_API_URL); if (u.protocol !== "https:" || !u.hostname || u.username || u.password || u.pathname !== "/" || u.search || u.hash) process.exit(2); process.stdout.write(u.origin)')"; then
-            echo "::warning::SIGILLO_API_URL must be a valid HTTPS origin without credentials, path, query, or fragment."
-            echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          export SIGILLO_API_URL="$sigillo_api_origin"
+          state_file="$HOME/.local/state/agent-runner/sigillo-auth-status"
+          write_sigillo_state() {
+            local state="$1"
+            local state_dir tmp
+            state_dir="$(dirname "$state_file")"
+            mkdir -p "$state_dir"
+            chmod 755 "$state_dir"
+            tmp="${state_file}.tmp.$$"
+            printf '%s\n' "$state" > "$tmp"
+            chmod 644 "$tmp"
+            mv -f "$tmp" "$state_file"
+          }
 
           sigillo_unavailable() {
-            local reason="$1"
+            local state="$1"
+            local reason="$2"
             if [[ -n "${auth_err:-}" ]]; then rm -f "$auth_err" || true; fi
+            write_sigillo_state "$state" || echo "::warning::Could not persist the non-secret Sigillo status marker."
             echo "::warning::Sigillo unavailable: $reason. RDC/Tailscale startup will continue."
             echo "SIGILLO_CLI_READY=false" >> "$GITHUB_OUTPUT"
             {
               echo "### Sigillo authentication"
               echo
-              echo "- Status: **unavailable**"
+              if [[ "$state" == "UNCONFIGURED" ]]; then
+                echo "- Status: **not configured (optional)**"
+              else
+                echo "- Status: **authentication unavailable**"
+              fi
               echo "- Reason: $reason"
               echo "- Runner connectivity: **not blocked**"
               echo "- Credential values: **not logged**"
@@ -321,67 +327,81 @@ jobs:
             exit 0
           }
 
+          # No API token means Sigillo is simply disabled for this runner generation.
+          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
+            sigillo_unavailable "UNCONFIGURED" "SIGILLO_API_TOKEN GitHub Actions secret is not set"
+          fi
+
+          # Mark configured-but-not-yet-verified as unavailable until every auth check passes.
+          write_sigillo_state "AUTH_FAILED" || true
+
+          # Normalize to a credential-safe HTTPS origin. The CLI sends the
+          # bearer token to this URL, so credentials, paths, queries and HTTP
+          # endpoints are deliberately rejected.
+          if [[ -z "${SIGILLO_API_URL:-}" ]]; then
+            SIGILLO_API_URL="https://sigillo.dev"
+          fi
+          if ! sigillo_api_origin="$(SIGILLO_API_URL="$SIGILLO_API_URL" node -e 'const u = new URL(process.env.SIGILLO_API_URL); if (u.protocol !== "https:" || !u.hostname || u.username || u.password || u.pathname !== "/" || u.search || u.hash) process.exit(2); process.stdout.write(u.origin)')"; then
+            sigillo_unavailable "AUTH_FAILED" "SIGILLO_API_URL must be a valid HTTPS origin without credentials, path, query, or fragment"
+          fi
+          export SIGILLO_API_URL="$sigillo_api_origin"
+          # Preserve the validated, non-secret API origin for RDC shells and Agent processes.
+          printf 'SIGILLO_API_URL=%s\n' "$sigillo_api_origin" >> "$GITHUB_ENV"
+
           # Keep unexpected optional-integration errors from failing the lab.
           on_unexpected_failure() {
             local code=$?
             trap - ERR
-            sigillo_unavailable "bootstrap command failed (exit code $code)"
+            sigillo_unavailable "AUTH_FAILED" "bootstrap command failed (exit code $code)"
           }
           trap on_unexpected_failure ERR
 
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            sigillo_unavailable "SIGILLO_API_TOKEN GitHub Actions secret is missing"
-          fi
-
           if ! npm install --global sigillo; then
-            sigillo_unavailable "CLI installation failed"
+            sigillo_unavailable "AUTH_FAILED" "CLI installation failed"
           fi
 
           umask 077
           mkdir -p "$HOME/.sigillo"
           chmod 700 "$HOME/.sigillo"
 
-          # A successful `login` command only writes the token to config.
-          # Probe the API with the supplied secret first so a malformed, revoked,
-          # wrong-instance, or otherwise unknown token can never be marked ready.
+          # Validate the supplied token before persisting it. Never log CLI output.
           auth_err="$RUNNER_TEMP/sigillo-auth-check.stderr"
           if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me >/dev/null 2>"$auth_err"; then
             http_status="$(grep -oE '\([0-9]{3}\)' "$auth_err" | tail -n1 | tr -d '()' || true)"
             case "${http_status:-unknown}" in
-              401) sigillo_unavailable "Sigillo rejected SIGILLO_API_TOKEN on ${sigillo_api_origin} (HTTP 401); check the instance URL or replace the GitHub secret with an active API token created on that instance" ;;
-              403) sigillo_unavailable "Sigillo denied SIGILLO_API_TOKEN (HTTP 403); check the token and its project/environment access" ;;
-              *) sigillo_unavailable "API token preflight failed (HTTP ${http_status:-unknown})" ;;
+              401) sigillo_unavailable "AUTH_FAILED" "Sigillo rejected SIGILLO_API_TOKEN (HTTP 401); check the instance URL or replace the GitHub secret with an active API token from that instance" ;;
+              403) sigillo_unavailable "AUTH_FAILED" "Sigillo denied SIGILLO_API_TOKEN (HTTP 403); check token access to the required project/environment" ;;
+              *) sigillo_unavailable "AUTH_FAILED" "API token preflight failed (HTTP ${http_status:-unknown})" ;;
             esac
           fi
           rm -f "$auth_err"
 
-          # Persist only after the preflight succeeded. The CLI writes config
-          # atomically with owner-only permissions; no token is passed in argv.
+          # Persist only after preflight succeeds; the token is never passed in argv.
           if ! SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope / >/dev/null 2>"$auth_err"; then
             unset SIGILLO_TOKEN
-            sigillo_unavailable "could not persist the validated API token"
+            sigillo_unavailable "AUTH_FAILED" "could not persist the validated API token"
           fi
           unset SIGILLO_TOKEN
 
           if ! chmod 700 "$HOME/.sigillo" ||
              ! chmod 600 "$HOME/.sigillo/config.json" ||
              ! sigillo me >/dev/null 2>"$auth_err"; then
-            sigillo_unavailable "saved credential did not pass post-login API verification"
+            sigillo_unavailable "AUTH_FAILED" "saved credential did not pass post-login API verification"
           fi
           rm -f "$auth_err"
+          write_sigillo_state "AUTHENTICATED" || echo "::warning::Sigillo is authenticated, but Tool Center could not persist its status marker; live verification will be used."
 
           echo "SIGILLO_CLI_READY=true" >> "$GITHUB_OUTPUT"
           {
             echo "### Sigillo authentication"
             echo
-            echo "- Status: **ready**"
+            echo "- Status: **authenticated and available to Agent shells**"
             echo "- Authentication: **GitHub Actions API secret (non-interactive)**"
             echo "- API verification: **passed**"
             echo "- Config permissions: **700/600**"
             echo "- Credential values: **not logged**"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Sigillo API authentication verified; no interactive login required."
-
+          echo "Sigillo API authentication verified; shared runner shells can use sigillo and sigillo run."
 
       - name: Prepare scripts and initialize lifecycle clock
         shell: bash
@@ -531,22 +551,42 @@ jobs:
           echo "TAILSCALE_IPV4=$TS_IPV4"
 
       - name: Configure Agent GitHub access from Sigillo
-        if: steps.mode.outputs.ready == 'true'
+        id: agent-github-auth
+        if: ${{ steps.mode.outputs.ready == 'true' && steps.sigillo.outputs.SIGILLO_CLI_READY == 'true' }}
+        continue-on-error: true
         env:
-          SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}
           SIGILLO_API_URL: ${{ vars.SIGILLO_API_URL || 'https://sigillo.dev' }}
         shell: bash
         run: |
-          set -euo pipefail
-          if [[ -z "${SIGILLO_TOKEN:-}" ]]; then
-            echo "::error::SIGILLO_API_TOKEN is required to retrieve the runner GitHub credential from Sigillo."
-            exit 1
-          fi
+          set -Eeuo pipefail
+          on_failure() {
+            local code=$?
+            trap - ERR
+            echo "::warning::Agent GitHub credential bootstrap failed (exit code $code); the authenticated Sigillo CLI remains available to Agent shells."
+            {
+              echo "### Agent GitHub credential"
+              echo
+              echo "- Status: **unavailable**"
+              echo "- Sigillo CLI: **authenticated and still available**"
+              echo "- Runner startup: **not blocked**"
+              echo "- Credential values: **not logged**"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$code"
+          }
+          trap on_failure ERR
+          # The token is already saved with owner-only permissions by the auth step.
           # Keep the GitHub PAT out of the installer process environment: it is
           # delivered only over stdin, then stored by GitHub CLI's credential helper.
           # shellcheck disable=SC2016 # Sigillo evaluates this command in its child shell.
           sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT" --command 'set -o pipefail; printf "%s" "${GITHUB_API_TOKEN:?GITHUB_API_TOKEN is missing from Sigillo}" | env -u GITHUB_API_TOKEN ./scripts/agent-github.sh install'
           ./scripts/agent-github.sh verify
+          {
+            echo "### Agent GitHub credential"
+            echo
+            echo "- Status: **ready**"
+            echo "- Credential source: **Sigillo**"
+            echo "- Credential values: **not logged**"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Identify Agent cache runtime
         id: cache-runtime
         if: steps.mode.outputs.ready == 'true'
