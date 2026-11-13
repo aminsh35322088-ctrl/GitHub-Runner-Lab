@@ -15,7 +15,7 @@ pid="$(agent_status_value PID)"
 if [[ "$state" == "RUNNING" && -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
   state="STALE"
 elif [[ "$state" == "READY" ]]; then
-  if [[ "$version" != "$EXPECTED_VERSION" ]] || ! agent_full_toolchain_ready; then
+  if [[ "$version" != "$EXPECTED_VERSION" ]] || ! agent_full_toolchain_ready || ! command -v rea >/dev/null 2>&1; then
     state="OUTDATED"
   fi
 fi
@@ -27,6 +27,13 @@ echo "STARTED_AT=$(agent_status_value STARTED_AT)"
 echo "FINISHED_AT=$(agent_status_value FINISHED_AT)"
 echo "PROFILE=$(agent_status_value PROFILE)"
 echo "PID=${pid:-}"
+
+if command -v rea >/dev/null 2>&1; then
+  echo "REA=READY"
+  echo "REA_VERSION=${REA_VERSION:-unknown}"
+else
+  echo "REA=MISSING"
+fi
 
 for pair in   "git:git" "gh:gh" "node:node" "npm:npm" "python:python3"   "rg:rg" "fd:fd" "jq:jq" "cmake:cmake" "ninja:ninja"   "gcc:gcc" "clang:clang" "gdb:gdb" "git_lfs:git-lfs"   "docker:docker" "ffmpeg:ffmpeg" "imagemagick:convert" "sqlite:sqlite3"   "shellcheck:shellcheck"; do
   name="${pair%%:*}"
