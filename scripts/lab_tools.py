@@ -37,7 +37,7 @@ def search_tools(catalog,query):
         if score>0: scored.append((score,t))
     return [t for _,t in sorted(scored,key=lambda x:(-x[0],x[1]["category"],x[1]["name"].lower()))]
 
-def sigillo_status(t):
+def sigillo_status(t,deep=False):
     """Report Sigillo auth without ever returning CLI stdout/stderr or secret values."""
     command=(t.get("commands") or ["sigillo"])[0]
     resolved=shutil.which(command)
@@ -57,16 +57,23 @@ def sigillo_status(t):
         else:
             result["reason"]="Optional integration is not configured; set SIGILLO_API_TOKEN to enable it"
         return result
-    # Verify the saved session in-process. Capture and discard all output so
-    # account details, API errors, and any accidental credential text never
-    # enter Tool Center output or machine-readable reports.
+    if state=="AUTHENTICATED" and not deep:
+        result["status"]="AUTHENTICATED"
+        result["reason"]="Sigillo authentication passed during runner startup; use tools check for live revalidation"
+        return result
+    if not deep:
+        result["reason"]="Sigillo is optional and has no authenticated runner session"
+        return result
+    # Deep checks verify the saved session in-process. Capture and discard all
+    # output so account details, API errors, and accidental credential text
+    # never enter Tool Center output or machine-readable reports.
     try:
         proc=subprocess.run([command,"me"],capture_output=True,text=True,timeout=20,check=False)
     except (OSError,subprocess.TimeoutExpired):
         proc=None
     if proc is not None and proc.returncode==0:
         result["status"]="AUTHENTICATED"
-        result["reason"]="Sigillo CLI session passed API authentication verification"
+        result["reason"]="Sigillo CLI session passed live API authentication verification"
     elif state=="AUTHENTICATED":
         result["status"]="AUTH_FAILED"
         result["reason"]="Saved Sigillo authentication could not be verified; re-authentication is required"
@@ -75,7 +82,7 @@ def sigillo_status(t):
         result["reason"]="Sigillo CLI is installed but no authenticated session is available"
     return result
 def tool_status(t,deep=False):
-    if t.get("id")=="sigillo": return sigillo_status(t)
+    if t.get("id")=="sigillo": return sigillo_status(t,deep)
     result={"id":t["id"],"status":"MISSING","resolved":[]}
     missing=[]
     for command in t.get("commands",[]):
