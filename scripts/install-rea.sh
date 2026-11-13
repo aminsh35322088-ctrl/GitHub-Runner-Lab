@@ -116,6 +116,48 @@ done
 log() { printf '[install-rea] %s\n' "$*"; }
 warn() { printf '[install-rea] WARNING: %s\n' "$*" >&2; }
 die() { printf '[install-rea] ERROR: %s\n' "$*" >&2; exit 1; }
+# Expose the pinned native Binwalk CLI through the shared command directory.
+# The provider lives in its own root, while Shell and Tool Center resolve
+# commands through /opt/runner-tools/bin.
+link_binwalk_cli() {
+  local binary="$1" shared_bin="$2" version="$3"
+  [[ -x "$binary" ]] || die "Pinned Binwalk executable is missing: $binary"
+  mkdir -p "$shared_bin"
+  ln -sfn "$binary" "$shared_bin/binwalk"
+  [[ -x "$shared_bin/binwalk" ]] || die "Could not expose Binwalk at $shared_bin/binwalk"
+  "$shared_bin/binwalk" --version | grep -q "binwalk $version" || die 'Shared Binwalk command failed its version check.'
+}
+
+# Make providers.env visible to login and interactive Bash startup paths.
+# The stock ~/.bashrc returns early for non-interactive shells, so this block
+# must precede that guard. ~/.bash_profile takes precedence over ~/.profile.
+install_provider_shell_environment() {
+  local env_file="$1" startup_file clean_file staged_file
+  local start_marker='# >>> GitHub Runner Lab REA environment >>>'
+  local end_marker='# <<< GitHub Runner Lab REA environment <<<'
+  for startup_file in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    touch "$startup_file"
+    clean_file="$(mktemp)"
+    staged_file="$(mktemp "${startup_file}.XXXXXX")"
+    awk -v start="$start_marker" -v end="$end_marker" '
+      $0 == start { skip=1; next }
+      $0 == end { skip=0; next }
+      !skip { print }
+    ' "$startup_file" > "$clean_file"
+    {
+      printf '%s\n' "$start_marker"
+      printf 'if [[ "${REA_PROVIDERS_ENV_LOADED:-}" != "1" && -r %q ]]; then\n' "$env_file"
+      printf '  source %q\n' "$env_file"
+      printf '  export REA_PROVIDERS_ENV_LOADED=1\n'
+      printf 'fi\n'
+      printf '%s\n' "$end_marker"
+      cat "$clean_file"
+    } > "$staged_file"
+    chmod --reference="$startup_file" "$staged_file"
+    mv -f "$staged_file" "$startup_file"
+    rm -f "$clean_file"
+  done
+}
 
 [[ "$(uname -s)" == Linux ]] || die 'This installer supports Linux only.'
 case "$(uname -m)" in x86_64|aarch64) HOST_ARCH="$(uname -m)" ;; *) die "Unsupported architecture: $(uname -m)" ;; esac
@@ -431,9 +473,10 @@ if [[ "$SKIP_BINWALK" != true && "$DRY_RUN" != true ]]; then
     RUST_FONTCONFIG_DLOPEN=1 cargo install --git https://github.com/ReFirmLabs/binwalk --rev "$BINWALK_GIT_REVISION" --locked --root "$BINWALK_ROOT" binwalk
   fi
   "$BINWALK_COMMAND" --version | grep -q "binwalk $BINWALK_VERSION" || die 'Pinned Binwalk binary version check failed.'
+  link_binwalk_cli "$BINWALK_COMMAND" "$INSTALL_ROOT/bin" "$BINWALK_VERSION"
   REA_BINWALK_COMMAND="$BINWALK_COMMAND"
   BINWALK3_BINARY="$BINWALK_COMMAND"
-  log "Binwalk $BINWALK_VERSION installed at $BINWALK_COMMAND."
+  log "Binwalk $BINWALK_VERSION installed and exposed at $INSTALL_ROOT/bin/binwalk."
 elif [[ "$DRY_RUN" == true && "$SKIP_BINWALK" != true ]]; then
   log "DRY-RUN: build pinned Binwalk $BINWALK_VERSION (revision $BINWALK_GIT_REVISION) with Cargo."
 fi
@@ -504,16 +547,7 @@ if [[ "$DRY_RUN" != true ]]; then
     if [[ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then printf 'export PLAYWRIGHT_BROWSERS_PATH=%q\n' "$PLAYWRIGHT_BROWSERS_PATH"; fi
   } > "$ENV_FILE"
   chmod 0600 "$ENV_FILE"
-  for startup_file in "$HOME/.profile" "$HOME/.bashrc"; do
-    touch "$startup_file"
-    if ! grep -Fq '# >>> GitHub Runner Lab REA environment >>>' "$startup_file"; then
-      {
-        printf '\n# >>> GitHub Runner Lab REA environment >>>\n'
-        printf '[ -r %q ] && . %q\n' "$ENV_FILE" "$ENV_FILE"
-        printf '# <<< GitHub Runner Lab REA environment <<<\n'
-      } >> "$startup_file"
-    fi
-  done
+  install_provider_shell_environment "$ENV_FILE"
   for optional_env in JAVA_HOME GHIDRA_INSTALL_DIR REA_JADX_MCP_JAR REA_PYTHON_TOOLCHAIN REA_PWNTOOLS_PYTHON REA_MITMDUMP_COMMAND REA_WABT_BIN_DIRECTORY REA_BROWSER_EXECUTABLE REA_BINWALK_COMMAND REA_UNBLOB_COMMAND BINWALK3_BINARY HOPPER_LAUNCHER_PATH REA_IDA_MCP_CONFIG PLAYWRIGHT_BROWSERS_PATH; do
     if [[ -z "${!optional_env:-}" ]]; then unset "$optional_env"; fi
   done
