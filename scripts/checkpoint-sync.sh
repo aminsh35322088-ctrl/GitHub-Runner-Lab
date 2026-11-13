@@ -42,6 +42,12 @@ restore_snapshot_dir() {
   echo "RECOVERY_BACKEND=$source"
   echo "RECOVERED_ROOT=$recovered"
 }
+restore_archive() {
+  local archive="$1" source="$2" destination
+  destination="${AGENT_RECOVERY_DIR:-$HOME/agent-recovery}/${GITHUB_RUN_ID:-manual}-$(date +%s)-${source}"
+  python3 "$SELF_DIR/lab_archive.py" decrypt "$archive" "$destination"
+  restore_snapshot_dir "$destination/snapshot" "$source"
+}
 restore_from_restic() {
   restic_ready || { RESTIC_RESTORE_STATE=unconfigured; echo 'Restic is not configured or installed.' >&2; return 1; }
   RESTIC_RESTORE_STATE=failed
