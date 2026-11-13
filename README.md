@@ -110,7 +110,9 @@ Repository setup requires these secrets:
 
 | Secret | Purpose |
 | --- | --- |
-| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and Agent checkpoints. Use at least 32 random characters. |
+| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and the encrypted Git-branch checkpoint fallback. Use at least 32 random characters. |
+| `RESTIC_REPOSITORY` | Optional Restic repository URL. When configured with `RESTIC_PASSWORD`, Restic is the primary checkpoint backend. |
+| `RESTIC_PASSWORD` | Optional Restic repository password. If Restic is unavailable or backup/restore fails, the encrypted `agent-checkpoints` Git branch is used. |
 | `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
@@ -120,6 +122,19 @@ Optional Sigillo endpoint override:
 | Setting | GitHub type | Purpose |
 | --- | --- | --- |
 | `SIGILLO_API_URL` | Repository variable | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
+
+Optional Restic backend credentials (configure only the credentials required by your chosen backend):
+
+| Secret / variable | Purpose |
+| --- | --- |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | S3-compatible backend authentication. |
+| `AWS_DEFAULT_REGION` (variable) | Default AWS/S3 region. |
+| `B2_ACCOUNT_ID`, `B2_ACCOUNT_KEY` | Backblaze B2 backend authentication. |
+| `RESTIC_REST_USERNAME`, `RESTIC_REST_PASSWORD` | HTTP REST backend authentication. |
+
+Restic is installed opportunistically on each runner. If its repository is not configured, the current encrypted Git-branch backend remains available. When Restic is configured, it is tried first; the `agent-checkpoints` branch is updated only if the Restic save fails, and is consulted after an unsuccessful Restic restore. Restic stores the verified checkpoint directory in its encrypted repository; the branch fallback continues to store the authenticated `latest.enc` archive protected by `RDC_STATE_KEY`.
+
+Restic retention defaults to 7 daily, 4 weekly, and 3 monthly snapshots. Set the repository variables `RESTIC_KEEP_DAILY`, `RESTIC_KEEP_WEEKLY`, and `RESTIC_KEEP_MONTHLY` to override those values.
 
 Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
 
@@ -325,9 +340,9 @@ A manual checkpoint can be requested with:
 ./scripts/agent-run.sh checkpoint manual
 ```
 
-The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, authenticates/encrypts the snapshot with `RDC_STATE_KEY`, and persists the latest encrypted state outside the disposable VM.
+The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, and excludes unsafe/unrecognized untracked files. Restic is the primary encrypted, deduplicated snapshot backend when configured; the existing authenticated/encrypted `agent-checkpoints` Git branch is retained as a failure-only fallback. Restic retention defaults to 7 daily, 4 weekly, and 3 monthly snapshots.
 
-Recovery materializes repositories into a fresh recovery root, verifies the snapshot before use, and re-registers restored workspaces for later checkpoints.
+Recovery tries the latest matching Restic snapshot first, verifies it through the checkpoint manifest and SHA-256 file set, then falls back to the encrypted Git branch if Restic cannot restore it. If a configured Restic repository is unreachable and no branch fallback exists, recovery fails closed rather than reporting that no checkpoint exists. Restored repositories are materialized into a fresh recovery root and re-registered for later checkpoints.
 
 ## Toolchain and readiness
 
