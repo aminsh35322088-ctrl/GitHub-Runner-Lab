@@ -52,6 +52,14 @@ restore_from_restic() {
   restic_ready || { RESTIC_RESTORE_STATE=unconfigured; echo 'Restic is not configured or installed.' >&2; return 1; }
   RESTIC_RESTORE_STATE=failed
   local snapshots snapshot_id restored snapshot
+  if ! restic cat config >/dev/null 2>&1; then
+    if restic init >/dev/null 2>&1; then
+      RESTIC_RESTORE_STATE=empty
+      echo 'Initialized the configured Restic repository; no prior snapshot is available.' >&2
+      return 1
+    fi
+    return 1
+  fi
   snapshots="$(restic_snapshots)" || return 1
   snapshot_id="$(printf '%s' "$snapshots" | latest_restic_snapshot)" || return 1
   [[ -n "$snapshot_id" ]] || { RESTIC_RESTORE_STATE=empty; echo 'No Restic checkpoint snapshot exists yet.' >&2; return 1; }
