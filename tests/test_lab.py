@@ -340,7 +340,7 @@ raise SystemExit(2)
         self.assertIn('Restic backup unavailable or unsuccessful', sync)
         self.assertIn('CHECKPOINT_BACKEND=restic', sync)
         self.assertIn('echo "RECOVERY_BACKEND=$source"', sync)
-        self.assertIn('git push --quiet', sync)
+        self.assertIn('push --quiet origin', sync)
 
         restore_step = workflow.split('Restore latest Agent checkpoint (Restic, then Git fallback)', 1)[1].split('\n      # RDC', 1)[0]
         save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
