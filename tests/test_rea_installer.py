@@ -143,19 +143,22 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             shared_bin = root / "runner-tools" / "bin"
             provider_bin.mkdir(parents=True)
             binary = provider_bin / "binwalk"
-            binary.write_text("#!/usr/bin/env bash\\necho 'binwalk 3.1.0'\\n")
+            binary.write_text("""#!/usr/bin/env bash
+echo 'binwalk 3.1.0'
+""")
             binary.chmod(0o755)
             harness = root / "link-binwalk.sh"
-            harness.write_text(
-                "#!/usr/bin/env bash\\nset -Eeuo pipefail\\n"
-                "log() { :; }\\n"
-                "die() { echo \\\"$*\\\" >&2; exit 1; }\\n"
-                f"{function}\\n"
-                f"link_binwalk_cli \\\"{binary}\\\" \\\"{shared_bin}\\\" 3.1.0\\n"
-                f"PATH=\\\"{shared_bin}:$PATH\\\"\\nexport PATH\\n"
-                "test \\\"$(command -v binwalk)\\\" = \\\"$shared_bin/binwalk\\\"\\n"
-                "binwalk --version | grep -q 'binwalk 3.1.0'\\n"
-            )
+            harness.write_text("""#!/usr/bin/env bash
+set -Eeuo pipefail
+log() { :; }
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+""" + function + f"""
+link_binwalk_cli "{binary}" "{shared_bin}" 3.1.0
+PATH="{shared_bin}:$PATH"
+export PATH
+test "$(command -v binwalk)" = "$shared_bin/binwalk"
+binwalk --version | grep -q 'binwalk 3.1.0'
+""")
             result = subprocess.run(["bash", str(harness)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((shared_bin / "binwalk").is_symlink())
@@ -171,23 +174,33 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             home.mkdir()
             bin_dir.mkdir()
             fake_rea = bin_dir / "rea"
-            fake_rea.write_text("#!/usr/bin/env bash\\necho rea-shell-smoke\\n")
+            fake_rea.write_text("""#!/usr/bin/env bash
+echo rea-shell-smoke
+""")
             fake_rea.chmod(0o755)
             env_file = root / "providers.env"
-            env_file.write_text(f"export PATH={bin_dir}:\\\"$PATH\\\"\\nexport REA_TEST_MARKER=loaded\\n")
+            env_file.write_text(f"""export PATH="{bin_dir}:$PATH"
+export REA_TEST_MARKER=loaded
+""")
             bashrc = home / ".bashrc"
-            bashrc.write_text("# stock bashrc\\ncase $- in\\n  *i*) ;;\\n  *) return;;\\nesac\\nexport BASHRC_BODY_REACHED=1\\n")
+            bashrc.write_text("""# stock bashrc
+case $- in
+  *i*) ;;
+  *) return;;
+esac
+export BASHRC_BODY_REACHED=1
+""")
             profile = home / ".profile"
             profile.write_text("# profile body\\n")
             bash_profile = home / ".bash_profile"
             bash_profile.write_text("export EXISTING_LOGIN_SETUP=preserved\\n")
             harness = root / "install-provider-env.sh"
-            harness.write_text(
-                "#!/usr/bin/env bash\\nset -Eeuo pipefail\\n"
-                f"{function}\\n"
-                f"install_provider_shell_environment \\\"{env_file}\\\"\\n"
-                f"install_provider_shell_environment \\\"{env_file}\\\"\\n"
-            )
+            harness.write_text("""#!/usr/bin/env bash
+set -Eeuo pipefail
+""" + function + f"""
+install_provider_shell_environment "{env_file}"
+install_provider_shell_environment "{env_file}"
+""")
             run_env = os.environ.copy()
             run_env["HOME"] = str(home)
             run_env.pop("REA_PROVIDERS_ENV_LOADED", None)
@@ -207,7 +220,7 @@ class RunnerShellIntegrationTests(unittest.TestCase):
             for startup in (bashrc, bash_profile, profile):
                 shell = [
                     "bash", "--noprofile", "--norc", "-c",
-                    f"source \\\"{startup}\\\"; test \\\"$REA_TEST_MARKER\\\" = loaded; command -v rea",
+                    f"source \\"{startup}\\"; test \\"$REA_TEST_MARKER\\" = loaded; command -v rea",
                 ]
                 checked = subprocess.run(shell, capture_output=True, text=True, env=run_env, timeout=30)
                 self.assertEqual(checked.returncode, 0, f"{startup.name}: {checked.stderr}")
