@@ -61,6 +61,17 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0],["sigillo","me"])
         self.assertNotIn("private",str(result))
 
+    def test_sigillo_shallow_discovery_uses_cached_runner_state_without_network(self):
+        tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp)
+            state=home/".local/state/agent-runner/sigillo-auth-status"
+            state.parent.mkdir(parents=True)
+            state.write_text("AUTHENTICATED\n")
+            with mock.patch.object(lab_tools.Path,"home",return_value=home), mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/sigillo"), mock.patch.object(lab_tools.subprocess,"run") as run:
+                result=lab_tools.tool_status(tool,deep=False)
+        self.assertEqual(result["status"],"AUTHENTICATED")
+        run.assert_not_called()
     def test_sigillo_invalid_token_is_visible_but_non_blocking(self):
         tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
         with tempfile.TemporaryDirectory() as tmp:
