@@ -255,7 +255,7 @@ class LabTest(unittest.TestCase):
 
         workspace = Path(self.env['AGENT_WORKSPACE_ROOT']) / 'sync-project'
         init_repo(workspace)
-        (workspace / 'tracked.txt').write_text('dirty before runner rotation\\n')
+        (workspace / 'tracked.txt').write_text('dirty before runner rotation\n')
         recovered = self.base / 'branch-recovered-workspaces'
         env = {
             **self.env,
@@ -281,12 +281,12 @@ class LabTest(unittest.TestCase):
         restored = command([lab / 'scripts/checkpoint-sync.sh', 'restore'], env=env)
         self.assertEqual(restored.returncode, 0, restored.stderr)
         self.assertEqual((recovered / 'sync-project' / 'tracked.txt').read_text(),
-                         'dirty before runner rotation\\n')
+                         'dirty before runner rotation\n')
         recovery_state = (Path(env['AGENT_KIT_CACHE_DIR']) / 'recovery.env').read_text()
         self.assertIn('RECOVERY_STATUS=READY', recovery_state)
 
         # A later save atomically replaces the single retained archive.
-        (workspace / 'tracked.txt').write_text('updated before next rotation\\n')
+        (workspace / 'tracked.txt').write_text('updated before next rotation\n')
         saved_again = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
         self.assertEqual(saved_again.returncode, 0, saved_again.stderr)
         branch_after = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
@@ -302,8 +302,8 @@ class LabTest(unittest.TestCase):
         self.assertNotIn('RESTIC_', workflow)
         self.assertIn('agent-checkpoints', sync)
         self.assertIn('RDC_STATE_KEY', sync)
-        restore_step = workflow.split('Restore latest encrypted Agent checkpoint', 1)[1].split('\\n      # RDC', 1)[0]
-        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\\n      - name: Upload Agent Checkpoint', 1)[0]
+        restore_step = workflow.split('Restore latest encrypted Agent checkpoint', 1)[1].split('\n      # RDC', 1)[0]
+        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
         self.assertNotIn('continue-on-error: true', restore_step)
         self.assertNotIn('continue-on-error: true', save_step)
         self.assertIn('include-hidden-files: true', workflow)
