@@ -111,8 +111,6 @@ Repository setup requires these secrets:
 | Secret | Purpose |
 | --- | --- |
 | `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and the encrypted Git-branch checkpoint fallback. Use at least 32 random characters. |
-| `RESTIC_REPOSITORY` | Optional Restic repository URL. When configured with `RESTIC_PASSWORD`, Restic is the primary checkpoint backend. |
-| `RESTIC_PASSWORD` | Optional Restic repository password. If Restic is unavailable or backup/restore fails, the encrypted `agent-checkpoints` Git branch is used. |
 | `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
@@ -127,6 +125,8 @@ Optional Restic backend credentials (configure only the credentials required by 
 
 | Secret / variable | Purpose |
 | --- | --- |
+| `RESTIC_REPOSITORY` (secret) | Restic repository URL; enables Restic as the primary checkpoint backend when paired with `RESTIC_PASSWORD`. |
+| `RESTIC_PASSWORD` (secret) | Password for the encrypted Restic repository. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | S3-compatible backend authentication. |
 | `AWS_DEFAULT_REGION` (variable) | Default AWS/S3 region. |
 | `B2_ACCOUNT_ID`, `B2_ACCOUNT_KEY` | Backblaze B2 backend authentication. |
