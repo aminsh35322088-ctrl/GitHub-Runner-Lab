@@ -566,7 +566,6 @@ jobs:
 
       - name: Restore latest encrypted Agent checkpoint
         if: steps.mode.outputs.ready == 'true'
-        continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/checkpoint-sync.sh restore
@@ -624,7 +623,6 @@ jobs:
 
       - name: Save final Agent checkpoint
         if: ${{ always() && steps.verify.outputs.ready == 'true' }}
-        continue-on-error: true
         env:
           RDC_STATE_KEY: ${{ secrets.RDC_STATE_KEY }}
         run: ./scripts/checkpoint-sync.sh save finalizer
@@ -636,6 +634,7 @@ jobs:
         with:
           name: agent-checkpoint-${{ github.run_id }}
           path: .agent-artifacts/*.enc
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 

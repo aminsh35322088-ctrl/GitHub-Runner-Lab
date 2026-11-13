@@ -110,7 +110,7 @@ Repository setup requires these secrets:
 
 | Secret | Purpose |
 | --- | --- |
-| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and Agent checkpoints. Use at least 32 random characters. |
+| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and the latest Agent checkpoint stored on the agent-checkpoints branch. Use at least 32 random characters. |
 | `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
@@ -325,9 +325,9 @@ A manual checkpoint can be requested with:
 ./scripts/agent-run.sh checkpoint manual
 ```
 
-The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, authenticates/encrypts the snapshot with `RDC_STATE_KEY`, and persists the latest encrypted state outside the disposable VM.
+The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, then encrypts and authenticates the archive with `RDC_STATE_KEY`. The single latest archive is persisted as latest.enc on the dedicated agent-checkpoints Git branch. This uses the repository's existing GitHub Actions write permission; no external backup service or additional credential is required.
 
-Recovery materializes repositories into a fresh recovery root, verifies the snapshot before use, and re-registers restored workspaces for later checkpoints.
+On a fresh runner, recovery fetches the agent-checkpoints branch, authenticates and decrypts latest.enc, then verifies and restores the snapshot into a fresh recovery root. Restored repositories are re-registered for later checkpoints. A failed lookup, authentication, or restore keeps checkpoint saving blocked so a bad recovery cannot overwrite the last known-good archive.
 
 ## Toolchain and readiness
 

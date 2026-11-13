@@ -72,3 +72,4 @@ else
 fi
 date -u +%FT%TZ > "$CACHE/checkpoint-persisted-at"
 echo 'CHECKPOINT_DURABLE=true'
+echo 'CHECKPOINT_BACKEND=git-branch'

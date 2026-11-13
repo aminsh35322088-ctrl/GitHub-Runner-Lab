@@ -3,6 +3,7 @@ import io
 import json
 import os
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -251,6 +252,72 @@ class LabTest(unittest.TestCase):
         result=command([sys.executable,SCRIPTS/'lab_checkpoint.py','resume',source,self.base/'restored'],env=self.env)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.base/'restored/repo/probe.txt').read_text(),'restored\n')
+
+
+    def _checkpoint_sync_fixture(self):
+        lab = self.base / 'checkpoint-sync-lab'
+        lab.mkdir()
+        shutil.copytree(SCRIPTS, lab / 'scripts')
+        remote = self.base / 'checkpoint-sync-origin.git'
+        subprocess.run(['git', 'init', '--bare', '--initial-branch=main', remote],
+                       check=True, capture_output=True)
+        init_repo(lab, remote)
+
+        workspace = Path(self.env['AGENT_WORKSPACE_ROOT']) / 'sync-project'
+        init_repo(workspace)
+        (workspace / 'tracked.txt').write_text('dirty before runner rotation\n')
+        recovered = self.base / 'branch-recovered-workspaces'
+        env = {
+            **self.env,
+            'GITHUB_WORKSPACE': str(lab),
+            'GITHUB_RUN_ID': 'git-branch-integration-test',
+            'AGENT_RECOVERED_WORKSPACE_ROOT': recovered,
+        }
+        return lab, workspace, recovered, env
+
+    def test_checkpoint_sync_persists_and_restores_encrypted_branch_archive(self):
+        lab, workspace, recovered, env = self._checkpoint_sync_fixture()
+        saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertIn('CHECKPOINT_DURABLE=true', saved.stdout)
+        self.assertIn('CHECKPOINT_BACKEND=git-branch', saved.stdout)
+
+        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertTrue(branch.stdout.strip(), 'the encrypted checkpoint branch must be pushed')
+        git(lab, 'fetch', '--quiet', 'origin', 'agent-checkpoints')
+        self.assertEqual(git(lab, 'ls-tree', '--name-only', 'FETCH_HEAD').stdout.splitlines(),
+                         ['latest.enc'])
+
+        restored = command([lab / 'scripts/checkpoint-sync.sh', 'restore'], env=env)
+        self.assertEqual(restored.returncode, 0, restored.stderr)
+        self.assertEqual((recovered / 'sync-project' / 'tracked.txt').read_text(),
+                         'dirty before runner rotation\n')
+        recovery_state = (Path(env['AGENT_KIT_CACHE_DIR']) / 'recovery.env').read_text()
+        self.assertIn('RECOVERY_STATUS=READY', recovery_state)
+
+        # A later save atomically replaces the single retained archive.
+        (workspace / 'tracked.txt').write_text('updated before next rotation\n')
+        saved_again = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
+        self.assertEqual(saved_again.returncode, 0, saved_again.stderr)
+        branch_after = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertNotEqual(branch.stdout.strip(), branch_after.stdout.strip())
+        git(lab, 'fetch', '--quiet', 'origin', 'agent-checkpoints')
+        self.assertEqual(git(lab, 'ls-tree', '--name-only', 'FETCH_HEAD').stdout.splitlines(),
+                         ['latest.enc'])
+
+    def test_checkpoint_sync_has_no_external_backup_backend_or_credentials(self):
+        sync = (SCRIPTS / 'checkpoint-sync.sh').read_text()
+        workflow = (ROOT / '.github/workflows/rdc-lab.yml').read_text()
+        self.assertNotIn('restic', sync.lower())
+        self.assertNotIn('RESTIC_', workflow)
+        self.assertIn('agent-checkpoints', sync)
+        archive = (SCRIPTS / 'lab_archive.py').read_text()
+        self.assertIn('RDC_STATE_KEY', archive)
+        restore_step = workflow.split('Restore latest encrypted Agent checkpoint', 1)[1].split('\n      # RDC', 1)[0]
+        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
+        self.assertNotIn('continue-on-error: true', restore_step)
+        self.assertNotIn('continue-on-error: true', save_step)
+        self.assertIn('include-hidden-files: true', workflow)
 
     def test_failed_recovery_blocks_durable_checkpoint_overwrite(self):
         marker=Path(self.env['AGENT_KIT_CACHE_DIR'])/'recovery.blocked'
