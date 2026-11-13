@@ -69,6 +69,11 @@ class EnvironmentTests(unittest.TestCase):
                 f"export PATH='{mock_bin}:/usr/bin:/bin'\n"
             )
             env = {**os.environ, 'HOME': str(home), 'PATH': os.environ['PATH']}
+            # A real runner shell may already have loaded providers.env. Keep
+            # this fixture isolated so it verifies the temporary HOME only.
+            for key in ('REA_PROVIDERS_ENV_LOADED', 'REA_INSTALL_ROOT',
+                        'RUNNER_TOOLS_ROOT', 'XDG_DATA_HOME'):
+                env.pop(key, None)
             result = subprocess.run(
                 ['/bin/bash', '-c',
                  f'source "{scripts / "agent-lib.sh"}" && command -v rea && '
