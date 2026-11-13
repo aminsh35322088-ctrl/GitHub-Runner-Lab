@@ -15,6 +15,7 @@ trap 'rm -rf "$tmp"' EXIT
 remote="$(git -C "$LAB_ROOT" remote get-url origin)"
 
 repo_tag="$(printf '%s' "${GITHUB_REPOSITORY:-local}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9-' '-')"
+RESTIC_RESTORE_STATE=unconfigured
 restic_ready() {
   command -v restic >/dev/null 2>&1 &&
     [[ -n "${RESTIC_REPOSITORY:-}" && -n "${RESTIC_PASSWORD:-}" ]]
@@ -25,11 +26,8 @@ restic_snapshots() {
 latest_restic_snapshot() {
   python3 -c 'import json,sys; rows=json.load(sys.stdin); rows.sort(key=lambda x:x.get("time","")); print(rows[-1]["id"] if rows else "")'
 }
-restore_archive() {
-  local archive="$1" source="$2" destination snapshot recovered
-  destination="${AGENT_RECOVERY_DIR:-$HOME/agent-recovery}/${GITHUB_RUN_ID:-manual}-$(date +%s)-${source}"
-  python3 "$SELF_DIR/lab_archive.py" decrypt "$archive" "$destination"
-  snapshot="$destination/snapshot"
+restore_snapshot_dir() {
+  local snapshot="$1" source="$2" recovered
   recovered="${AGENT_RECOVERED_WORKSPACE_ROOT:-$HOME/agent-workspaces/recovered-${GITHUB_RUN_ID:-manual}-$(date +%s)}"
   python3 "$SELF_DIR/lab_checkpoint.py" resume "$snapshot" "$recovered"
   rm -f "$blocked"
@@ -45,28 +43,29 @@ restore_archive() {
   echo "RECOVERED_ROOT=$recovered"
 }
 restore_from_restic() {
-  restic_ready || { echo 'Restic is not configured or installed.' >&2; return 1; }
-  local snapshots snapshot_id restored archive
+  restic_ready || { RESTIC_RESTORE_STATE=unconfigured; echo 'Restic is not configured or installed.' >&2; return 1; }
+  RESTIC_RESTORE_STATE=failed
+  local snapshots snapshot_id restored snapshot
   snapshots="$(restic_snapshots)" || return 1
   snapshot_id="$(printf '%s' "$snapshots" | latest_restic_snapshot)" || return 1
-  [[ -n "$snapshot_id" ]] || { echo 'No Restic checkpoint snapshot exists yet.' >&2; return 1; }
+  [[ -n "$snapshot_id" ]] || { RESTIC_RESTORE_STATE=empty; echo 'No Restic checkpoint snapshot exists yet.' >&2; return 1; }
   restored="$tmp/restic-restore"
   mkdir -p "$restored"
   restic restore "$snapshot_id" --target "$restored" || return 1
-  archive="$(find "$restored" -type f -name latest.enc -print -quit)"
-  [[ -n "$archive" ]] || { echo 'Restic snapshot did not contain latest.enc.' >&2; return 1; }
-  restore_archive "$archive" restic
+  snapshot="$(find "$restored" -type f -name manifest.json -printf '%h\n' -quit)"
+  [[ -n "$snapshot" && -f "$snapshot/sha256.json" ]] || { echo 'Restic snapshot did not contain a complete Lab checkpoint.' >&2; return 1; }
+  restore_snapshot_dir "$snapshot" restic || return 1
+  RESTIC_RESTORE_STATE=ready
 }
 save_to_restic() {
   restic_ready || { echo 'Restic is not configured or installed.' >&2; return 1; }
   if ! restic cat config >/dev/null 2>&1; then
     restic init || return 1
   fi
-  local backup_dir snapshots snapshot_id
-  backup_dir="$tmp/restic-backup"
-  mkdir -m 700 "$backup_dir"
-  cp "$archive" "$backup_dir/latest.enc"
-  (cd "$backup_dir" && restic backup --json --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" .) || return 1
+  local snapshot_dir snapshots snapshot_id
+  snapshot_dir="$(readlink -f "${AGENT_CHECKPOINT_DIR:-$HOME/agent-checkpoints}/latest")"
+  [[ -f "$snapshot_dir/manifest.json" && -f "$snapshot_dir/sha256.json" ]] || return 1
+  restic backup --json --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" "$snapshot_dir" || return 1
   snapshots="$(restic_snapshots)" || return 1
   snapshot_id="$(printf '%s' "$snapshots" | latest_restic_snapshot)" || return 1
   [[ -n "$snapshot_id" ]] || { echo 'Restic did not expose a committed checkpoint snapshot.' >&2; return 1; }
@@ -79,15 +78,19 @@ if [[ "$action" == restore ]]; then
   if restore_from_restic; then
     exit 0
   fi
-  echo 'Restic restore unavailable or unsuccessful; trying the encrypted Git branch fallback.' >&2
+  echo "Restic restore state: $RESTIC_RESTORE_STATE; trying the encrypted Git branch fallback." >&2
   ref_status=0
   git -C "$LAB_ROOT" ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null || ref_status=$?
   case "$ref_status" in
     0) ;;
     2)
+      if [[ "$RESTIC_RESTORE_STATE" == failed ]]; then
+        echo 'Restic repository could not be read and no Git fallback exists; recovery is blocked.' >&2
+        exit 1
+      fi
       rm -f "$blocked"
       printf 'RECOVERY_STATUS=NONE\n' > "$CACHE/recovery.env"
-      echo 'No durable checkpoint branch yet.'; exit 0 ;;
+      echo 'No durable checkpoint exists in Restic or the Git fallback branch.'; exit 0 ;;
     *) echo "Durable checkpoint lookup failed (git exit $ref_status); saving remains blocked." >&2
        exit "$ref_status" ;;
   esac
@@ -102,16 +105,16 @@ if [[ -f "$blocked" ]]; then
   exit 1
 fi
 "$SELF_DIR/agent-checkpoint.sh" "${2:-periodic}"
-"$SELF_DIR/package-agent-checkpoints.sh"
-archive="${AGENT_CHECKPOINT_ARTIFACT_DIR:-${GITHUB_WORKSPACE:-$PWD}/.agent-artifacts}/latest.enc"
-[[ -f "$archive" ]] || exit 1
 if save_to_restic; then
   date -u +%FT%TZ > "$CACHE/checkpoint-persisted-at"
   echo 'CHECKPOINT_DURABLE=true'
   echo 'CHECKPOINT_BACKEND=restic'
   exit 0
 fi
-echo 'Restic backup unavailable or unsuccessful; saving the encrypted Git branch fallback.' >&2
+echo 'Restic backup unavailable or unsuccessful; creating the encrypted Git branch fallback.' >&2
+"$SELF_DIR/package-agent-checkpoints.sh"
+archive="${AGENT_CHECKPOINT_ARTIFACT_DIR:-${GITHUB_WORKSPACE:-$PWD}/.agent-artifacts}/latest.enc"
+[[ -f "$archive" ]] || exit 1
 git init --quiet "$tmp/repo"
 git -C "$tmp/repo" remote add origin "$remote"
 # Reuse checkout credentials without putting them in a URL or on stdout.
