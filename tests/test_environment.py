@@ -74,6 +74,7 @@ class EnvironmentTests(unittest.TestCase):
             for key in ('REA_PROVIDERS_ENV_LOADED', 'REA_INSTALL_ROOT',
                         'RUNNER_TOOLS_ROOT', 'XDG_DATA_HOME'):
                 env.pop(key, None)
+            env['RUNNER_TOOLS_ROOT'] = str(home / 'runner-tools')
             result = subprocess.run(
                 ['/bin/bash', '-c',
                  f'source "{scripts / "agent-lib.sh"}" && command -v rea && '
