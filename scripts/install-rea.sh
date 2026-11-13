@@ -146,6 +146,7 @@ install_provider_shell_environment() {
     ' "$startup_file" > "$clean_file"
     {
       printf '%s\n' "$start_marker"
+      # shellcheck disable=SC2016 # Expand this guard only in the future shell.
       printf 'if [[ "${REA_PROVIDERS_ENV_LOADED:-}" != "1" && -r %q ]]; then\n' "$env_file"
       printf '  source %q\n' "$env_file"
       printf '  export REA_PROVIDERS_ENV_LOADED=1\n'
