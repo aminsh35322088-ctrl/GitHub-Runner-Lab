@@ -9,6 +9,8 @@ PID_FILE="${RDC_PID_FILE:-/tmp/rdc.pid}"
 STARTUP_SECONDS="${RDC_STARTUP_TIMEOUT_SECONDS:-180}"
 [[ "$STARTUP_SECONDS" =~ ^[1-9][0-9]*$ ]] && (( STARTUP_SECONDS <= 300 )) || exit 2
 
+# ShellCheck cannot follow functions referenced only through a Bash EXIT trap.
+# shellcheck disable=SC2329
 startup_diagnostics() {
   # Only fixed phase names/booleans: raw RDC logs include session and account data.
   python3 - "$LOG_FILE" <<'PYDIAG'
@@ -30,7 +32,16 @@ except (OSError,ValueError):
     print('RDC_SAMPLE_AVAILABLE=false')
 PYDIAG
 }
-trap 'code=$?; if (( code != 0 )); then startup_diagnostics; fi' EXIT
+# Invoked by the EXIT trap below; ShellCheck does not resolve trap callbacks.
+# shellcheck disable=SC2329
+startup_exit_handler() {
+  local exit_code=$?
+  if (( exit_code != 0 )); then
+    startup_diagnostics || true
+  fi
+  return "$exit_code"
+}
+trap startup_exit_handler EXIT
 
 [[ -s "$DEVICE_FILE" ]] || { echo "RDC device state was not restored."; exit 2; }
 mkdir -p "$RDC_DIR"
