@@ -243,7 +243,8 @@ class LabTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.base/'restored/repo/probe.txt').read_text(),'restored\n')
 
-    def _checkpoint_sync_fixture(self, *, fail_backup=False):
+
+    def _checkpoint_sync_fixture(self):
         lab = self.base / 'checkpoint-sync-lab'
         lab.mkdir()
         shutil.copytree(SCRIPTS, lab / 'scripts')
@@ -255,101 +256,57 @@ class LabTest(unittest.TestCase):
         workspace = Path(self.env['AGENT_WORKSPACE_ROOT']) / 'sync-project'
         init_repo(workspace)
         (workspace / 'tracked.txt').write_text('dirty before runner rotation\\n')
-
-        fake_bin = self.base / 'fake-restic-bin'
-        fake_bin.mkdir()
-        fake_restic = fake_bin / 'restic'
-        fake_restic.write_text("""#!/usr/bin/env python3
-import json, os, pathlib, shutil, sys
-command = sys.argv[1]
-store = pathlib.Path(os.environ['FAKE_RESTIC_STORE'])
-if command == 'cat':
-    raise SystemExit(0)
-if command == 'backup':
-    if os.environ.get('FAKE_RESTIC_FAIL_BACKUP') == '1':
-        raise SystemExit(1)
-    source = pathlib.Path(sys.argv[-1])
-    if store.exists():
-        shutil.rmtree(store)
-    store.mkdir(parents=True)
-    shutil.copytree(source, store / 'snapshot')
-    (store / 'snapshots.json').write_text(json.dumps([
-        {'id': 'a' * 64, 'time': '2026-11-13T00:00:00Z'}
-    ]))
-    raise SystemExit(0)
-if command == 'forget':
-    raise SystemExit(0)
-if command == 'snapshots':
-    snapshot_file = store / 'snapshots.json'
-    print(snapshot_file.read_text() if snapshot_file.exists() else '[]')
-    raise SystemExit(0)
-if command == 'restore':
-    target = pathlib.Path(sys.argv[sys.argv.index('--target') + 1])
-    target.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(store / 'snapshot', target / 'snapshot')
-    raise SystemExit(0)
-raise SystemExit(2)
-""")
-        fake_restic.chmod(0o755)
+        recovered = self.base / 'branch-recovered-workspaces'
         env = {
             **self.env,
-            'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'],
-            'FAKE_RESTIC_STORE': self.base / 'fake-restic-store',
-            'RESTIC_REPOSITORY': 'test:checkpoint-repo',
-            'RESTIC_PASSWORD': 'restic-test-password',
-            'GITHUB_REPOSITORY': 'aminsh35322088-ctrl/GitHub-Runner-Lab',
             'GITHUB_WORKSPACE': str(lab),
-            'GITHUB_RUN_ID': 'restic-integration-test',
+            'GITHUB_RUN_ID': 'git-branch-integration-test',
+            'AGENT_RECOVERED_WORKSPACE_ROOT': recovered,
         }
-        if fail_backup:
-            env['FAKE_RESTIC_FAIL_BACKUP'] = '1'
-        return lab, remote, workspace, env
+        return lab, workspace, recovered, env
 
-    def test_checkpoint_sync_saves_and_restores_with_restic_without_branch_write(self):
-        lab, _, _, env = self._checkpoint_sync_fixture()
+    def test_checkpoint_sync_persists_and_restores_encrypted_branch_archive(self):
+        lab, workspace, recovered, env = self._checkpoint_sync_fixture()
         saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
         self.assertEqual(saved.returncode, 0, saved.stderr)
-        self.assertIn('CHECKPOINT_BACKEND=restic', saved.stdout)
-        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
-        self.assertEqual(branch.stdout.strip(), '', 'Git branch must not be updated after a Restic success')
+        self.assertIn('CHECKPOINT_DURABLE=true', saved.stdout)
+        self.assertIn('CHECKPOINT_BACKEND=git-branch', saved.stdout)
 
-        recovered = self.base / 'restic-recovered-workspaces'
-        restore_env = {**env, 'AGENT_RECOVERED_WORKSPACE_ROOT': recovered}
-        restored = command([lab / 'scripts/checkpoint-sync.sh', 'restore'], env=restore_env)
+        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertTrue(branch.stdout.strip(), 'the encrypted checkpoint branch must be pushed')
+        git(lab, 'fetch', '--quiet', 'origin', 'agent-checkpoints')
+        self.assertEqual(git(lab, 'ls-tree', '--name-only', 'FETCH_HEAD').stdout.splitlines(),
+                         ['latest.enc'])
+
+        restored = command([lab / 'scripts/checkpoint-sync.sh', 'restore'], env=env)
         self.assertEqual(restored.returncode, 0, restored.stderr)
-        self.assertIn('RECOVERY_BACKEND=restic', restored.stdout)
         self.assertEqual((recovered / 'sync-project' / 'tracked.txt').read_text(),
                          'dirty before runner rotation\\n')
+        recovery_state = (Path(env['AGENT_KIT_CACHE_DIR']) / 'recovery.env').read_text()
+        self.assertIn('RECOVERY_STATUS=READY', recovery_state)
 
-    def test_checkpoint_sync_uses_encrypted_branch_when_restic_backup_fails(self):
-        lab, _, _, env = self._checkpoint_sync_fixture(fail_backup=True)
-        saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'fallback-integration'], env=env)
-        self.assertEqual(saved.returncode, 0, saved.stderr)
-        self.assertIn('CHECKPOINT_BACKEND=git-branch', saved.stdout)
-        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
-        self.assertTrue(branch.stdout.strip(), 'Git fallback branch must be pushed after Restic failure')
+        # A later save atomically replaces the single retained archive.
+        (workspace / 'tracked.txt').write_text('updated before next rotation\\n')
+        saved_again = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
+        self.assertEqual(saved_again.returncode, 0, saved_again.stderr)
+        branch_after = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertNotEqual(branch.stdout.strip(), branch_after.stdout.strip())
+        git(lab, 'fetch', '--quiet', 'origin', 'agent-checkpoints')
+        self.assertEqual(git(lab, 'ls-tree', '--name-only', 'FETCH_HEAD').stdout.splitlines(),
+                         ['latest.enc'])
 
-    def test_restic_is_primary_and_git_branch_is_failure_fallback(self):
+    def test_checkpoint_sync_has_no_external_backup_backend_or_credentials(self):
         sync = (SCRIPTS / 'checkpoint-sync.sh').read_text()
         workflow = (ROOT / '.github/workflows/rdc-lab.yml').read_text()
-
-        self.assertIn('restore_from_restic', sync)
-        self.assertIn('save_to_restic', sync)
-        self.assertIn('restic backup --json --group-by host,tags', sync)
-        self.assertIn('restic forget --group-by host,tags', sync)
-        self.assertIn('Restic backup unavailable or unsuccessful', sync)
-        self.assertIn('CHECKPOINT_BACKEND=restic', sync)
-        self.assertIn('echo "RECOVERY_BACKEND=$source"', sync)
-        self.assertIn('push --quiet origin', sync)
-
-        restore_step = workflow.split('Restore latest Agent checkpoint (Restic, then Git fallback)', 1)[1].split('\n      # RDC', 1)[0]
-        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
+        self.assertNotIn('restic', sync.lower())
+        self.assertNotIn('RESTIC_', workflow)
+        self.assertIn('agent-checkpoints', sync)
+        self.assertIn('RDC_STATE_KEY', sync)
+        restore_step = workflow.split('Restore latest encrypted Agent checkpoint', 1)[1].split('\\n      # RDC', 1)[0]
+        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\\n      - name: Upload Agent Checkpoint', 1)[0]
         self.assertNotIn('continue-on-error: true', restore_step)
         self.assertNotIn('continue-on-error: true', save_step)
-        self.assertIn('RESTIC_REPOSITORY:', restore_step)
-        self.assertIn('RESTIC_PASSWORD:', restore_step)
-        self.assertIn('RESTIC_REPOSITORY:', save_step)
-        self.assertIn('RESTIC_PASSWORD:', save_step)
+        self.assertIn('include-hidden-files: true', workflow)
 
     def test_failed_recovery_blocks_durable_checkpoint_overwrite(self):
         marker=Path(self.env['AGENT_KIT_CACHE_DIR'])/'recovery.blocked'
