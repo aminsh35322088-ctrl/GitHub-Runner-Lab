@@ -1,4 +1,5 @@
 from pathlib import Path
+import tempfile
 import sys
 import unittest
 from unittest import mock
@@ -37,6 +38,58 @@ class ToolCatalogTests(unittest.TestCase):
             result=lab_tools.tool_status({"id":"x","commands":["present","missing"]})
         self.assertEqual(result["status"],"MISSING")
         self.assertEqual(result["missing_commands"],["missing"])
+    def test_sigillo_missing_is_optional(self):
+        tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
+        self.assertFalse(tool.get("required",True))
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(lab_tools.Path,"home",return_value=Path(tmp)), mock.patch.object(lab_tools.shutil,"which",return_value=None):
+                result=lab_tools.tool_status(tool,deep=True)
+        self.assertEqual(result["status"],"UNCONFIGURED")
+        self.assertIn("optional",result["reason"] if "reason" in result else "optional")
+
+    def test_sigillo_authenticated_session_is_verified_without_exposing_output(self):
+        tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp)
+            state=home/".local/state/agent-runner/sigillo-auth-status"
+            state.parent.mkdir(parents=True)
+            state.write_text("AUTHENTICATED\n")
+            proc=mock.Mock(returncode=0,stdout="private account payload",stderr="private diagnostic")
+            with mock.patch.object(lab_tools.Path,"home",return_value=home), mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/sigillo"), mock.patch.object(lab_tools.subprocess,"run",return_value=proc) as run:
+                result=lab_tools.tool_status(tool,deep=True)
+        self.assertEqual(result["status"],"AUTHENTICATED")
+        self.assertEqual(run.call_args.args[0],["sigillo","me"])
+        self.assertNotIn("private",str(result))
+
+    def test_sigillo_invalid_token_is_visible_but_non_blocking(self):
+        tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
+        with tempfile.TemporaryDirectory() as tmp:
+            home=Path(tmp)
+            state=home/".local/state/agent-runner/sigillo-auth-status"
+            state.parent.mkdir(parents=True)
+            state.write_text("AUTH_FAILED\n")
+            with mock.patch.object(lab_tools.Path,"home",return_value=home), mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/sigillo"), mock.patch.object(lab_tools.subprocess,"run") as run:
+                result=lab_tools.tool_status(tool,deep=True)
+        self.assertEqual(result["status"],"AUTH_FAILED")
+        self.assertFalse(tool.get("required",True))
+        run.assert_not_called()
+
+    def test_sigillo_unconfigured_cli_does_not_expose_failed_probe_output(self):
+        tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
+        with tempfile.TemporaryDirectory() as tmp:
+            proc=mock.Mock(returncode=1,stdout="secret-looking output",stderr="private error")
+            with mock.patch.object(lab_tools.Path,"home",return_value=Path(tmp)), mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/sigillo"), mock.patch.object(lab_tools.subprocess,"run",return_value=proc):
+                result=lab_tools.tool_status(tool,deep=True)
+        self.assertEqual(result["status"],"UNCONFIGURED")
+        self.assertNotIn("secret-looking",str(result))
+        self.assertNotIn("private error",str(result))
+
+    def test_sigillo_workflow_only_bootstraps_agent_access_after_auth(self):
+        workflow=(ROOT/".github/workflows/rdc-lab.yml").read_text()
+        self.assertIn("steps.sigillo.outputs.SIGILLO_CLI_READY == 'true'",workflow)
+        self.assertIn("continue-on-error: true",workflow)
+        self.assertIn("SIGILLO_API_URL=$sigillo_api_origin",workflow)
+        self.assertNotIn("SIGILLO_API_TOKEN is required to retrieve the runner GitHub credential",workflow)
     def test_provider_status_is_shallow_by_default(self):
         with mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/rea"):
             result=lab_tools.tool_status({"id":"ghidra","provider":"ghidra"})
