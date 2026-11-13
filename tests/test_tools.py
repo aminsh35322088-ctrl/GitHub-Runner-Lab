@@ -20,6 +20,15 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertEqual(lab_tools.search_tools(self.catalog,"packet loss mtr route")[0]["id"],"mtr")
         self.assertEqual(lab_tools.search_tools(self.catalog,"convert video")[0]["id"],"ffmpeg")
         self.assertEqual(lab_tools.search_tools(self.catalog,"shfmt")[0]["id"],"shfmt")
+
+    def test_manifest_commands_are_discoverable(self):
+        import json
+        manifest = json.loads((ROOT / "config/runner-toolset.json").read_text())
+        catalog = lab_tools.load_catalog(ROOT / "config/runner-tools.json")
+        catalog_commands = {command for tool in catalog["tools"] for command in tool.get("commands", [])}
+        configured_commands = {command for group in manifest["commands"].values() for command in group}
+        self.assertEqual(configured_commands - catalog_commands, set())
+
     def test_empty_and_unknown_search(self):
         self.assertEqual(lab_tools.search_tools(self.catalog,""),[])
         self.assertEqual(lab_tools.search_tools(self.catalog,"zzzxxyy-unknown-capability"),[])
