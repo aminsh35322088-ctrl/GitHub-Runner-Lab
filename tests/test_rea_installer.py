@@ -218,9 +218,10 @@ install_provider_shell_environment "{env_file}"
             self.assertIn("EXISTING_LOGIN_SETUP=preserved", bash_profile.read_text())
 
             for startup in (bashrc, bash_profile, profile):
+                run_env["STARTUP_FILE"] = str(startup)
                 shell = [
                     "bash", "--noprofile", "--norc", "-c",
-                    f"source \\"{startup}\\"; test \\"$REA_TEST_MARKER\\" = loaded; command -v rea",
+                    'source "$STARTUP_FILE"; test "$REA_TEST_MARKER" = loaded; command -v rea',
                 ]
                 checked = subprocess.run(shell, capture_output=True, text=True, env=run_env, timeout=30)
                 self.assertEqual(checked.returncode, 0, f"{startup.name}: {checked.stderr}")
