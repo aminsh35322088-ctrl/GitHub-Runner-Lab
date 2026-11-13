@@ -242,6 +242,28 @@ class LabTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.base/'restored/repo/probe.txt').read_text(),'restored\n')
 
+    def test_restic_is_primary_and_git_branch_is_failure_fallback(self):
+        sync = (SCRIPTS / 'checkpoint-sync.sh').read_text()
+        workflow = (ROOT / '.github/workflows/rdc-lab.yml').read_text()
+
+        self.assertIn('restore_from_restic', sync)
+        self.assertIn('save_to_restic', sync)
+        self.assertIn('restic backup --json', sync)
+        self.assertIn('restic forget --group-by host,tags', sync)
+        self.assertIn('Restic backup unavailable or unsuccessful', sync)
+        self.assertIn('CHECKPOINT_BACKEND=restic', sync)
+        self.assertIn('RECOVERY_BACKEND=restic', sync)
+        self.assertIn('git push --quiet', sync)
+
+        restore_step = workflow.split('Restore latest Agent checkpoint (Restic, then Git fallback)', 1)[1].split('\n      # RDC', 1)[0]
+        save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
+        self.assertNotIn('continue-on-error: true', restore_step)
+        self.assertNotIn('continue-on-error: true', save_step)
+        self.assertIn('RESTIC_REPOSITORY:', restore_step)
+        self.assertIn('RESTIC_PASSWORD:', restore_step)
+        self.assertIn('RESTIC_REPOSITORY:', save_step)
+        self.assertIn('RESTIC_PASSWORD:', save_step)
+
     def test_failed_recovery_blocks_durable_checkpoint_overwrite(self):
         marker=Path(self.env['AGENT_KIT_CACHE_DIR'])/'recovery.blocked'
         marker.touch()
