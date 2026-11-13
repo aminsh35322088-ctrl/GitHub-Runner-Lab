@@ -666,6 +666,7 @@ jobs:
         with:
           name: agent-checkpoint-${{ github.run_id }}
           path: .agent-artifacts/*.enc
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
