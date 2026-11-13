@@ -1567,6 +1567,275 @@
         "pdftotext -layout document.pdf -"
       ],
       "managed_by": "apt:media"
+    },
+    {
+      "id": "file",
+      "name": "file",
+      "category": "system",
+      "description": "Identify file formats and MIME types from content signatures",
+      "keywords": [
+        "file type",
+        "mime",
+        "magic",
+        "binary identification"
+      ],
+      "commands": [
+        "file"
+      ],
+      "version_command": [
+        "file",
+        "--version"
+      ],
+      "examples": [
+        "file app.bin",
+        "file --mime-type document.dat"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "lsof",
+      "name": "lsof",
+      "category": "system",
+      "description": "Inspect open files, sockets, ports and processes holding resources",
+      "keywords": [
+        "open files",
+        "ports",
+        "process sockets",
+        "listening port"
+      ],
+      "commands": [
+        "lsof"
+      ],
+      "version_command": [
+        "lsof",
+        "-v"
+      ],
+      "examples": [
+        "lsof -iTCP -sTCP:LISTEN -P -n",
+        "lsof -p PID"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "strace",
+      "name": "strace",
+      "category": "system",
+      "description": "Trace Linux system calls and signals for debugging process behavior",
+      "keywords": [
+        "syscall",
+        "system call",
+        "trace process",
+        "debug linux"
+      ],
+      "commands": [
+        "strace"
+      ],
+      "version_command": [
+        "strace",
+        "--version"
+      ],
+      "examples": [
+        "strace -f -o trace.log COMMAND",
+        "strace -p PID"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "procps",
+      "name": "Process Utilities",
+      "category": "system",
+      "description": "Inspect processes, CPU and memory with ps, top, free and related tools",
+      "keywords": [
+        "process",
+        "process list",
+        "cpu",
+        "memory",
+        "ram",
+        "system monitor"
+      ],
+      "commands": [
+        "ps",
+        "pgrep",
+        "pkill",
+        "top",
+        "free",
+        "vmstat"
+      ],
+      "version_command": [
+        "ps",
+        "--version"
+      ],
+      "examples": [
+        "ps auxf",
+        "pgrep -af node",
+        "free -h",
+        "vmstat 1 5"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "net-tools",
+      "name": "net-tools",
+      "category": "networking",
+      "description": "Legacy interface, route and socket diagnostics including netstat and ifconfig",
+      "keywords": [
+        "netstat",
+        "ifconfig",
+        "network interface",
+        "routing table",
+        "socket"
+      ],
+      "commands": [
+        "netstat",
+        "ifconfig",
+        "route"
+      ],
+      "version_command": [
+        "netstat",
+        "--version"
+      ],
+      "examples": [
+        "netstat -tulpn",
+        "ifconfig -a",
+        "route -n"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "netcat",
+      "name": "Netcat",
+      "category": "networking",
+      "description": "TCP/UDP connectivity probes, listeners and simple byte-stream transfer",
+      "keywords": [
+        "nc",
+        "tcp test",
+        "udp test",
+        "port check",
+        "socket"
+      ],
+      "commands": [
+        "nc"
+      ],
+      "examples": [
+        "nc -vz HOST PORT",
+        "nc -l 127.0.0.1 9000"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "moreutils",
+      "name": "moreutils",
+      "category": "system",
+      "description": "Unix pipeline tools such as sponge, ts, chronic and ifne",
+      "keywords": [
+        "unix pipeline",
+        "sponge",
+        "timestamp",
+        "command output"
+      ],
+      "commands": [
+        "sponge",
+        "ts",
+        "chronic",
+        "ifne"
+      ],
+      "examples": [
+        "command | sponge file.txt",
+        "command 2>&1 | ts"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "parallel",
+      "name": "GNU parallel",
+      "category": "development",
+      "description": "Run independent commands concurrently with bounded job counts",
+      "keywords": [
+        "parallel jobs",
+        "concurrency",
+        "batch processing",
+        "xargs"
+      ],
+      "commands": [
+        "parallel"
+      ],
+      "version_command": [
+        "parallel",
+        "--version"
+      ],
+      "examples": [
+        "parallel -j 4 ::: 'echo one' 'echo two'"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "pipx",
+      "name": "pipx",
+      "category": "development",
+      "description": "Install Python command-line applications in isolated environments",
+      "keywords": [
+        "python cli",
+        "pip",
+        "isolated install",
+        "python tools"
+      ],
+      "commands": [
+        "pipx"
+      ],
+      "version_command": [
+        "pipx",
+        "--version"
+      ],
+      "examples": [
+        "pipx install ruff",
+        "pipx list"
+      ],
+      "managed_by": "apt:build"
+    },
+    {
+      "id": "perl",
+      "name": "Perl",
+      "category": "development",
+      "description": "Perl interpreter for scripting and build tooling",
+      "keywords": [
+        "perl",
+        "scripting",
+        "text processing"
+      ],
+      "commands": [
+        "perl"
+      ],
+      "version_command": [
+        "perl",
+        "--version"
+      ],
+      "examples": [
+        "perl -ne 'print if /pattern/' file.txt"
+      ],
+      "managed_by": "apt:build"
+    },
+    {
+      "id": "nasm",
+      "name": "NASM",
+      "category": "development",
+      "description": "Netwide assembler for x86 and x86-64 binaries",
+      "keywords": [
+        "assembly",
+        "assembler",
+        "x86",
+        "x86-64"
+      ],
+      "commands": [
+        "nasm"
+      ],
+      "version_command": [
+        "nasm",
+        "-v"
+      ],
+      "examples": [
+        "nasm -f elf64 input.asm -o input.o"
+      ],
+      "managed_by": "apt:build"
     }
   ]
 }
