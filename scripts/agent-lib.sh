@@ -34,9 +34,10 @@ REA_ENV_FILE="${REA_INSTALL_ROOT:-$RUNNER_TOOLS_ROOT/tools/reverse-engineering/r
 if [[ ! -r "$REA_ENV_FILE" && -r "${XDG_DATA_HOME:-$HOME/.local/share}/rea/providers.env" ]]; then
   REA_ENV_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/rea/providers.env"
 fi
-if [[ -r "$REA_ENV_FILE" ]]; then
+if [[ -r "$REA_ENV_FILE" && "${REA_PROVIDERS_ENV_LOADED:-}" != "1" ]]; then
   # shellcheck disable=SC1090
   source "$REA_ENV_FILE"
+  export REA_PROVIDERS_ENV_LOADED=1
 fi
 
 agent_toolchain_version() {
