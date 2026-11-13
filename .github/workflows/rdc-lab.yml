@@ -335,6 +335,14 @@ jobs:
           # Mark configured-but-not-yet-verified as unavailable until every auth check passes.
           write_sigillo_state "AUTH_FAILED" || true
 
+          # Keep unexpected optional-integration errors from failing the lab.
+          on_unexpected_failure() {
+            local code=$?
+            trap - ERR
+            sigillo_unavailable "AUTH_FAILED" "bootstrap command failed (exit code $code)"
+          }
+          trap on_unexpected_failure ERR
+
           # Normalize to a credential-safe HTTPS origin. The CLI sends the
           # bearer token to this URL, so credentials, paths, queries and HTTP
           # endpoints are deliberately rejected.
@@ -347,14 +355,6 @@ jobs:
           export SIGILLO_API_URL="$sigillo_api_origin"
           # Preserve the validated, non-secret API origin for RDC shells and Agent processes.
           printf 'SIGILLO_API_URL=%s\n' "$sigillo_api_origin" >> "$GITHUB_ENV"
-
-          # Keep unexpected optional-integration errors from failing the lab.
-          on_unexpected_failure() {
-            local code=$?
-            trap - ERR
-            sigillo_unavailable "AUTH_FAILED" "bootstrap command failed (exit code $code)"
-          }
-          trap on_unexpected_failure ERR
 
           if ! npm install --global sigillo; then
             sigillo_unavailable "AUTH_FAILED" "CLI installation failed"
