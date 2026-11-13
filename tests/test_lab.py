@@ -306,7 +306,7 @@ raise SystemExit(2)
         return lab, remote, workspace, env
 
     def test_checkpoint_sync_saves_and_restores_with_restic_without_branch_write(self):
-        lab, remote, workspace, env = self._checkpoint_sync_fixture()
+        lab, _, _, env = self._checkpoint_sync_fixture()
         saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
         self.assertEqual(saved.returncode, 0, saved.stderr)
         self.assertIn('CHECKPOINT_BACKEND=restic', saved.stdout)
@@ -322,7 +322,7 @@ raise SystemExit(2)
                          'dirty before runner rotation\\n')
 
     def test_checkpoint_sync_uses_encrypted_branch_when_restic_backup_fails(self):
-        lab, remote, workspace, env = self._checkpoint_sync_fixture(fail_backup=True)
+        lab, _, _, env = self._checkpoint_sync_fixture(fail_backup=True)
         saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'fallback-integration'], env=env)
         self.assertEqual(saved.returncode, 0, saved.stderr)
         self.assertIn('CHECKPOINT_BACKEND=git-branch', saved.stdout)
