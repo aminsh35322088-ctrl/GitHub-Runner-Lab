@@ -25,44 +25,6 @@ GitHub Runner Lab provides that machine while keeping it disposable and recovera
 - **Project-owned contracts** so this repository never hardcodes another project's setup or test policy.
 - **Self-validation and watchdog recovery** so the Lab can detect broken host/toolchain/access state instead of silently presenting a stale green environment.
 
-## Optional: Runner Credential Vault
-
-For non-GitHub, non-Tailscale credentials (for example Cloudflare or Railway tokens), an agent can use a
-separate Cloudflare Worker vault to make the API call without receiving the raw token, or ask the owner to register
-a missing credential through a one-time link.
-
-The Lab-side integration is optional and needs no configuration in this repository. At the start
-of every run, the `runner-lab` job looks for a deployed Vault by reading `deployment.json` from
-the root of the Vault repository (`GitHub-runner-vault` under the same GitHub account). When a
-deployment is found, the job automatically downloads the pinned client, exchanges its GitHub OIDC
-identity for a short-lived Vault session, and reads the credential registry after RDC health and Tailscale SSH are ready. Vault network work is time-bounded and cannot delay or block either access path.
-No runner token, repository ID, owner ID or manual Vault policy entry is required. The Vault validates
-the deployment-pinned GitHub owner, exact `main/.github/workflows/rdc-lab.yml` identity and allowed
-event, then atomically pins the first valid repository ID in D1. Later runs must match that pin.
-
-The existing **Remote Desktop Commander Lab → Vault smoke test** action performs the same OIDC/session
-flow and additionally checks the saved GitHub and Cloudflare credentials through read-only provider
-API calls. Response bodies stay in runner-temp files; logs and summaries contain only pass/fail markers.
-The normal runner startup also connects automatically after RDC and Tailscale are ready. A missing,
-slow or unavailable Vault degrades Vault access only and does not block either access path.
-
-To deploy a Vault, use the Vault's own setup wizard at
-https://aminsh35322088-ctrl.github.io/GitHub-runner-vault/ — it walks through the one supported
-deployment, and the Lab needs nothing at all: after each successful deploy, the Vault's deploy
-workflow publishes `deployment.json` (the Worker URL and the deployed Vault commit) back to the
-Vault repository, and that file is all the Lab reads. Before trusting it, the Lab still validates
-that the URL is an HTTPS origin with no path, query or credentials and that the client revision
-is an immutable 40-character commit SHA, so the client stays pinned to a reviewed revision — the
-pin is now maintained by the Vault's deploy instead of by hand. If no Vault is deployed (no
-readable `deployment.json`), the Lab skips Vault integration and nothing else changes. To disable
-a deployed Vault again, delete or rename `deployment.json` in the Vault repository (or delete
-the Vault); the Lab stops connecting on its next run. Upgrading the Vault automatically upgrades
-what the Lab uses on its next run, because discovery always reads the latest published
-deployment. The existing AGENT_GITHUB_TOKEN remains the separate trusted
-Agent GitHub CLI/Git/GHCR bootstrap credential; the Vault proxy does not replace Git smart-HTTP
-or gh authentication. The same secret is available to the pinned-client download step only
-as a scoped fallback for private-source access or anonymous API rate limits.
-
 ## System model
 
 ```text
@@ -149,13 +111,29 @@ Repository setup requires these secrets:
 | Secret | Purpose |
 | --- | --- |
 | `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and Agent checkpoints. Use at least 32 random characters. |
-| `AGENT_GITHUB_TOKEN` | Bootstraps the agent's persistent GitHub CLI/Git/GHCR authentication. A classic PAT is used when package publishing is required. |
+| `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
+
+Optional Sigillo endpoint override:
+
+| Setting | GitHub type | Purpose |
+| --- | --- | --- |
+| `SIGILLO_API_URL` | Repository variable | HTTPS origin for a self-hosted Sigillo instance; defaults to `https://sigillo.dev`. |
 
 Then open **Actions → Remote Desktop Commander Lab → Run workflow**, leave **Start / Resume** selected, and run it. On first use, complete the RDC browser authorization shown by the workflow. Future runner generations restore the encrypted RDC identity automatically.
 
 To move the Lab to another Desktop Commander account, run the same workflow with **Connect a new RDC account**. The account switch validates the replacement identity before overwriting saved state; a failed switch keeps the previous encrypted identity available for recovery.
+
+### Required Sigillo setup
+
+Create a Sigillo API token and save it in **Repository → Settings → Secrets and variables → Actions** as `SIGILLO_API_TOKEN`. Prefer a project-scoped token restricted to only the environments agents need. If agents need all environments, allow only the required slugs such as `dev`, `preview`, and `prod`.
+
+For a self-hosted Sigillo instance, add the repository variable `SIGILLO_API_URL` with its HTTPS origin. Leave it unset for `https://sigillo.dev`.
+
+The `runner-lab` job performs non-interactive authentication before RDC starts: it validates the token with `sigillo me`, stores it using `sigillo login --scope /`, locks the config to owner-only permissions, then verifies the saved credential again. No browser/device login is required. The config is created for each ephemeral runner generation from the Actions secret; it is not committed, cached, or checkpointed. The `Amin-creditonal` Sigillo project must contain `GITHUB_API_TOKEN` in its `prod` environment; the workflow uses it to bootstrap `gh`, HTTPS Git, and GHCR access over stdin, without a second GitHub PAT Actions secret.
+
+Sigillo is required for full Agent GitHub/provider access, but its failure must not prevent RDC or Tailscale from becoming reachable. The Agent GitHub bootstrap reports a clear failure if the Sigillo API token or `GITHUB_API_TOKEN` credential is unavailable. See [docs/sigillo.md](docs/sigillo.md).
 
 ## Access model
 
@@ -208,6 +186,8 @@ or prepare an explicit branch/PR workspace:
 ```
 
 The Lab has no built-in target project. An installation that intentionally uses one default repository may set `AGENT_DEFAULT_REPO`; otherwise the target must be explicit.
+
+For Sigillo work, agents should read the vendored [Sigillo skill](skills/sigillo/SKILL.md) and [Lab integration guide](docs/sigillo.md). The upstream skill can also be installed globally with `npx -y skills add remorses/sigillo -g -y`.
 
 ## Project contract
 
@@ -270,17 +250,37 @@ Untrusted containers default to no network, no inherited GitHub credentials, no 
 
 ## GitHub and GHCR authentication
 
-`AGENT_GITHUB_TOKEN` is consumed during bootstrap rather than exposed as a normal agent environment variable. The runner configures:
+The Agent's GitHub credential is stored as `GITHUB_API_TOKEN` in the Sigillo project's `prod` environment. The startup workflow retrieves it with `sigillo run` and pipes it directly to `gh auth login --with-token`. The value is not stored in GitHub Actions Secrets, passed as a command-line argument, or exported to the long-lived agent environment.
 
-- GitHub CLI authentication;
-- HTTPS Git through the GitHub CLI credential helper;
-- a `ghcr.io` Docker credential helper backed by the same stored GitHub CLI identity.
+The runner configures GitHub CLI authentication, HTTPS Git through the GitHub CLI credential helper, and a `ghcr.io` Docker credential helper backed by the same stored GitHub CLI identity. Fresh trusted RDC/Agent shells therefore use normal `gh`, `git fetch`, `git push`, `docker pull`, and `docker push` commands without a GitHub token environment variable. The PAT must be a classic PAT with GitHub CLI's minimum scopes `repo`, `read:org`, and `gist`; this Lab also requires `write:packages` for its GHCR credential helper. Bootstrap verifies the API identity, HTTPS Git credential, package scope, and GHCR helper before marking GitHub access ready.
 
-Fresh trusted RDC/Agent shells therefore use normal commands such as `gh`, `git fetch`, `git push`, `docker pull`, and `docker push` without needing `AGENT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in their environment.
+**GitHub Actions API operations are separate.** Watchdog, cancellation, dispatch, status publishing and lifecycle handoff continue to use the workflow's built-in `github.token` (or the optional `ACTIONS_WATCHDOG_TOKEN` override). They do not retrieve or depend on `GITHUB_API_TOKEN` from Sigillo.
 
-For GHCR publishing, the classic PAT must include `write:packages` in addition to the repository/organization scopes required by the intended work. The bootstrap path fails closed if the GitHub API identity, Git credential lookup, required package scope, or GHCR credential lookup cannot be verified.
+## Sigillo credential management
 
-The PAT is not intentionally copied into Docker config, repository config, checkpoints, caches, URLs, or command-line arguments.
+Sigillo is the Lab's source of credentials for trusted agent tasks, including GitHub provider access and other provider API tokens. It injects selected values into a child process with `sigillo run`; it does not replace GitHub Actions' own token for workflow-control API calls.
+
+| Credential path | Purpose | Exposure model |
+| --- | --- | --- |
+| `SIGILLO_API_TOKEN` | Authenticates the ephemeral runner to Sigillo. | Stored as a GitHub Actions secret only for Sigillo bootstrap; validated before persistence and never logged. |
+| `GITHUB_API_TOKEN` in Sigillo | Agent GitHub CLI, HTTPS Git and GHCR authentication. | Injected only during bootstrap, piped to stdin, then removed from the child environment; GitHub CLI stores the authenticated identity for trusted host sessions. |
+| Other provider credentials in Sigillo | API operations for services used by agent tasks. | Injected only into the specific trusted command that needs them. |
+
+Sigillo redaction is defense in depth, not a hostile-code security boundary: the child receives real values, and a process running as the same runner user can potentially use the CLI to request values within the token's scope. Do not run untrusted repository code in the trusted RDC shell or host managed jobs just because they are wrapped in `sigillo run`; use the isolated untrusted container path.
+
+The workflow maps Actions secret `SIGILLO_API_TOKEN` to the CLI's `SIGILLO_TOKEN` variable. It optionally reads repository variable `SIGILLO_API_URL` and accepts only an HTTPS origin. It validates the bearer token before storing it because `sigillo login` saves a token but does not itself validate it. `SIGILLO_CLI_READY=true` is emitted only after a second `sigillo me` check. Sigillo authentication failures do not change the separate GitHub Actions API authentication path.
+
+Use project IDs, not display names, for explicit CLI operations:
+
+```bash
+sigillo me
+sigillo projects
+sigillo environments --project <PROJECT_ID>
+sigillo secrets --project <PROJECT_ID> --env prod
+sigillo run --project <PROJECT_ID> --env prod -- npm test
+```
+
+Never read `~/.sigillo/` or `.env` files directly, print secret values, or use `sigillo run` output as a secret transport. For agent rules and current CLI references, see [docs/sigillo.md](docs/sigillo.md) and [skills/sigillo/SKILL.md](skills/sigillo/SKILL.md).
 
 ## Lifecycle and handoff
 
@@ -342,7 +342,7 @@ The full background prewarm covers the common coding/debugging stack rather than
 - FFmpeg and ImageMagick;
 - Docker/BuildKit when supplied by the GitHub-hosted image.
 
-Other large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
+Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
 
 ### Shared reverse-engineering toolkit (REA)
 
@@ -449,6 +449,9 @@ scripts/                  lifecycle, access, workspace, job, validation and reco
 tests/                    Lab regression suite
 AGENTS.md                  authoritative instructions for AI agents working in this Lab
 README.md                  architecture, purpose and operator-facing overview
+docs/sigillo.md            Sigillo operator, CLI and troubleshooting guide
+skills/README.md           project-local agent skills index
+skills/sigillo/SKILL.md    vendored upstream Sigillo agent skill
 ```
 
 The main operator/agent entry point is:
