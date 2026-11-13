@@ -79,7 +79,7 @@ save_to_restic() {
   local snapshot_dir snapshots snapshot_id
   snapshot_dir="$(readlink -f "${AGENT_CHECKPOINT_DIR:-$HOME/agent-checkpoints}/latest")"
   [[ -f "$snapshot_dir/manifest.json" && -f "$snapshot_dir/sha256.json" ]] || return 1
-  restic backup --json --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" "$snapshot_dir" || return 1
+  restic backup --json --group-by host,tags --tag agent-checkpoint --tag "repo-${repo_tag}" --host "${RESTIC_HOST:-github-runner-lab}" "$snapshot_dir" || return 1
   restic forget --group-by host,tags --tag agent-checkpoint --tag "repo-${repo_tag}" \
     --keep-daily "${RESTIC_KEEP_DAILY:-7}" --keep-weekly "${RESTIC_KEEP_WEEKLY:-4}" \
     --keep-monthly "${RESTIC_KEEP_MONTHLY:-3}" --prune || return 1
