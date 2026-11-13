@@ -45,7 +45,7 @@ class ToolCatalogTests(unittest.TestCase):
             with mock.patch.object(lab_tools.Path,"home",return_value=Path(tmp)), mock.patch.object(lab_tools.shutil,"which",return_value=None):
                 result=lab_tools.tool_status(tool,deep=True)
         self.assertEqual(result["status"],"UNCONFIGURED")
-        self.assertIn("optional",result["reason"] if "reason" in result else "optional")
+        self.assertIn("optional",result["reason"].lower())
 
     def test_sigillo_authenticated_session_is_verified_without_exposing_output(self):
         tool=next(x for x in self.catalog["tools"] if x["id"]=="sigillo")
