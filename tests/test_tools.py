@@ -88,7 +88,7 @@ class ToolCatalogTests(unittest.TestCase):
         workflow=(ROOT/".github/workflows/rdc-lab.yml").read_text()
         self.assertIn("steps.sigillo.outputs.SIGILLO_CLI_READY == 'true'",workflow)
         self.assertIn("continue-on-error: true",workflow)
-        self.assertIn("SIGILLO_API_URL=$sigillo_api_origin",workflow)
+        self.assertIn("SIGILLO_API_URL=%s",workflow)
         self.assertNotIn("SIGILLO_API_TOKEN is required to retrieve the runner GitHub credential",workflow)
     def test_provider_status_is_shallow_by_default(self):
         with mock.patch.object(lab_tools.shutil,"which",return_value="/usr/bin/rea"):
