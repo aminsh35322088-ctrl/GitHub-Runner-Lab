@@ -228,7 +228,23 @@ The standard prewarm covers:
 - FFmpeg and ImageMagick;
 - hosted Node.js/npm recovery when PATH is incomplete.
 
-Large or uncommon SDKs remain on-demand, for example Android SDKs, Playwright browser bundles, database servers, or project-specific SDKs. Install those only when a task actually requires them.
+The reverse-engineering toolkit (REA) is the exception: the background prewarm automatically runs the repository's official `scripts/install-rea.sh` on every runner generation, after RDC is healthy. Prewarm does not report `READY` until the installer, REA capability check, and provider smoke tests succeed. This shared installation is available to every model/agent using the runner account; it is not installed separately per client.
+
+## REA usage on every runner
+
+After `agent-lab onboard`, run `agent-lab status` and require `REA=READY` before reverse-engineering work. If prewarm is still `RUNNING`, continue only with tasks that do not need REA and check again later. If status is `FAILED`, `OUTDATED`, or `REA=MISSING`, inspect the prewarm log and repair through the official installer from the Lab checkout:
+
+```bash
+./scripts/install-rea.sh
+source "${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+rea capabilities --format json
+rea doctor --provider ghidra --format json
+rea doctor --provider jadx --format json
+```
+
+Use the REA CLI as the default evidence-producing interface for relevant binary, Android, firmware, process, browser, and network reverse-engineering tasks. Inspect `rea capabilities --format json` and the command's help before choosing an operation; do not invent commands or claim unsupported provider coverage. The Lab's `agent-lib.sh` loads `providers.env` for non-login shells, so `rea` is available to shell-capable agents without client-specific setup.
+
+Do not run `rea setup` automatically. It edits client-specific MCP/agent configuration; the shared CLI is intentionally provisioned once for the runner and can be invoked by any connected model through shell commands. Do not claim an MCP registration exists unless it has been separately configured and verified.
 
 ## Workspace safety
 

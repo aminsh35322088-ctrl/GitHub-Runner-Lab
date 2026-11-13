@@ -17,6 +17,15 @@ if [[ -d "$AGENT_LOCAL_BIN" ]]; then
   export PATH
 fi
 
+# REA is installed once per runner generation by the shared background
+# prewarm. Source its generated environment here as well as from shell startup
+# files so SSH exec and other non-login/non-interactive agent shells see it.
+REA_ENV_FILE="${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+if [[ -r "$REA_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$REA_ENV_FILE"
+fi
+
 agent_toolchain_version() {
   python3 "$AGENT_TOOLSET_CLI" toolchain-version
 }

@@ -73,22 +73,22 @@ The runner is deliberately replaceable. Continuity comes from GitHub plus authen
 | :--- | :--- |
 | Runner state | 🟢 RDC verified · keepalive running |
 | Agent work mode | 🟢 SAFE — normal work window |
-| Status freshness | ✅ current as of 2026-11-12 23:49:37 UTC |
-| Last checked | 2026-11-12 23:49:37 UTC |
-| Runner/job started | 2026-11-12 20:53:57 UTC |
-| Keepalive started | 2026-11-12 20:54:47 UTC |
-| Runner age | 175 min |
-| Runner lifecycle remaining | 154 min |
+| Status freshness | ✅ current as of 2026-11-13 03:54:06 UTC |
+| Last checked | 2026-11-13 03:54:06 UTC |
+| Runner/job started | 2026-11-13 02:05:03 UTC |
+| Keepalive started | 2026-11-13 02:06:02 UTC |
+| Runner age | 109 min |
+| Runner lifecycle remaining | 220 min |
 | Auto restart threshold | 20 min remaining |
-| Nominal handoff | 2026-11-13 02:23:57 UTC |
-| Hard job timeout | 2026-11-13 02:43:57 UTC |
+| Nominal handoff | 2026-11-13 07:35:03 UTC |
+| Hard job timeout | 2026-11-13 07:55:03 UTC |
 | Planned timeout headroom | 20 min |
 | Successor already queued | — |
 | RDC verification success | 100% (12 samples) |
 | Keepalive completion | 100% (12 samples) |
 | Handoff ≤15 min | 100% (11 samples) |
 | Median handoff gap | 0.8 min |
-| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/43299236682) |
+| Run details | [Open current run](https://github.com/aminsh35322088-ctrl/GitHub-Runner-Lab/actions/runs/43349530809) |
 
 > Refreshed on workflow events and about every 10 minutes. For the exact local clock while connected, run `./scripts/agent-run.sh status`. The lifecycle clock starts during early runner setup: handoff is planned at 330 minutes with a 350-minute hard job timeout. Normal work remains SAFE until the final 20 minutes, when the current run checkpoints and rotates to a fresh runner. Reliability percentages are measured from the corresponding workflow steps in up to the last 12 completed runs; handoff reliability means the next run started within 15 minutes.
 
@@ -110,7 +110,7 @@ Repository setup requires these secrets:
 
 | Secret | Purpose |
 | --- | --- |
-| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and the latest Agent checkpoint stored on the `agent-checkpoints` branch. Use at least 32 random characters. |
+| `RDC_STATE_KEY` | Encrypts/authenticates persisted RDC identity and the latest Agent checkpoint stored on the agent-checkpoints branch. Use at least 32 random characters. |
 | `SIGILLO_API_TOKEN` | Authenticates the runner to Sigillo; required for Agent GitHub and provider credentials. |
 | `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID for the ephemeral `GitHub-Lab` node. |
 | `TS_OAUTH_SECRET` | Tailscale OAuth secret paired with the client ID. |
@@ -325,9 +325,9 @@ A manual checkpoint can be requested with:
 ./scripts/agent-run.sh checkpoint manual
 ```
 
-The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, then encrypts and authenticates the archive with `RDC_STATE_KEY`. The single latest archive is persisted as `latest.enc` on the dedicated `agent-checkpoints` Git branch. This uses the repository's existing GitHub Actions write permission; no external backup service or additional credential is required.
+The checkpoint path captures verified repository state including Git bundles, staged/unstaged patches, metadata, and allowlisted untracked source/config files. It checksums the stored file set, fails closed on secret-like tracked dirty patches, excludes unsafe/unrecognized untracked files, then encrypts and authenticates the archive with `RDC_STATE_KEY`. The single latest archive is persisted as latest.enc on the dedicated agent-checkpoints Git branch. This uses the repository's existing GitHub Actions write permission; no external backup service or additional credential is required.
 
-On a fresh runner, recovery fetches the `agent-checkpoints` branch, authenticates and decrypts `latest.enc`, then verifies and restores the snapshot into a fresh recovery root. Restored repositories are re-registered for later checkpoints. A failed lookup, authentication, or restore keeps checkpoint saving blocked so a bad recovery cannot overwrite the last known-good archive.
+On a fresh runner, recovery fetches the agent-checkpoints branch, authenticates and decrypts latest.enc, then verifies and restores the snapshot into a fresh recovery root. Restored repositories are re-registered for later checkpoints. A failed lookup, authentication, or restore keeps checkpoint saving blocked so a bad recovery cannot overwrite the last known-good archive.
 
 ## Toolchain and readiness
 
@@ -344,11 +344,11 @@ The full background prewarm covers the common coding/debugging stack rather than
 
 Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
 
-### Optional reverse-engineering toolkit (REA)
+### Shared reverse-engineering toolkit (REA)
 
-REA is an opt-in CLI/MCP toolkit for evidence-backed application, binary, process, Android, browser, firmware, and network-capture analysis. It stays outside core prewarm and startup, so installing it never delays RDC/Tailscale readiness.
+REA is a shared CLI toolkit for evidence-backed application, binary, process, Android, browser, firmware, and network-capture analysis. The existing background prewarm runs the official `scripts/install-rea.sh` automatically on every runner generation, after RDC is healthy. That makes the same verified CLI and provider set available to every model/agent using the runner account without delaying the initial RDC/Tailscale connection. Prewarm reaches `READY` only after installation, a capabilities check, and the installer's provider smoke tests succeed.
 
-Install it when a task needs reverse-engineering capabilities:
+At every connection, run `agent-lab onboard` followed by `agent-lab status`; require `REA=READY` before REA work. The Lab shell library sources `providers.env` for non-login shells too. If REA is missing after prewarm, repair it with the official installer:
 
 ```bash
 ./scripts/install-rea.sh
@@ -385,7 +385,7 @@ The installer verifies SHA-256 for the pinned Node.js, Ghidra, Temurin, WABT, JA
 
 Selective options are available: `--skip-os-packages`, `--skip-ghidra`, `--skip-android`, `--skip-network`, `--skip-browser`, `--skip-python-tools`, `--skip-binwalk`, and `--dry-run`. The `--skip-binwalk` option leaves REA's firmware signature-inspection tool unavailable, but does not affect the rest of the toolkit. Python tooling is isolated in separate virtual environments. The installer's skip flags can be used for partial repairs without discarding previously installed provider paths.
 
-`rea setup` is intentionally **not** run automatically: it can modify agent/MCP configuration. The installer does not register MCP clients or edit OpenCode/Codex settings. Commercial providers (IDA, Hopper, JEB) are not installed. Kuna remains caller-supplied. Process capture runs with the Runner account's permissions and is not a sandbox; only analyze targets you are authorized to inspect and treat untrusted targets as untrusted code.
+`rea setup` is intentionally **not** run automatically: it modifies client-specific agent/MCP configuration and would not be a safe shared-runner default. The globally available CLI is usable by all shell-capable models; MCP registration remains a separate, deliberate per-client operation. Commercial providers (IDA, Hopper, JEB) are not installed. Kuna remains caller-supplied. Process capture runs with the Runner account's permissions and is not a sandbox; only analyze targets you are authorized to inspect and treat untrusted targets as untrusted code.
 The canonical machine/toolchain contract is [`config/runner-toolset.json`](config/runner-toolset.json). Bootstrap, readiness, doctor, and runner validation consume the same manifest so they do not maintain independent definitions of a healthy machine.
 
 ## Validation

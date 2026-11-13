@@ -160,6 +160,16 @@ class LabTest(unittest.TestCase):
             sourced_at, script.find('exec '),
             'agent-lib.sh must be sourced before the first dispatch')
 
+    def test_prewarm_runs_official_rea_installer_before_ready_validation(self):
+        script = (SCRIPTS / 'agent-prewarm.sh').read_text()
+        bootstrap = script.index('"$SELF_DIR/agent-bootstrap.sh" --full')
+        install_rea = script.index('"$SELF_DIR/install-rea.sh"')
+        validate = script.index('python3 "$SELF_DIR/lab_runner_validate.py" quick')
+        self.assertLess(bootstrap, install_rea)
+        self.assertLess(install_rea, validate)
+        self.assertIn('rea capabilities --format json', script)
+        self.assertIn('source "$REA_ENV_FILE"', script)
+
     def test_checkpoint_includes_explicitly_adopted_external_workspace(self):
         external = self.base / 'scratch' / 'external-repo'
         external.parent.mkdir()
@@ -301,7 +311,8 @@ class LabTest(unittest.TestCase):
         self.assertNotIn('restic', sync.lower())
         self.assertNotIn('RESTIC_', workflow)
         self.assertIn('agent-checkpoints', sync)
-        self.assertIn('RDC_STATE_KEY', sync)
+        archive = (SCRIPTS / 'lab_archive.py').read_text()
+        self.assertIn('RDC_STATE_KEY', archive)
         restore_step = workflow.split('Restore latest encrypted Agent checkpoint', 1)[1].split('\n      # RDC', 1)[0]
         save_step = workflow.split('Save final Agent checkpoint', 1)[1].split('\n      - name: Upload Agent Checkpoint', 1)[0]
         self.assertNotIn('continue-on-error: true', restore_step)
@@ -1260,7 +1271,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         self.assertIn('sha512-cx7KTscLF951adHmDLVCDIVTqJ/Bg1LtdRILZoo5wa/UMeyOfMAuOJOEBulNMKBKb5Xd3nHDQnB9aXroN9Fw5A==',installer)
         self.assertNotIn('desktop-commander@latest',installer)
 
-    def test_optional_rea_toolset_is_explicit_and_integrity_verified(self):
+    def test_shared_rea_toolset_is_automatic_and_integrity_verified(self):
         data=json.loads((ROOT/'config/runner-toolset.json').read_text())
         workflow=(ROOT/'.github/workflows/rdc-lab.yml').read_text()
         self.assertNotIn('expected',data['node'])
@@ -1279,7 +1290,7 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
         optional=data['optional_tools']['rea']
         self.assertEqual(optional['package'],'rea-agents')
         self.assertEqual(optional['entrypoint'],'rea')
-        self.assertFalse(optional['automatic_install'])
+        self.assertTrue(optional['automatic_install'])
         self.assertFalse(optional['automatic_setup'])
         self.assertEqual(optional['install_script'],'scripts/install-rea.sh')
         self.assertNotIn('required_node',optional)
@@ -1555,6 +1566,8 @@ printf '%s' "$AGENT_PROJECT_CACHE_ROOT" > "$AGENT_PROJECT_ROOT/cache-root.txt"
     def test_prewarm_ready_is_gated_by_quick_runner_validation(self):
         bindir=self.base/'prewarm';bindir.mkdir()
         cache=self.base/'prewarm-cache';cache.mkdir()
+        rea_root=self.base/'rea-root'
+        rea_bin=self.base/'rea-bin';rea_bin.mkdir()
         prewarm=bindir/'agent-prewarm.sh'
         prewarm.write_text((SCRIPTS/'agent-prewarm.sh').read_text());prewarm.chmod(0o755)
         (bindir/'agent-lib.sh').write_text(f"""#!/bin/bash
@@ -1567,6 +1580,27 @@ agent_full_toolchain_ready() {{ return 0; }}
 agent_missing_full_commands() {{ :; }}
 """)
         bootstrap=bindir/'agent-bootstrap.sh';bootstrap.write_text('#!/bin/sh\nexit 0\n');bootstrap.chmod(0o755)
+        installer=bindir/'install-rea.sh'
+        installer.write_text(f"""#!/bin/bash
+set -e
+mkdir -p '{rea_root}'
+touch '{rea_root}/installer-ran'
+cat > '{rea_root}/providers.env' <<'EOF'
+export REA_INSTALL_ROOT='{rea_root}'
+export REA_VERSION='0.0.0-test'
+export PATH='{rea_bin}':"$PATH"
+EOF
+""")
+        installer.chmod(0o755)
+        rea=rea_bin/'rea'
+        rea.write_text("""#!/bin/sh
+case "$1" in
+  --version) echo rea-test ;;
+  capabilities) printf '%s\n' '{"capabilities":[]}' ;;
+  *) exit 2 ;;
+esac
+""")
+        rea.chmod(0o755)
         validator=bindir/'lab_runner_validate.py'
         validator.write_text(
             "import os,pathlib,sys\n"
@@ -1575,14 +1609,16 @@ agent_missing_full_commands() {{ :; }}
         )
         (bindir/'lab_environment.py').write_text('import sys\n')
         record=self.base/'validate-args'
-        failed=command([prewarm,'--foreground'],
-                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'})
+        run_env={**self.env,'REA_INSTALL_ROOT':rea_root,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],
+                 'VALIDATE_RECORD':record,'VALIDATE_EXIT':'23'}
+        failed=command([prewarm,'--foreground'],env=run_env)
         self.assertEqual(failed.returncode,23,failed.stderr)
+        self.assertTrue((rea_root/'installer-ran').exists())
         state=(cache/'prewarm.env').read_text()
         self.assertIn('STATUS=FAILED',state)
         self.assertEqual(record.read_text().split()[0],'quick')
         passed=command([prewarm,'--foreground'],
-                       env={**self.env,'VALIDATE_RECORD':record,'VALIDATE_EXIT':'0'})
+                       env={**run_env,'VALIDATE_EXIT':'0'})
         self.assertEqual(passed.returncode,0,passed.stderr)
         self.assertIn('STATUS=READY',(cache/'prewarm.env').read_text())
 
