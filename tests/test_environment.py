@@ -68,7 +68,13 @@ class EnvironmentTests(unittest.TestCase):
                 "export REA_PROVIDER_ENV_TEST='loaded'\n"
                 f"export PATH='{mock_bin}:/usr/bin:/bin'\n"
             )
-            env = {**os.environ, 'HOME': str(home), 'PATH': os.environ['PATH']}
+            # Use a minimal environment: hosted shells may supply BASH_ENV
+            # or provider markers that would leak the real runner into fixture.
+            env = {
+                'HOME': str(home),
+                'PATH': os.environ['PATH'],
+                'RUNNER_TOOLS_ROOT': str(home / 'runner-tools'),
+            }
             result = subprocess.run(
                 ['/bin/bash', '-c',
                  f'source "{scripts / "agent-lib.sh"}" && command -v rea && '

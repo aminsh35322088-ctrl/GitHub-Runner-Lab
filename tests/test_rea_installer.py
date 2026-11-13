@@ -133,6 +133,101 @@ class DownloadPinnedTests(unittest.TestCase):
             self.assertEqual(dest.read_bytes(), fixture)
 
 
+class RunnerShellIntegrationTests(unittest.TestCase):
+    def test_binwalk_cli_is_linked_into_shared_provider_bin(self):
+        installer = INSTALLER.read_text()
+        function = extract_function(installer, "link_binwalk_cli")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            provider_bin = root / "rea" / "binwalk" / "bin"
+            shared_bin = root / "runner-tools" / "bin"
+            provider_bin.mkdir(parents=True)
+            binary = provider_bin / "binwalk"
+            binary.write_text("""#!/usr/bin/env bash
+echo 'binwalk 3.1.0'
+""")
+            binary.chmod(0o755)
+            harness = root / "link-binwalk.sh"
+            harness.write_text("""#!/usr/bin/env bash
+set -Eeuo pipefail
+log() { :; }
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+""" + function + f"""
+link_binwalk_cli "{binary}" "{shared_bin}" 3.1.0
+shared_bin="{shared_bin}"
+PATH="$shared_bin:$PATH"
+export PATH
+test "$(command -v binwalk)" = "$shared_bin/binwalk"
+binwalk --version | grep -q 'binwalk 3.1.0'
+""")
+            result = subprocess.run(["bash", str(harness)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((shared_bin / "binwalk").is_symlink())
+            self.assertEqual((shared_bin / "binwalk").resolve(), binary.resolve())
+
+    def test_provider_environment_precedes_bashrc_return_and_covers_bash_profile(self):
+        installer = INSTALLER.read_text()
+        function = extract_function(installer, "install_provider_shell_environment")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            home = root / "home"
+            bin_dir = root / "provider-bin"
+            home.mkdir()
+            bin_dir.mkdir()
+            fake_rea = bin_dir / "rea"
+            fake_rea.write_text("""#!/usr/bin/env bash
+echo rea-shell-smoke
+""")
+            fake_rea.chmod(0o755)
+            env_file = root / "providers.env"
+            env_file.write_text(f"""export PATH="{bin_dir}:$PATH"
+export REA_TEST_MARKER=loaded
+""")
+            bashrc = home / ".bashrc"
+            bashrc.write_text("""# stock bashrc
+case $- in
+  *i*) ;;
+  *) return;;
+esac
+export BASHRC_BODY_REACHED=1
+""")
+            profile = home / ".profile"
+            profile.write_text("# profile body\\n")
+            bash_profile = home / ".bash_profile"
+            bash_profile.write_text("export EXISTING_LOGIN_SETUP=preserved\\n")
+            harness = root / "install-provider-env.sh"
+            harness.write_text("""#!/usr/bin/env bash
+set -Eeuo pipefail
+""" + function + f"""
+install_provider_shell_environment "{env_file}"
+install_provider_shell_environment "{env_file}"
+""")
+            run_env = os.environ.copy()
+            run_env["HOME"] = str(home)
+            run_env.pop("REA_PROVIDERS_ENV_LOADED", None)
+            result = subprocess.run(["bash", str(harness)], capture_output=True, text=True, env=run_env, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            start_marker = "# >>> GitHub Runner Lab REA environment >>>"
+            end_marker = "# <<< GitHub Runner Lab REA environment <<<"
+            for startup in (profile, bashrc, bash_profile):
+                text = startup.read_text()
+                self.assertEqual(text.count(start_marker), 1, startup.name)
+                self.assertEqual(text.count(end_marker), 1, startup.name)
+                self.assertTrue(text.startswith(start_marker), startup.name)
+            self.assertLess(bashrc.read_text().index(start_marker), bashrc.read_text().index("*) return;;"))
+            self.assertIn("EXISTING_LOGIN_SETUP=preserved", bash_profile.read_text())
+
+            for startup in (bashrc, bash_profile, profile):
+                run_env["STARTUP_FILE"] = str(startup)
+                shell = [
+                    "bash", "--noprofile", "--norc", "-c",
+                    'source "$STARTUP_FILE"; test "$REA_TEST_MARKER" = loaded; command -v rea',
+                ]
+                checked = subprocess.run(shell, capture_output=True, text=True, env=run_env, timeout=30)
+                self.assertEqual(checked.returncode, 0, f"{startup.name}: {checked.stderr}")
+                self.assertEqual(checked.stdout.strip(), str(fake_rea))
+
 class ResolutionContractTests(unittest.TestCase):
     def test_rea_resolution_is_single_exact_and_verified(self):
         text = INSTALLER.read_text()
