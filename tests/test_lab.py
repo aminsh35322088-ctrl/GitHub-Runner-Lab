@@ -3,6 +3,7 @@ import io
 import json
 import os
 import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -241,6 +242,92 @@ class LabTest(unittest.TestCase):
         result=command([sys.executable,SCRIPTS/'lab_checkpoint.py','resume',source,self.base/'restored'],env=self.env)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual((self.base/'restored/repo/probe.txt').read_text(),'restored\n')
+
+    def _checkpoint_sync_fixture(self, *, fail_backup=False):
+        lab = self.base / 'checkpoint-sync-lab'
+        lab.mkdir()
+        shutil.copytree(SCRIPTS, lab / 'scripts')
+        remote = self.base / 'checkpoint-sync-origin.git'
+        subprocess.run(['git', 'init', '--bare', '--initial-branch=main', remote],
+                       check=True, capture_output=True)
+        init_repo(lab, remote)
+
+        workspace = Path(self.env['AGENT_WORKSPACE_ROOT']) / 'sync-project'
+        init_repo(workspace)
+        (workspace / 'tracked.txt').write_text('dirty before runner rotation\\n')
+
+        fake_bin = self.base / 'fake-restic-bin'
+        fake_bin.mkdir()
+        fake_restic = fake_bin / 'restic'
+        fake_restic.write_text("""#!/usr/bin/env python3
+import json, os, pathlib, shutil, sys
+command = sys.argv[1]
+store = pathlib.Path(os.environ['FAKE_RESTIC_STORE'])
+if command == 'cat':
+    raise SystemExit(0)
+if command == 'backup':
+    if os.environ.get('FAKE_RESTIC_FAIL_BACKUP') == '1':
+        raise SystemExit(1)
+    source = pathlib.Path(sys.argv[-1])
+    if store.exists():
+        shutil.rmtree(store)
+    store.mkdir(parents=True)
+    shutil.copytree(source, store / 'snapshot')
+    (store / 'snapshots.json').write_text(json.dumps([
+        {'id': 'a' * 64, 'time': '2026-11-13T00:00:00Z'}
+    ]))
+    raise SystemExit(0)
+if command == 'forget':
+    raise SystemExit(0)
+if command == 'snapshots':
+    snapshot_file = store / 'snapshots.json'
+    print(snapshot_file.read_text() if snapshot_file.exists() else '[]')
+    raise SystemExit(0)
+if command == 'restore':
+    target = pathlib.Path(sys.argv[sys.argv.index('--target') + 1])
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(store / 'snapshot', target / 'snapshot')
+    raise SystemExit(0)
+raise SystemExit(2)
+""")
+        fake_restic.chmod(0o755)
+        env = {
+            **self.env,
+            'PATH': str(fake_bin) + os.pathsep + os.environ['PATH'],
+            'FAKE_RESTIC_STORE': self.base / 'fake-restic-store',
+            'RESTIC_REPOSITORY': 'test:checkpoint-repo',
+            'RESTIC_PASSWORD': 'restic-test-password',
+            'GITHUB_REPOSITORY': 'aminsh35322088-ctrl/GitHub-Runner-Lab',
+            'GITHUB_WORKSPACE': str(lab),
+            'GITHUB_RUN_ID': 'restic-integration-test',
+        }
+        if fail_backup:
+            env['FAKE_RESTIC_FAIL_BACKUP'] = '1'
+        return lab, remote, workspace, env
+
+    def test_checkpoint_sync_saves_and_restores_with_restic_without_branch_write(self):
+        lab, remote, workspace, env = self._checkpoint_sync_fixture()
+        saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'integration'], env=env)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertIn('CHECKPOINT_BACKEND=restic', saved.stdout)
+        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertEqual(branch.stdout.strip(), '', 'Git branch must not be updated after a Restic success')
+
+        recovered = self.base / 'restic-recovered-workspaces'
+        restore_env = {**env, 'AGENT_RECOVERED_WORKSPACE_ROOT': recovered}
+        restored = command([lab / 'scripts/checkpoint-sync.sh', 'restore'], env=restore_env)
+        self.assertEqual(restored.returncode, 0, restored.stderr)
+        self.assertIn('RECOVERY_BACKEND=restic', restored.stdout)
+        self.assertEqual((recovered / 'sync-project' / 'tracked.txt').read_text(),
+                         'dirty before runner rotation\\n')
+
+    def test_checkpoint_sync_uses_encrypted_branch_when_restic_backup_fails(self):
+        lab, remote, workspace, env = self._checkpoint_sync_fixture(fail_backup=True)
+        saved = command([lab / 'scripts/checkpoint-sync.sh', 'save', 'fallback-integration'], env=env)
+        self.assertEqual(saved.returncode, 0, saved.stderr)
+        self.assertIn('CHECKPOINT_BACKEND=git-branch', saved.stdout)
+        branch = git(lab, 'ls-remote', 'origin', 'refs/heads/agent-checkpoints')
+        self.assertTrue(branch.stdout.strip(), 'Git fallback branch must be pushed after Restic failure')
 
     def test_restic_is_primary_and_git_branch_is_failure_fallback(self):
         sync = (SCRIPTS / 'checkpoint-sync.sh').read_text()
