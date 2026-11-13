@@ -22,12 +22,19 @@ class SigilloDocumentationTests(unittest.TestCase):
         self.assertIn('SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo me', step)
         self.assertIn('SIGILLO_TOKEN="$SIGILLO_TOKEN" sigillo login --scope /', step)
         self.assertIn('echo "SIGILLO_CLI_READY=true"', step)
+        self.assertIn('sigillo_unavailable "UNCONFIGURED"', step)
+        self.assertIn('write_sigillo_state "AUTHENTICATED"', step)
+        self.assertIn("SIGILLO_API_URL=%s", step)
 
     def test_agent_github_credential_is_retrieved_from_sigillo(self):
         step = WORKFLOW.split(
             "      - name: Configure Agent GitHub access from Sigillo", 1
         )[1].split("\n      - name:", 1)[0]
-        self.assertIn("SIGILLO_TOKEN: ${{ secrets.SIGILLO_API_TOKEN }}", step)
+        # The API token is persisted once by the guarded auth step; never
+        # re-inject the GitHub Actions secret into the Agent bootstrap step.
+        self.assertIn("SIGILLO_CLI_READY == 'true'", step)
+        self.assertIn("continue-on-error: true", step)
+        self.assertNotIn("SIGILLO_TOKEN:", step)
         self.assertIn(
             'sigillo run --project "$SIGILLO_PROJECT_ID" --env "$SIGILLO_ENVIRONMENT"',
             step,

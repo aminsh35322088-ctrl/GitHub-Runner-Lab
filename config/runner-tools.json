@@ -1,0 +1,1848 @@
+{
+  "schema_version": 1,
+  "categories": [
+    {
+      "id": "system",
+      "label": "System & Shell",
+      "description": "File, process, shell and source-control utilities"
+    },
+    {
+      "id": "development",
+      "label": "Development Toolchains",
+      "description": "Languages, compilers, build systems and package runtimes"
+    },
+    {
+      "id": "quality",
+      "label": "Testing & Quality",
+      "description": "Linters, validators and test tools"
+    },
+    {
+      "id": "devops",
+      "label": "DevOps & Containers",
+      "description": "Containers, infrastructure and runner management"
+    },
+    {
+      "id": "networking",
+      "label": "Networking & Diagnostics",
+      "description": "DNS, packet, route, socket and traffic inspection"
+    },
+    {
+      "id": "reverse",
+      "label": "Reverse Engineering",
+      "description": "Binary, Android, firmware, browser and process analysis"
+    },
+    {
+      "id": "database",
+      "label": "Database Clients",
+      "description": "Local and remote database command-line clients"
+    },
+    {
+      "id": "media",
+      "label": "Media & Documents",
+      "description": "Audio, video, image and document processing"
+    }
+  ],
+  "tools": [
+    {
+      "id": "git",
+      "name": "Git",
+      "category": "system",
+      "description": "Version control, branches, diffs, worktrees and recovery",
+      "keywords": [
+        "source control",
+        "repository",
+        "commit",
+        "branch",
+        "diff",
+        "worktree"
+      ],
+      "commands": [
+        "git"
+      ],
+      "examples": [
+        "git status --short --branch",
+        "git worktree list",
+        "git diff --check"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "git",
+        "--version"
+      ]
+    },
+    {
+      "id": "gh",
+      "name": "GitHub CLI",
+      "category": "system",
+      "description": "GitHub pull requests, issues, releases, checks and API operations",
+      "keywords": [
+        "github",
+        "pull request",
+        "pr",
+        "issue",
+        "actions",
+        "release",
+        "workflow"
+      ],
+      "commands": [
+        "gh"
+      ],
+      "examples": [
+        "gh pr status",
+        "gh run list --limit 10",
+        "gh api rate_limit"
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "gh",
+        "--version"
+      ]
+    },
+    {
+      "id": "git-lfs",
+      "name": "Git LFS",
+      "category": "system",
+      "description": "Large-file storage for Git repositories",
+      "keywords": [
+        "large files",
+        "lfs"
+      ],
+      "commands": [
+        "git-lfs"
+      ],
+      "examples": [
+        "git lfs env"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "git-lfs",
+        "version"
+      ]
+    },
+    {
+      "id": "curl",
+      "name": "curl",
+      "category": "system",
+      "description": "HTTP requests, API calls, headers and downloads",
+      "keywords": [
+        "http",
+        "https",
+        "api",
+        "request",
+        "download"
+      ],
+      "commands": [
+        "curl"
+      ],
+      "examples": [
+        "curl -I https://example.com"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "curl",
+        "--version"
+      ]
+    },
+    {
+      "id": "wget",
+      "name": "Wget",
+      "category": "system",
+      "description": "HTTP/FTP downloads",
+      "keywords": [
+        "download",
+        "http",
+        "ftp"
+      ],
+      "commands": [
+        "wget"
+      ],
+      "examples": [
+        "wget -qO- https://example.com"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "wget",
+        "--version"
+      ]
+    },
+    {
+      "id": "ripgrep",
+      "name": "ripgrep",
+      "category": "system",
+      "description": "Fast recursive text and code search",
+      "keywords": [
+        "search",
+        "grep",
+        "text",
+        "source code",
+        "regex"
+      ],
+      "commands": [
+        "rg"
+      ],
+      "examples": [
+        "rg -n 'TODO|FIXME' ."
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "rg",
+        "--version"
+      ]
+    },
+    {
+      "id": "fd",
+      "name": "fd",
+      "category": "system",
+      "description": "Fast file and directory search",
+      "keywords": [
+        "find files",
+        "filesystem",
+        "path"
+      ],
+      "commands": [
+        "fd"
+      ],
+      "examples": [
+        "fd -t f -e json config"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "fd",
+        "--version"
+      ]
+    },
+    {
+      "id": "fzf",
+      "name": "fzf",
+      "category": "system",
+      "description": "Interactive fuzzy finder",
+      "keywords": [
+        "fuzzy search",
+        "interactive"
+      ],
+      "commands": [
+        "fzf"
+      ],
+      "examples": [
+        "rg --files | fzf"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "fzf",
+        "--version"
+      ]
+    },
+    {
+      "id": "jq",
+      "name": "jq",
+      "category": "system",
+      "description": "Parse and transform JSON",
+      "keywords": [
+        "json",
+        "parse",
+        "filter"
+      ],
+      "commands": [
+        "jq"
+      ],
+      "examples": [
+        "jq '.items[] | .name' file.json"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "jq",
+        "--version"
+      ]
+    },
+    {
+      "id": "yq",
+      "name": "yq",
+      "category": "system",
+      "description": "Query and transform YAML and JSON",
+      "keywords": [
+        "yaml",
+        "json",
+        "config"
+      ],
+      "commands": [
+        "yq"
+      ],
+      "examples": [
+        "yq '.services' compose.yaml"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "yq",
+        "--version"
+      ]
+    },
+    {
+      "id": "tree",
+      "name": "tree",
+      "category": "system",
+      "description": "Print directory trees",
+      "keywords": [
+        "directory",
+        "filesystem"
+      ],
+      "commands": [
+        "tree"
+      ],
+      "examples": [
+        "tree -L 3 -a"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "tree",
+        "--version"
+      ]
+    },
+    {
+      "id": "rsync",
+      "name": "rsync",
+      "category": "system",
+      "description": "Efficient file synchronization",
+      "keywords": [
+        "copy",
+        "sync",
+        "backup",
+        "transfer"
+      ],
+      "commands": [
+        "rsync"
+      ],
+      "examples": [
+        "rsync -a src/ dst/"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "rsync",
+        "--version"
+      ]
+    },
+    {
+      "id": "archive-utils",
+      "name": "Archive Utilities",
+      "category": "system",
+      "description": "ZIP and UNZIP archive operations",
+      "keywords": [
+        "zip",
+        "unzip",
+        "archive",
+        "compress",
+        "extract"
+      ],
+      "commands": [
+        "zip",
+        "unzip"
+      ],
+      "examples": [
+        "unzip -l archive.zip",
+        "zip -r archive.zip folder/"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "tmux",
+      "name": "tmux",
+      "category": "system",
+      "description": "Persistent terminal sessions and panes",
+      "keywords": [
+        "terminal",
+        "session",
+        "multiplexer"
+      ],
+      "commands": [
+        "tmux"
+      ],
+      "examples": [
+        "tmux new -s task",
+        "tmux ls"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "tmux",
+        "-V"
+      ]
+    },
+    {
+      "id": "btop",
+      "name": "btop",
+      "category": "system",
+      "description": "Interactive CPU, memory, disk and process monitor",
+      "keywords": [
+        "monitor",
+        "cpu",
+        "ram",
+        "memory",
+        "process"
+      ],
+      "commands": [
+        "btop"
+      ],
+      "examples": [
+        "btop"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "btop",
+        "--version"
+      ]
+    },
+    {
+      "id": "htop",
+      "name": "htop",
+      "category": "system",
+      "description": "Interactive process and resource monitor",
+      "keywords": [
+        "monitor",
+        "process",
+        "cpu",
+        "memory"
+      ],
+      "commands": [
+        "htop"
+      ],
+      "examples": [
+        "htop"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "htop",
+        "--version"
+      ]
+    },
+    {
+      "id": "ncdu",
+      "name": "ncdu",
+      "category": "system",
+      "description": "Interactive disk-usage explorer",
+      "keywords": [
+        "disk",
+        "space",
+        "storage"
+      ],
+      "commands": [
+        "ncdu"
+      ],
+      "examples": [
+        "ncdu -x /home/runner"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "ncdu",
+        "--version"
+      ]
+    },
+    {
+      "id": "node",
+      "name": "Node.js",
+      "category": "development",
+      "description": "JavaScript and TypeScript runtime",
+      "keywords": [
+        "javascript",
+        "typescript",
+        "runtime"
+      ],
+      "commands": [
+        "node"
+      ],
+      "examples": [
+        "node --version",
+        "node app.js"
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "node",
+        "--version"
+      ]
+    },
+    {
+      "id": "npm",
+      "name": "npm / npx",
+      "category": "development",
+      "description": "Node package manager and package runner",
+      "keywords": [
+        "javascript",
+        "package manager",
+        "dependencies",
+        "npx"
+      ],
+      "commands": [
+        "npm",
+        "npx"
+      ],
+      "examples": [
+        "npm ci",
+        "npx --yes eslint ."
+      ],
+      "managed_by": "node",
+      "version_command": [
+        "npm",
+        "--version"
+      ]
+    },
+    {
+      "id": "python",
+      "name": "Python",
+      "category": "development",
+      "description": "Python runtime, pip and virtual environments",
+      "keywords": [
+        "python",
+        "pip",
+        "venv",
+        "scripting"
+      ],
+      "commands": [
+        "python3",
+        "pip3"
+      ],
+      "examples": [
+        "python3 -m venv .venv",
+        "python3 -m pip --version"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "python3",
+        "--version"
+      ]
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "category": "development",
+      "description": "Go compiler, modules and tests",
+      "keywords": [
+        "golang",
+        "modules",
+        "compile",
+        "test"
+      ],
+      "commands": [
+        "go"
+      ],
+      "examples": [
+        "go test ./...",
+        "go build ./..."
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "go",
+        "version"
+      ]
+    },
+    {
+      "id": "rust",
+      "name": "Rust",
+      "category": "development",
+      "description": "Rust compiler and Cargo",
+      "keywords": [
+        "rust",
+        "cargo",
+        "crate",
+        "compile"
+      ],
+      "commands": [
+        "rustc",
+        "cargo"
+      ],
+      "examples": [
+        "cargo test",
+        "cargo build --release"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "rustc",
+        "--version"
+      ]
+    },
+    {
+      "id": "java",
+      "name": "Java / JDK",
+      "category": "development",
+      "description": "Java runtime and compiler",
+      "keywords": [
+        "java",
+        "jdk",
+        "jvm",
+        "gradle",
+        "maven"
+      ],
+      "commands": [
+        "java",
+        "javac"
+      ],
+      "examples": [
+        "javac Main.java",
+        "java Main"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "java",
+        "-version"
+      ]
+    },
+    {
+      "id": "cpp",
+      "name": "C / C++ Toolchain",
+      "category": "development",
+      "description": "GNU/LLVM compilers, linker and debugger",
+      "keywords": [
+        "c",
+        "c++",
+        "gcc",
+        "g++",
+        "clang",
+        "gdb",
+        "native"
+      ],
+      "commands": [
+        "gcc",
+        "g++",
+        "clang",
+        "clang++",
+        "gdb"
+      ],
+      "examples": [
+        "gcc -Wall -Wextra main.c -o app",
+        "g++ -std=c++20 main.cpp -o app"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "gcc",
+        "--version"
+      ]
+    },
+    {
+      "id": "cmake",
+      "name": "CMake",
+      "category": "development",
+      "description": "Cross-platform native build configuration",
+      "keywords": [
+        "native build",
+        "configure"
+      ],
+      "commands": [
+        "cmake"
+      ],
+      "examples": [
+        "cmake -S . -B build -G Ninja",
+        "cmake --build build"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "cmake",
+        "--version"
+      ]
+    },
+    {
+      "id": "ninja",
+      "name": "Ninja",
+      "category": "development",
+      "description": "Fast build executor",
+      "keywords": [
+        "build",
+        "compile"
+      ],
+      "commands": [
+        "ninja"
+      ],
+      "examples": [
+        "ninja -C build"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "ninja",
+        "--version"
+      ]
+    },
+    {
+      "id": "pkg-config",
+      "name": "pkg-config",
+      "category": "development",
+      "description": "Discover native library compiler and linker flags",
+      "keywords": [
+        "native dependencies",
+        "libraries",
+        "headers"
+      ],
+      "commands": [
+        "pkg-config"
+      ],
+      "examples": [
+        "pkg-config --cflags --libs openssl"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "pkg-config",
+        "--version"
+      ]
+    },
+    {
+      "id": "protobuf",
+      "name": "Protocol Buffers",
+      "category": "development",
+      "description": "Protocol Buffers compiler and schema generation",
+      "keywords": [
+        "protobuf",
+        "proto",
+        "grpc",
+        "schema"
+      ],
+      "commands": [
+        "protoc"
+      ],
+      "examples": [
+        "protoc --python_out=. api.proto"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "protoc",
+        "--version"
+      ]
+    },
+    {
+      "id": "shellcheck",
+      "name": "ShellCheck",
+      "category": "quality",
+      "description": "Static analysis for shell scripts",
+      "keywords": [
+        "bash",
+        "shell",
+        "lint"
+      ],
+      "commands": [
+        "shellcheck"
+      ],
+      "examples": [
+        "shellcheck scripts/*.sh"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "shellcheck",
+        "--version"
+      ]
+    },
+    {
+      "id": "shfmt",
+      "name": "shfmt",
+      "category": "quality",
+      "description": "Shell formatter",
+      "keywords": [
+        "bash",
+        "shell",
+        "format"
+      ],
+      "commands": [
+        "shfmt"
+      ],
+      "examples": [
+        "shfmt -d scripts/*.sh"
+      ],
+      "managed_by": "apt:build",
+      "version_command": [
+        "shfmt",
+        "--version"
+      ]
+    },
+    {
+      "id": "actionlint",
+      "name": "actionlint",
+      "category": "quality",
+      "description": "GitHub Actions workflow linter",
+      "keywords": [
+        "github actions",
+        "workflow",
+        "yaml",
+        "lint"
+      ],
+      "commands": [
+        "actionlint"
+      ],
+      "examples": [
+        "actionlint -color"
+      ],
+      "managed_by": "verified-github-release",
+      "version_command": [
+        "actionlint",
+        "-version"
+      ]
+    },
+    {
+      "id": "goss",
+      "name": "Goss",
+      "category": "quality",
+      "description": "Declarative system validation used by Runner checks",
+      "keywords": [
+        "system test",
+        "assertions",
+        "health check"
+      ],
+      "commands": [],
+      "examples": [
+        "agent-lab validate runner quick",
+        "agent-lab validate runner full"
+      ],
+      "managed_by": "verified-github-release",
+      "paths": [
+        "~/.cache/agent-runner-kit/tools/goss/*/goss",
+        "/opt/runner-tools/bin/goss"
+      ]
+    },
+    {
+      "id": "yamllint",
+      "name": "yamllint",
+      "category": "quality",
+      "description": "YAML syntax and style validation",
+      "keywords": [
+        "yaml",
+        "lint",
+        "configuration"
+      ],
+      "commands": [
+        "yamllint"
+      ],
+      "examples": [
+        "yamllint .github/workflows"
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "yamllint",
+        "--version"
+      ]
+    },
+    {
+      "id": "ansible",
+      "name": "Ansible",
+      "category": "quality",
+      "description": "Configuration management and infrastructure automation",
+      "keywords": [
+        "automation",
+        "playbook",
+        "yaml"
+      ],
+      "commands": [
+        "ansible",
+        "ansible-playbook"
+      ],
+      "examples": [
+        "ansible-playbook --syntax-check site.yml"
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "ansible",
+        "--version"
+      ]
+    },
+    {
+      "id": "docker",
+      "name": "Docker",
+      "category": "devops",
+      "description": "Container build, run and inspect",
+      "keywords": [
+        "container",
+        "image",
+        "build",
+        "compose"
+      ],
+      "commands": [
+        "docker"
+      ],
+      "examples": [
+        "docker info",
+        "docker build -t app ."
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "docker",
+        "--version"
+      ]
+    },
+    {
+      "id": "buildx",
+      "name": "Docker Buildx",
+      "category": "devops",
+      "description": "BuildKit-backed multi-platform container builds",
+      "keywords": [
+        "buildkit",
+        "multi-platform"
+      ],
+      "commands": [
+        "docker"
+      ],
+      "examples": [
+        "docker buildx version"
+      ],
+      "managed_by": "runner-image",
+      "version_command": [
+        "docker",
+        "buildx",
+        "version"
+      ]
+    },
+    {
+      "id": "tailscale",
+      "name": "Tailscale",
+      "category": "devops",
+      "description": "Tailnet connectivity and SSH diagnostics",
+      "keywords": [
+        "tailnet",
+        "ssh",
+        "vpn",
+        "network"
+      ],
+      "commands": [
+        "tailscale"
+      ],
+      "examples": [
+        "tailscale status",
+        "tailscale ip -4"
+      ],
+      "managed_by": "runner-workflow",
+      "version_command": [
+        "tailscale",
+        "version"
+      ]
+    },
+    {
+      "id": "sigillo",
+      "name": "Sigillo CLI",
+      "category": "devops",
+      "description": "Optional credential lifecycle CLI; authenticated sessions provide scoped secret injection to trusted agent processes",
+      "keywords": [
+        "credentials",
+        "secrets",
+        "vault",
+        "auth",
+        "credential vault",
+        "credential lifecycle",
+        "api token",
+        "secret injection",
+        "agent credentials",
+        "sigillo run"
+      ],
+      "commands": [
+        "sigillo"
+      ],
+      "examples": [
+        "sigillo me",
+        "sigillo projects"
+      ],
+      "managed_by": "runner-workflow",
+      "version_command": [
+        "sigillo",
+        "--version"
+      ],
+      "required": false
+    },
+    {
+      "id": "dns-tools",
+      "name": "DNS Utilities",
+      "category": "networking",
+      "description": "DNS lookup and resolver diagnostics",
+      "keywords": [
+        "dns",
+        "dig",
+        "nslookup",
+        "resolve",
+        "domain"
+      ],
+      "commands": [
+        "dig",
+        "nslookup",
+        "host"
+      ],
+      "examples": [
+        "dig github.com",
+        "dig +trace example.com"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "nmap",
+      "name": "Nmap",
+      "category": "networking",
+      "description": "Authorized network discovery and port/service scanning",
+      "keywords": [
+        "network scan",
+        "ports",
+        "service discovery",
+        "security"
+      ],
+      "commands": [
+        "nmap"
+      ],
+      "examples": [
+        "nmap -sV -Pn HOST"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "nmap",
+        "--version"
+      ]
+    },
+    {
+      "id": "mtr",
+      "name": "MTR",
+      "category": "networking",
+      "description": "Combined traceroute and packet-loss diagnostics",
+      "keywords": [
+        "route",
+        "latency",
+        "packet loss",
+        "ping"
+      ],
+      "commands": [
+        "mtr"
+      ],
+      "examples": [
+        "mtr -rw -c 20 example.com"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "mtr",
+        "--version"
+      ]
+    },
+    {
+      "id": "iperf3",
+      "name": "iperf3",
+      "category": "networking",
+      "description": "TCP/UDP throughput measurements",
+      "keywords": [
+        "bandwidth",
+        "throughput",
+        "tcp",
+        "udp",
+        "speed"
+      ],
+      "commands": [
+        "iperf3"
+      ],
+      "examples": [
+        "iperf3 -c SERVER"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "iperf3",
+        "--version"
+      ]
+    },
+    {
+      "id": "tcpdump",
+      "name": "tcpdump",
+      "category": "networking",
+      "description": "Packet capture and protocol troubleshooting",
+      "keywords": [
+        "pcap",
+        "packet capture",
+        "network trace"
+      ],
+      "commands": [
+        "tcpdump"
+      ],
+      "examples": [
+        "sudo tcpdump -ni any -c 100"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "tcpdump",
+        "--version"
+      ]
+    },
+    {
+      "id": "traceroute",
+      "name": "traceroute",
+      "category": "networking",
+      "description": "IP route path inspection",
+      "keywords": [
+        "route",
+        "hops",
+        "latency"
+      ],
+      "commands": [
+        "traceroute"
+      ],
+      "examples": [
+        "traceroute -T -p 443 example.com"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "traceroute",
+        "--version"
+      ]
+    },
+    {
+      "id": "whois",
+      "name": "WHOIS",
+      "category": "networking",
+      "description": "Domain and IP registration lookup",
+      "keywords": [
+        "domain",
+        "ip",
+        "registration"
+      ],
+      "commands": [
+        "whois"
+      ],
+      "examples": [
+        "whois example.com"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "socat",
+      "name": "socat",
+      "category": "networking",
+      "description": "Bidirectional socket relay and TCP/UDP testing",
+      "keywords": [
+        "tcp",
+        "udp",
+        "socket",
+        "relay",
+        "port forward"
+      ],
+      "commands": [
+        "socat"
+      ],
+      "examples": [
+        "socat - TCP:HOST:PORT"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "socat",
+        "-V"
+      ]
+    },
+    {
+      "id": "tshark",
+      "name": "TShark",
+      "category": "networking",
+      "description": "Wireshark CLI protocol and packet analysis",
+      "keywords": [
+        "pcap",
+        "wireshark",
+        "packet",
+        "protocol"
+      ],
+      "commands": [
+        "tshark",
+        "capinfos"
+      ],
+      "examples": [
+        "tshark -r capture.pcap -q -z io,stat,1"
+      ],
+      "managed_by": "rea-provider"
+    },
+    {
+      "id": "mitmproxy",
+      "name": "mitmproxy",
+      "category": "networking",
+      "description": "HTTP(S) interception proxy for authorized debugging",
+      "keywords": [
+        "http proxy",
+        "https proxy",
+        "inspect requests",
+        "traffic"
+      ],
+      "commands": [
+        "mitmdump"
+      ],
+      "examples": [
+        "mitmdump --version"
+      ],
+      "managed_by": "rea-provider"
+    },
+    {
+      "id": "rea",
+      "name": "REA CLI",
+      "category": "reverse",
+      "description": "Evidence-producing reverse-engineering interface for binary, Android, firmware, browser and process analysis",
+      "keywords": [
+        "reverse engineering",
+        "binary",
+        "android",
+        "firmware",
+        "browser",
+        "process"
+      ],
+      "commands": [
+        "rea"
+      ],
+      "examples": [
+        "rea capabilities --format json",
+        "rea doctor --provider ghidra --format json"
+      ],
+      "managed_by": "REA prewarm",
+      "version_command": [
+        "rea",
+        "--version"
+      ]
+    },
+    {
+      "id": "ghidra",
+      "name": "Ghidra",
+      "category": "reverse",
+      "description": "Headless and interactive software reverse engineering suite",
+      "keywords": [
+        "decompile",
+        "disassemble",
+        "binary",
+        "firmware"
+      ],
+      "commands": [],
+      "examples": [
+        "rea doctor --provider ghidra --format json"
+      ],
+      "managed_by": "REA provider",
+      "provider": "ghidra"
+    },
+    {
+      "id": "jadx",
+      "name": "JADX",
+      "category": "reverse",
+      "description": "Android DEX/APK decompiler and source browser",
+      "keywords": [
+        "android",
+        "apk",
+        "dex",
+        "decompile",
+        "java"
+      ],
+      "commands": [],
+      "examples": [
+        "rea doctor --provider jadx --format json"
+      ],
+      "managed_by": "REA provider",
+      "provider": "jadx"
+    },
+    {
+      "id": "apktool",
+      "name": "Apktool",
+      "category": "reverse",
+      "description": "Decode and rebuild Android APK resources and smali",
+      "keywords": [
+        "android",
+        "apk",
+        "smali",
+        "resources"
+      ],
+      "commands": [
+        "apktool"
+      ],
+      "examples": [
+        "apktool d app.apk -o decoded"
+      ],
+      "managed_by": "REA provider"
+    },
+    {
+      "id": "frida",
+      "name": "Frida",
+      "category": "reverse",
+      "description": "Dynamic instrumentation for authorized app/process testing",
+      "keywords": [
+        "instrumentation",
+        "android",
+        "ios",
+        "hooking",
+        "runtime"
+      ],
+      "commands": [
+        "frida",
+        "frida-ps"
+      ],
+      "examples": [
+        "frida --version",
+        "frida-ps -Uai"
+      ],
+      "managed_by": "REA provider"
+    },
+    {
+      "id": "binwalk",
+      "name": "Binwalk",
+      "category": "reverse",
+      "description": "Firmware signature, extraction and embedded-file analysis",
+      "keywords": [
+        "firmware",
+        "extract",
+        "embedded",
+        "signature",
+        "iot"
+      ],
+      "commands": [
+        "binwalk"
+      ],
+      "examples": [
+        "binwalk firmware.bin",
+        "binwalk -e firmware.bin"
+      ],
+      "managed_by": "REA provider"
+    },
+    {
+      "id": "unblob",
+      "name": "Unblob",
+      "category": "reverse",
+      "description": "Recursive extraction of unknown binary blobs",
+      "keywords": [
+        "firmware",
+        "archive",
+        "extract",
+        "binary"
+      ],
+      "commands": [
+        "unblob"
+      ],
+      "examples": [
+        "unblob firmware.bin"
+      ],
+      "managed_by": "REA provider"
+    },
+    {
+      "id": "wabt",
+      "name": "WABT",
+      "category": "reverse",
+      "description": "WebAssembly binary inspection and conversion",
+      "keywords": [
+        "wasm",
+        "webassembly",
+        "binary"
+      ],
+      "commands": [
+        "wasm-objdump",
+        "wasm2wat"
+      ],
+      "examples": [
+        "wasm-objdump -x module.wasm",
+        "wasm2wat module.wasm"
+      ],
+      "managed_by": "REA provider"
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite",
+      "category": "database",
+      "description": "Embedded relational database inspection and SQL execution",
+      "keywords": [
+        "sqlite",
+        "database",
+        "sql",
+        "db"
+      ],
+      "commands": [
+        "sqlite3"
+      ],
+      "examples": [
+        "sqlite3 app.db '.tables'"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "sqlite3",
+        "--version"
+      ]
+    },
+    {
+      "id": "postgresql",
+      "name": "PostgreSQL Client",
+      "category": "database",
+      "description": "PostgreSQL CLI and database diagnostics",
+      "keywords": [
+        "postgres",
+        "postgresql",
+        "psql",
+        "sql"
+      ],
+      "commands": [
+        "psql"
+      ],
+      "examples": [
+        "psql \"$DATABASE_URL\" -c '\\dt'"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "psql",
+        "--version"
+      ]
+    },
+    {
+      "id": "redis",
+      "name": "Redis CLI",
+      "category": "database",
+      "description": "Redis and compatible key-value store client",
+      "keywords": [
+        "redis",
+        "valkey",
+        "cache",
+        "key value"
+      ],
+      "commands": [
+        "redis-cli"
+      ],
+      "examples": [
+        "redis-cli -u \"$REDIS_URL\" PING"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "redis-cli",
+        "--version"
+      ]
+    },
+    {
+      "id": "mariadb",
+      "name": "MariaDB / MySQL Client",
+      "category": "database",
+      "description": "MySQL-compatible database CLI",
+      "keywords": [
+        "mysql",
+        "mariadb",
+        "sql"
+      ],
+      "commands": [
+        "mariadb"
+      ],
+      "examples": [
+        "mariadb --host HOST --user USER -p"
+      ],
+      "managed_by": "apt:core",
+      "version_command": [
+        "mariadb",
+        "--version"
+      ]
+    },
+    {
+      "id": "ffmpeg",
+      "name": "FFmpeg",
+      "category": "media",
+      "description": "Video/audio conversion, filtering, probing and transcoding",
+      "keywords": [
+        "video",
+        "audio",
+        "transcode",
+        "codec",
+        "video convert",
+        "audio convert"
+      ],
+      "commands": [
+        "ffmpeg",
+        "ffprobe"
+      ],
+      "examples": [
+        "ffprobe -hide_banner input.mp4",
+        "ffmpeg -i input.mp4 -c:v libx264 output.mp4"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "ffmpeg",
+        "-version"
+      ]
+    },
+    {
+      "id": "imagemagick",
+      "name": "ImageMagick",
+      "category": "media",
+      "description": "Image inspection, conversion, resize and compositing",
+      "keywords": [
+        "image",
+        "convert",
+        "resize",
+        "thumbnail"
+      ],
+      "commands": [
+        "convert",
+        "identify"
+      ],
+      "examples": [
+        "identify input.png",
+        "convert input.png -resize 1200x output.png"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "identify",
+        "-version"
+      ]
+    },
+    {
+      "id": "mediainfo",
+      "name": "MediaInfo",
+      "category": "media",
+      "description": "Audio/video container and codec metadata inspection",
+      "keywords": [
+        "video",
+        "audio",
+        "codec",
+        "metadata"
+      ],
+      "commands": [
+        "mediainfo"
+      ],
+      "examples": [
+        "mediainfo input.mkv"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "mediainfo",
+        "--Version"
+      ]
+    },
+    {
+      "id": "sox",
+      "name": "SoX",
+      "category": "media",
+      "description": "Audio editing, conversion and signal processing",
+      "keywords": [
+        "audio",
+        "sound",
+        "wav",
+        "sample rate"
+      ],
+      "commands": [
+        "sox"
+      ],
+      "examples": [
+        "sox input.wav -r 48000 output.wav"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "sox",
+        "--version"
+      ]
+    },
+    {
+      "id": "mkvtoolnix",
+      "name": "MKVToolNix",
+      "category": "media",
+      "description": "Inspect, mux, split and edit Matroska files",
+      "keywords": [
+        "mkv",
+        "mkvmerge",
+        "video",
+        "subtitles"
+      ],
+      "commands": [
+        "mkvmerge",
+        "mkvinfo"
+      ],
+      "examples": [
+        "mkvmerge -i input.mkv"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "mkvmerge",
+        "--version"
+      ]
+    },
+    {
+      "id": "vips",
+      "name": "libvips",
+      "category": "media",
+      "description": "High-performance image processing for large images",
+      "keywords": [
+        "image",
+        "large image",
+        "thumbnail",
+        "pipeline"
+      ],
+      "commands": [
+        "vips"
+      ],
+      "examples": [
+        "vipsheader input.tif"
+      ],
+      "managed_by": "apt:media",
+      "version_command": [
+        "vips",
+        "--version"
+      ]
+    },
+    {
+      "id": "poppler",
+      "name": "Poppler Utils",
+      "category": "media",
+      "description": "PDF metadata, text extraction and rendering utilities",
+      "keywords": [
+        "pdf",
+        "document",
+        "text extraction",
+        "metadata"
+      ],
+      "commands": [
+        "pdfinfo",
+        "pdftotext",
+        "pdftoppm"
+      ],
+      "examples": [
+        "pdfinfo document.pdf",
+        "pdftotext -layout document.pdf -"
+      ],
+      "managed_by": "apt:media"
+    },
+    {
+      "id": "file",
+      "name": "file",
+      "category": "system",
+      "description": "Identify file formats and MIME types from content signatures",
+      "keywords": [
+        "file type",
+        "mime",
+        "magic",
+        "binary identification"
+      ],
+      "commands": [
+        "file"
+      ],
+      "version_command": [
+        "file",
+        "--version"
+      ],
+      "examples": [
+        "file app.bin",
+        "file --mime-type document.dat"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "lsof",
+      "name": "lsof",
+      "category": "system",
+      "description": "Inspect open files, sockets, ports and processes holding resources",
+      "keywords": [
+        "open files",
+        "ports",
+        "process sockets",
+        "listening port"
+      ],
+      "commands": [
+        "lsof"
+      ],
+      "version_command": [
+        "lsof",
+        "-v"
+      ],
+      "examples": [
+        "lsof -iTCP -sTCP:LISTEN -P -n",
+        "lsof -p PID"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "strace",
+      "name": "strace",
+      "category": "system",
+      "description": "Trace Linux system calls and signals for debugging process behavior",
+      "keywords": [
+        "syscall",
+        "system call",
+        "trace process",
+        "debug linux"
+      ],
+      "commands": [
+        "strace"
+      ],
+      "version_command": [
+        "strace",
+        "--version"
+      ],
+      "examples": [
+        "strace -f -o trace.log COMMAND",
+        "strace -p PID"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "procps",
+      "name": "Process Utilities",
+      "category": "system",
+      "description": "Inspect processes, CPU and memory with ps, top, free and related tools",
+      "keywords": [
+        "process",
+        "process list",
+        "cpu",
+        "memory",
+        "ram",
+        "system monitor"
+      ],
+      "commands": [
+        "ps",
+        "pgrep",
+        "pkill",
+        "top",
+        "free",
+        "vmstat"
+      ],
+      "version_command": [
+        "ps",
+        "--version"
+      ],
+      "examples": [
+        "ps auxf",
+        "pgrep -af node",
+        "free -h",
+        "vmstat 1 5"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "net-tools",
+      "name": "net-tools",
+      "category": "networking",
+      "description": "Legacy interface, route and socket diagnostics including netstat and ifconfig",
+      "keywords": [
+        "netstat",
+        "ifconfig",
+        "network interface",
+        "routing table",
+        "socket"
+      ],
+      "commands": [
+        "netstat",
+        "ifconfig",
+        "route"
+      ],
+      "version_command": [
+        "netstat",
+        "--version"
+      ],
+      "examples": [
+        "netstat -tulpn",
+        "ifconfig -a",
+        "route -n"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "netcat",
+      "name": "Netcat",
+      "category": "networking",
+      "description": "TCP/UDP connectivity probes, listeners and simple byte-stream transfer",
+      "keywords": [
+        "nc",
+        "tcp test",
+        "udp test",
+        "port check",
+        "socket"
+      ],
+      "commands": [
+        "nc"
+      ],
+      "examples": [
+        "nc -vz HOST PORT",
+        "nc -l 127.0.0.1 9000"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "moreutils",
+      "name": "moreutils",
+      "category": "system",
+      "description": "Unix pipeline tools such as sponge, ts, chronic and ifne",
+      "keywords": [
+        "unix pipeline",
+        "sponge",
+        "timestamp",
+        "command output"
+      ],
+      "commands": [
+        "sponge",
+        "ts",
+        "chronic",
+        "ifne"
+      ],
+      "examples": [
+        "command | sponge file.txt",
+        "command 2>&1 | ts"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "parallel",
+      "name": "GNU parallel",
+      "category": "development",
+      "description": "Run independent commands concurrently with bounded job counts",
+      "keywords": [
+        "parallel jobs",
+        "concurrency",
+        "batch processing",
+        "xargs"
+      ],
+      "commands": [
+        "parallel"
+      ],
+      "version_command": [
+        "parallel",
+        "--version"
+      ],
+      "examples": [
+        "parallel -j 4 ::: 'echo one' 'echo two'"
+      ],
+      "managed_by": "apt:core"
+    },
+    {
+      "id": "pipx",
+      "name": "pipx",
+      "category": "development",
+      "description": "Install Python command-line applications in isolated environments",
+      "keywords": [
+        "python cli",
+        "pip",
+        "isolated install",
+        "python tools"
+      ],
+      "commands": [
+        "pipx"
+      ],
+      "version_command": [
+        "pipx",
+        "--version"
+      ],
+      "examples": [
+        "pipx install ruff",
+        "pipx list"
+      ],
+      "managed_by": "apt:build"
+    },
+    {
+      "id": "perl",
+      "name": "Perl",
+      "category": "development",
+      "description": "Perl interpreter for scripting and build tooling",
+      "keywords": [
+        "perl",
+        "scripting",
+        "text processing"
+      ],
+      "commands": [
+        "perl"
+      ],
+      "version_command": [
+        "perl",
+        "--version"
+      ],
+      "examples": [
+        "perl -ne 'print if /pattern/' file.txt"
+      ],
+      "managed_by": "apt:build"
+    },
+    {
+      "id": "nasm",
+      "name": "NASM",
+      "category": "development",
+      "description": "Netwide assembler for x86 and x86-64 binaries",
+      "keywords": [
+        "assembly",
+        "assembler",
+        "x86",
+        "x86-64"
+      ],
+      "commands": [
+        "nasm"
+      ],
+      "version_command": [
+        "nasm",
+        "-v"
+      ],
+      "examples": [
+        "nasm -f elf64 input.asm -o input.o"
+      ],
+      "managed_by": "apt:build"
+    }
+  ]
+}

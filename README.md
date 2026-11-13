@@ -342,7 +342,20 @@ The full background prewarm covers the common coding/debugging stack rather than
 - FFmpeg and ImageMagick;
 - Docker/BuildKit when supplied by the GitHub-hosted image.
 
-Large specialized environments such as Android SDKs, Playwright browser bundles, database servers, and project-specific SDKs remain on-demand.
+The Lab preinstalls its curated common CLI catalog at runner startup rather than making agents discover and install utilities per task. This includes shell/system diagnostics, development toolchains, quality tools, networking utilities, database clients, media/document tools and the REA provider suite. Project-specific dependencies and large SDKs that belong to a target repository remain governed by that repository's lockfiles and setup contract.
+
+### Runner Tool Center
+
+Every runner generation publishes a searchable local catalog and compact agent index. The catalog is the discovery source of truth; programs remain ordinary native Shell commands.
+
+agent-lab tools list
+agent-lab tools search "inspect APK"
+agent-lab tools info jadx
+agent-lab tools check
+agent-lab tools report
+agent-lab tools index
+
+agent-lab onboard returns the catalog categories and discovery commands so shell-capable agents do not need to guess package names or search online first. Custom binaries, REA providers, runtimes, catalog and shared caches live under /opt/runner-tools; APT-managed binaries remain in normal system paths and are indexed in the same registry. No MCP service or client registration is involved.
 
 ### Shared reverse-engineering toolkit (REA)
 

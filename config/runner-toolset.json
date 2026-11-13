@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "toolchain_version": "2026-11-06.1",
+  "toolchain_version": "2026-11-13.1",
   "profile_groups": {
     "core": [
       "core"
@@ -45,7 +45,23 @@
       "sqlite3",
       "shellcheck",
       "python3",
-      "python3-pip"
+      "python3-pip",
+      "btop",
+      "htop",
+      "ncdu",
+      "tmux",
+      "moreutils",
+      "parallel",
+      "nmap",
+      "mtr-tiny",
+      "iperf3",
+      "tcpdump",
+      "traceroute",
+      "whois",
+      "socat",
+      "postgresql-client",
+      "redis-tools",
+      "mariadb-client"
     ],
     "build": [
       "build-essential",
@@ -71,11 +87,19 @@
       "libsqlite3-dev",
       "zlib1g-dev",
       "libffi-dev",
-      "libunwind-dev"
+      "libunwind-dev",
+      "shfmt",
+      "pipx",
+      "protobuf-compiler"
     ],
     "media": [
       "ffmpeg",
-      "imagemagick"
+      "imagemagick",
+      "mediainfo",
+      "sox",
+      "mkvtoolnix",
+      "libvips-tools",
+      "poppler-utils"
     ]
   },
   "commands": {
@@ -89,7 +113,21 @@
       "fd",
       "jq",
       "sqlite3",
-      "shellcheck"
+      "shellcheck",
+      "btop",
+      "htop",
+      "ncdu",
+      "tmux",
+      "nmap",
+      "mtr",
+      "iperf3",
+      "tcpdump",
+      "traceroute",
+      "whois",
+      "socat",
+      "psql",
+      "redis-cli",
+      "mariadb"
     ],
     "build": [
       "cmake",
@@ -103,13 +141,22 @@
       "cargo",
       "java",
       "javac",
-      "actionlint"
+      "actionlint",
+      "shfmt",
+      "pipx",
+      "protoc"
     ],
     "media": [
       "ffmpeg",
       "convert",
       "ffprobe",
-      "identify"
+      "identify",
+      "mediainfo",
+      "sox",
+      "mkvmerge",
+      "vips",
+      "pdfinfo",
+      "pdftotext"
     ]
   },
   "pkg_config_modules": {

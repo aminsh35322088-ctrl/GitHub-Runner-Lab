@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from lab_common import SCRIPTS, atomic, runtime
+from lab_tools import onboarding_summary
 
 LOCKFILES = ('package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock',
              'bun.lock', 'bun.lockb', 'uv.lock', 'poetry.lock', 'requirements.txt',
@@ -63,6 +64,7 @@ def onboarding():
     from lab_ready import persistence_status
     return {'schema_version': 1, 'runtime': runtime(), 'persistence': persistence_status(),
             'instructions': str(SCRIPTS.parent / 'AGENTS.md'),
+            'tool_center': onboarding_summary(),
             'commands': {
                 'status': 'agent-lab status', 'preflight': 'agent-lab ready --workspace PATH',
                 'prepare': 'agent-lab work --repo URL --ref BRANCH',

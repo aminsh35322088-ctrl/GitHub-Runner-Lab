@@ -3,12 +3,22 @@
 
 AGENT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT_TOOLSET_CLI="$AGENT_LIB_DIR/lab_toolset.py"
+RUNNER_TOOLS_ROOT="${RUNNER_TOOLS_ROOT:-/opt/runner-tools}"
+AGENT_TOOL_INDEX_FILE="${AGENT_TOOL_INDEX_FILE:-$RUNNER_TOOLS_ROOT/registry/TOOL-INDEX.md}"
+AGENT_TOOL_CATALOG="$AGENT_LIB_DIR/../config/runner-tools.json"
+export RUNNER_TOOLS_ROOT AGENT_TOOL_INDEX_FILE AGENT_TOOL_CATALOG
 
 # ~/.local/bin holds manifest-installed shims such as the fd -> fdfind link
 # created by agent-bootstrap.sh. Only login shells source ~/.profile, so
 # non-interactive callers (SSH exec, cron, CI) would miss every command
 # installed there and report a healthy toolchain as missing or outdated.
 AGENT_LOCAL_BIN="${HOME}/.local/bin"
+for tool_bin in "$RUNNER_TOOLS_ROOT/bin" "$AGENT_LOCAL_BIN"; do
+  if [[ -d "$tool_bin" ]]; then
+    case ":$PATH:" in *":$tool_bin:"*) ;; *) PATH="$tool_bin:$PATH" ;; esac
+  fi
+done
+export PATH
 if [[ -d "$AGENT_LOCAL_BIN" ]]; then
   case ":$PATH:" in
     *":$AGENT_LOCAL_BIN:"*) ;;
@@ -20,7 +30,10 @@ fi
 # REA is installed once per runner generation by the shared background
 # prewarm. Source its generated environment here as well as from shell startup
 # files so SSH exec and other non-login/non-interactive agent shells see it.
-REA_ENV_FILE="${REA_INSTALL_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/rea}/providers.env"
+REA_ENV_FILE="${REA_INSTALL_ROOT:-$RUNNER_TOOLS_ROOT/tools/reverse-engineering/rea}/providers.env"
+if [[ ! -r "$REA_ENV_FILE" && -r "${XDG_DATA_HOME:-$HOME/.local/share}/rea/providers.env" ]]; then
+  REA_ENV_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/rea/providers.env"
+fi
 if [[ -r "$REA_ENV_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$REA_ENV_FILE"

@@ -7,6 +7,7 @@ SELF_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 # validate -> goss runs `command -v` against whatever it inherits. The file is
 # optional because agent-run.sh also ships as a standalone router bundle.
 if [[ -f "$SELF_DIR/agent-lib.sh" ]]; then
+  # shellcheck disable=SC1091
   source "$SELF_DIR/agent-lib.sh"
 fi
 cmd="${1:-prepare}"
@@ -15,6 +16,7 @@ if (($# > 0)); then
 fi
 
 case "$cmd" in
+  tools) exec python3 "$SELF_DIR/lab_tools.py" "$@" ;;
   onboard) exec python3 "$SELF_DIR/lab_environment.py" --onboard "$@" ;;
   environment) exec python3 "$SELF_DIR/lab_environment.py" "$@" ;;
   issue) exec python3 "$SELF_DIR/lab_incidents.py" "$@" ;;
@@ -63,7 +65,9 @@ case "$cmd" in
     ;;
   shell-help)
     echo "Use normal gh/git commands for authenticated GitHub operations."
-    echo "Use agent-lab onboard for capabilities, recovery state and safe work time."
+    echo "Use agent-lab tools search QUERY to discover installed tools; use tools info ID for exact examples."
+    echo "Use agent-lab tools index for the complete local tool index, tools check for health, and tools report for JSON inventory."
+    echo "Use agent-lab onboard for capabilities, recovery state, tool categories and safe work time."
     echo "Use agent-lab environment --workspace PATH --output FILE to record exact tool versions and lockfile hashes."
     echo "Use agent-lab issue --help to report reproducible Lab failures; issue --flush retries pending reports."
     echo "Use agent-run.sh workspace adopt PATH for scratch repositories that must survive runner rotation."
@@ -163,7 +167,7 @@ case "$cmd" in
     "$SELF_DIR/agent-doctor.sh" "$workspace"
     ;;
   *)
-    echo "Usage: agent-run.sh {onboard|environment|issue|work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
+    echo "Usage: agent-run.sh {tools|onboard|environment|issue|work|prepare|validate|shell-help|job|resume|decrypt|github|git-sync|git-identity|ready|cache|docker-storage|bootstrap|prewarm|status|runtime|restart|checkpoint|workspace|project|doctor|selftest} [args...]" >&2
     exit 2
     ;;
 esac

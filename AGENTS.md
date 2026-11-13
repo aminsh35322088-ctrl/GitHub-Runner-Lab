@@ -173,9 +173,11 @@ For untrusted repository code, require `job start --untrusted --image IMAGE`: ne
 
 ## Sigillo credential management
 
-Sigillo is the Lab's source of credentials for trusted agent tasks, including the Agent's GitHub provider credential and other service API tokens. Before using Sigillo, read [`skills/sigillo/SKILL.md`](skills/sigillo/SKILL.md).
+Sigillo is an optional credential integration and the Lab's source of credentials for trusted agent tasks, including the Agent's GitHub provider credential and other service API tokens. Its absence or failed login must never block RDC/Tailscale startup, Runner health, or prewarm readiness. Before using Sigillo, read [`skills/sigillo/SKILL.md`](skills/sigillo/SKILL.md).
 
-The ephemeral runner authenticates to Sigillo through the `SIGILLO_API_TOKEN` GitHub Actions secret. The workflow validates it with `sigillo me`, stores it in `~/.sigillo/config.json` with owner-only permissions, and verifies the saved credential. The config is recreated for each runner generation; never checkpoint, cache, commit, copy or manually restore it.
+When the `SIGILLO_API_TOKEN` GitHub Actions secret is absent, Tool Center reports Sigillo as `UNCONFIGURED` and the Runner continues normally. When the secret is present, the workflow validates it with `sigillo me`, stores it in `~/.sigillo/config.json` with owner-only permissions, and verifies the saved credential. A configured but invalid/unavailable token is reported as `AUTH_FAILED`; it does not make the Runner unhealthy. The non-secret authentication state is recorded for Tool Center, and the validated `SIGILLO_API_URL` is propagated to subsequent Agent/RDC shells. The config is recreated for each runner generation; never checkpoint, cache, commit, copy or manually restore it.
+
+When Tool Center reports `AUTHENTICATED`, the Sigillo CLI runs in the shared Runner user context and is available to connected shell-capable agents/models. Use `sigillo run` to inject credentials into trusted child processes; do not copy credential values into the agent context. When it reports `UNCONFIGURED` or `AUTH_FAILED`, do not assume Vault access is available.
 
 The Sigillo project configured in `.github/workflows/rdc-lab.yml` must contain `GITHUB_API_TOKEN` in the `prod` environment. It must be a classic PAT with GitHub CLI minimum scopes `repo`, `read:org`, and `gist`; this Lab also requires `write:packages` for its GHCR credential helper. The runner uses this credential only to bootstrap GitHub CLI authentication: it injects the value with `sigillo run`, pipes it to `gh auth login --with-token` on stdin, removes it from the installer process environment, then verifies GitHub API identity, HTTPS Git access, package scope, and the GHCR credential helper.
 
@@ -185,7 +187,7 @@ Other provider credentials belong in Sigillo and should be injected only into th
 
 Agent rules:
 
-- Start with `sigillo me`, then use `sigillo projects` and `sigillo environments --project PROJECT_ID` to discover scope. Always use the actual project ID, not a display name.
+- Check `agent-lab tools info sigillo` or `agent-lab tools check` before relying on Vault access. Sigillo is optional; do not run device/browser login on an unattended runner. If authenticated, start with `sigillo me`, then use `sigillo projects` and `sigillo environments --project PROJECT_ID` to discover scope. Always use the actual project ID, not a display name.
 - Use `sigillo secrets --project PROJECT_ID --env SLUG` to inspect names/metadata only. Never print secret values into a model/tool output, GitHub log, issue, summary, or chat.
 - Prefer `sigillo run --project PROJECT_ID --env SLUG -- COMMAND` to inject secrets into a trusted child process without writing a dotenv file.
 - Never read `.env` files or any file under `~/.sigillo/` directly. Use CLI status commands; never inspect the config with `cat`, `jq`, `grep`, or custom scripts.
@@ -224,11 +226,31 @@ The standard prewarm covers:
 - actionlint and Goss resolve the latest official GitHub release at install time and verify the asset SHA-256 digest; Node.js and the RDC npm package use their latest stable releases; keep GitHub Actions pinned to immutable commit SHAs;
 - build-essential, CMake, Ninja, pkg-config, Clang and GDB;
 - Git LFS and common native headers;
-- shellcheck, sqlite, network/process diagnostics;
-- FFmpeg and ImageMagick;
+- shellcheck, shfmt, sqlite, PostgreSQL/Redis/MariaDB clients and protobuf compiler;
+- network diagnostics including Nmap, MTR, iperf3, tcpdump, traceroute, whois and socat;
+- media/document tools including FFmpeg, ImageMagick, MediaInfo, SoX, MKVToolNix, libvips and Poppler;
 - hosted Node.js/npm recovery when PATH is incomplete.
 
 The reverse-engineering toolkit (REA) is the exception: the background prewarm automatically runs the repository's official `scripts/install-rea.sh` on every runner generation, after RDC is healthy. Prewarm does not report `READY` until the installer, REA capability check, and provider smoke tests succeed. This shared installation is available to every model/agent using the runner account; it is not installed separately per client.
+
+## Runner Tool Center
+
+The Runner has one local catalog for installed tools. It is a discovery layer over the real Shell, not an RPC service.
+
+Start with intent-based search instead of searching the web or guessing package names:
+
+agent-lab tools search "inspect APK or Android package"
+agent-lab tools search "debug packet loss and TCP throughput"
+agent-lab tools search "convert or inspect video and audio"
+agent-lab tools info TOOL_ID
+agent-lab tools list
+agent-lab tools check
+agent-lab tools report
+agent-lab tools index
+
+The catalog includes aliases, task keywords, exact command names, examples, provider ownership, and live availability. Use listed commands directly in Shell. REA-managed capabilities must go through rea; never run rea setup or add MCP registrations. /opt/runner-tools is the common root for custom binaries, REA providers, runtimes, registry and caches. APT-managed programs remain in standard system locations and are indexed in the same catalog.
+
+Before installing a tool, check the local catalog. Do not duplicate a utility under a second package manager. Add or change catalog entries in config/runner-tools.json; add package provisioning to config/runner-toolset.json and keep readiness checks aligned.
 
 ## REA usage on every runner
 
