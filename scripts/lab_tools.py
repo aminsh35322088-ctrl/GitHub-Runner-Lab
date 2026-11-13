@@ -37,7 +37,45 @@ def search_tools(catalog,query):
         if score>0: scored.append((score,t))
     return [t for _,t in sorted(scored,key=lambda x:(-x[0],x[1]["category"],x[1]["name"].lower()))]
 
+def sigillo_status(t):
+    """Report Sigillo auth without ever returning CLI stdout/stderr or secret values."""
+    command=(t.get("commands") or ["sigillo"])[0]
+    resolved=shutil.which(command)
+    state_file=Path.home()/".local/state/agent-runner/sigillo-auth-status"
+    try: state=state_file.read_text(encoding="utf-8").strip().upper()
+    except OSError: state=""
+    result={"id":t["id"],"status":"UNCONFIGURED","resolved":[]}
+    if resolved: result["resolved"].append(resolved)
+    if state=="AUTH_FAILED":
+        result["status"]="AUTH_FAILED"
+        result["reason"]="SIGILLO_API_TOKEN was configured, but Sigillo authentication/bootstrap did not complete successfully"
+        return result
+    if not resolved:
+        if state=="AUTHENTICATED":
+            result["status"]="AUTH_FAILED"
+            result["reason"]="Sigillo was configured as authenticated, but its CLI is missing from PATH"
+        else:
+            result["reason"]="Optional integration is not configured; set SIGILLO_API_TOKEN to enable it"
+        return result
+    # Verify the saved session in-process. Capture and discard all output so
+    # account details, API errors, and any accidental credential text never
+    # enter Tool Center output or machine-readable reports.
+    try:
+        proc=subprocess.run([command,"me"],capture_output=True,text=True,timeout=20,check=False)
+    except (OSError,subprocess.TimeoutExpired):
+        proc=None
+    if proc is not None and proc.returncode==0:
+        result["status"]="AUTHENTICATED"
+        result["reason"]="Sigillo CLI session passed API authentication verification"
+    elif state=="AUTHENTICATED":
+        result["status"]="AUTH_FAILED"
+        result["reason"]="Saved Sigillo authentication could not be verified; re-authentication is required"
+    else:
+        result["status"]="UNCONFIGURED"
+        result["reason"]="Sigillo CLI is installed but no authenticated session is available"
+    return result
 def tool_status(t,deep=False):
+    if t.get("id")=="sigillo": return sigillo_status(t)
     result={"id":t["id"],"status":"MISSING","resolved":[]}
     missing=[]
     for command in t.get("commands",[]):
@@ -76,30 +114,33 @@ def version_for(t):
     return out.splitlines()[0][:300] if p.returncode==0 and out else None
 
 def index_text(catalog):
-    lines=["# Runner Tool Index","","All listed utilities are provided by the shared Runner image/prewarm. Check this local catalog before searching online or installing another copy.","",
-    "Quick commands:","- agent-lab tools search QUERY — find by task, alias or command","- agent-lab tools info TOOL_ID — exact commands and examples","- agent-lab tools list — browse categories","- agent-lab tools check — verify tools and REA providers","- agent-lab tools report — machine-readable inventory","- agent-lab tools index — display this index",""]
+    lines=["# Runner Tool Index","","Listed utilities are provided by the shared Runner image/prewarm or their declared workflow owner. Check this local catalog before searching online or installing another copy.","",
+    "Quick commands:","- agent-lab tools search QUERY — find by task, alias or command","- agent-lab tools info TOOL_ID — exact commands and examples","- agent-lab tools list — browse categories","- agent-lab tools check — verify tools, REA providers and Sigillo authentication","- agent-lab tools report — machine-readable inventory","- agent-lab tools index — display this index",""]
     for c in catalog["categories"]:
         items=[t for t in catalog["tools"] if t["category"]==c["id"]]
         lines += [f"## {c['label']}","",c["description"],"",", ".join(t["id"] for t in items),""]
-    lines += ["Selection: use native Shell commands. REA-managed providers go through rea; do not run MCP setup. Project-specific dependencies remain governed by target repository lockfiles."]
+    lines += ["Selection: use native Shell commands. REA-managed providers go through rea; do not run MCP setup. Sigillo is optional; when authenticated, use sigillo run to inject credentials into trusted child processes. Project-specific dependencies remain governed by target repository lockfiles."]
     return "\n".join(lines)+"\n"
 
 def onboarding_summary():
     c=load_catalog()
     return {"index":"agent-lab tools index","search":"agent-lab tools search QUERY","info":"agent-lab tools info TOOL_ID","check":"agent-lab tools check",
         "categories":[{"id":x["id"],"label":x["label"],"tools":[t["id"] for t in c["tools"] if t["category"]==x["id"]]} for x in c["categories"]],
-        "rule":"Search this local catalog before looking online or installing a tool; use direct Shell commands after discovery."}
+        "rule":"Search this local catalog before looking online or installing a tool; use direct Shell commands after discovery. Sigillo is optional and its authenticated state is reported separately."}
 
 def inventory(c,deep=False):
     entries=[]
     for t in c["tools"]:
         item=tool_status(t,deep)
         item.update({"name":t["name"],"category":t["category"],"required":t.get("required",True),"managed_by":t.get("managed_by","unknown")})
-        item["version"]=version_for(t) if item["status"]=="READY" else None
+        item["version"]=version_for(t) if item["status"] in ("READY","AUTHENTICATED") else None
         entries.append(item)
     return {"schema_version":1,"generated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"platform":platform.platform(),
         "architecture":platform.machine(),"toolchain_version":json.loads((ROOT/"config/runner-toolset.json").read_text()).get("toolchain_version"),
         "tools_root":str(DEFAULT_ROOT),"summary":{"total":len(entries),"ready":sum(x["status"]=="READY" for x in entries),
+        "authenticated":sum(x["status"]=="AUTHENTICATED" for x in entries),
+        "optional_unconfigured":sum(x["status"]=="UNCONFIGURED" for x in entries),
+        "auth_failed":sum(x["status"]=="AUTH_FAILED" for x in entries),
         "provider_checks":sum(x["status"]=="PROVIDER" for x in entries),"missing":sum(x["status"]=="MISSING" for x in entries),
         "errors":sum(x["status"]=="ERROR" for x in entries)},"tools":entries}
 
