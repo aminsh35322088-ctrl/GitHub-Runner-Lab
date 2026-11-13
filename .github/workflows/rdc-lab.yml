@@ -654,6 +654,9 @@ jobs:
           RESTIC_REST_PASSWORD: ${{ secrets.RESTIC_REST_PASSWORD }}
           B2_ACCOUNT_ID: ${{ secrets.B2_ACCOUNT_ID }}
           B2_ACCOUNT_KEY: ${{ secrets.B2_ACCOUNT_KEY }}
+          RESTIC_KEEP_DAILY: ${{ vars.RESTIC_KEEP_DAILY || '7' }}
+          RESTIC_KEEP_WEEKLY: ${{ vars.RESTIC_KEEP_WEEKLY || '4' }}
+          RESTIC_KEEP_MONTHLY: ${{ vars.RESTIC_KEEP_MONTHLY || '3' }}
         run: ./scripts/checkpoint-sync.sh save finalizer
 
       - name: Upload Agent Checkpoint
