@@ -588,7 +588,7 @@ jobs:
             --data-urlencode 'grant_type=client_credentials' \
             --data-urlencode "client_id=$TS_OAUTH_CLIENT_ID" \
             --data-urlencode "client_secret=$TS_OAUTH_SECRET" \
-            --data-urlencode 'scope=devices:routes' \
+            --data-urlencode 'scope=devices:core:read devices:routes' \
             https://api.tailscale.com/api/v2/oauth/token 2>/dev/null)" || report_unapproved "OAuth token exchange failed."
           oauth_error="$(jq -r '.error_description // .message // .error // empty' <<< "$oauth_response")"
           api_token="$(jq -r '.access_token // empty' <<< "$oauth_response")"
