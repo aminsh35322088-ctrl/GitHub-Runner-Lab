@@ -260,7 +260,7 @@ jobs:
 
     concurrency:
       group: rdc-runner-lab
-      cancel-in-progress: ${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: restart runner with exit-node tag' }}
+      cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, 'restart runner with exit-node tag') }}
 
     outputs:
       configured: ${{ steps.verify.outputs.ready }}
