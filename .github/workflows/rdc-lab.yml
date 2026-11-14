@@ -498,7 +498,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ssh,tag:co-admin
+          tags: tag:ssh,tag:co-admin,tag:exit
           hostname: ${{ env.TAILSCALE_HOSTNAME }}
           version: 1.104.5
           use-cache: "false"
