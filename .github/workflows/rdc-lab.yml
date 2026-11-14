@@ -559,6 +559,84 @@ jobs:
           echo "TAILSCALE_HEALTH=READY"
           echo "TAILSCALE_IPV4=$TS_IPV4"
 
+      - name: Approve Exit Node routes in Tailscale
+        id: exit-node-approval
+        if: steps.tailscale.outputs.ready == 'true'
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TS_IPV4: ${{ steps.tailscale.outputs.ipv4 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          report_unapproved() {
+            local reason="$1"
+            echo "approved=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Tailscale Exit Node route approval unavailable: $reason"
+            {
+              echo "### Tailscale Exit Node route approval"
+              echo
+              echo "- Status: **not approved by API**"
+              echo "- Detail: $reason"
+              echo "- Credential values: **not logged**"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          oauth_response="$(curl --silent --show-error --retry 1 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            --data-urlencode 'grant_type=client_credentials' \
+            --data-urlencode "client_id=$TS_OAUTH_CLIENT_ID" \
+            --data-urlencode "client_secret=$TS_OAUTH_SECRET" \
+            --data-urlencode 'scope=devices:routes' \
+            https://api.tailscale.com/api/v2/oauth/token 2>/dev/null)" || report_unapproved "OAuth token exchange failed."
+          oauth_error="$(jq -r '.error_description // .message // .error // empty' <<< "$oauth_response")"
+          api_token="$(jq -r '.access_token // empty' <<< "$oauth_response")"
+          unset oauth_response TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET
+          if [[ -z "$api_token" ]]; then
+            report_unapproved "${oauth_error:-OAuth client does not grant the devices:routes scope.}"
+          fi
+
+          devices_response="$(curl --silent --show-error --retry 1 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $api_token" \
+            https://api.tailscale.com/api/v2/tailnet/-/devices 2>/dev/null)" || report_unapproved "Could not list tailnet devices with this OAuth client."
+          device_id="$(jq -r --arg ip "$TS_IPV4" '(.devices // [])[] | select((.addresses // []) | index($ip)) | .id // empty' <<< "$devices_response" | head -n1)"
+          unset devices_response
+          if [[ -z "$device_id" ]]; then
+            report_unapproved "The current runner IP was not found in the tailnet device list."
+          fi
+
+          routes_response="$(curl --silent --show-error --retry 1 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer $api_token" \
+            "https://api.tailscale.com/api/v2/device/$device_id/routes" 2>/dev/null)" || report_unapproved "Could not read the current device route settings."
+          advertised_ok="$(jq -r '((.advertisedRoutes // []) | index("0.0.0.0/0")) != null and ((.advertisedRoutes // []) | index("::/0")) != null' <<< "$routes_response")"
+          if [[ "$advertised_ok" != "true" ]]; then
+            report_unapproved "The runner is not advertising both default routes through Tailscale."
+          fi
+
+          route_body="$(jq -c '{routes: (((.enabledRoutes // []) + ["0.0.0.0/0", "::/0"]) | unique)}' <<< "$routes_response")"
+          unset routes_response
+          approval_response="$(curl --silent --show-error --retry 1 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            -X POST -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $api_token" \
+            --data "$route_body" \
+            "https://api.tailscale.com/api/v2/device/$device_id/routes" 2>/dev/null)" || report_unapproved "The route approval API request failed."
+          unset api_token route_body
+          approved="$(jq -r '((.enabledRoutes // []) | index("0.0.0.0/0")) != null and ((.enabledRoutes // []) | index("::/0")) != null' <<< "$approval_response")"
+          if [[ "$approved" != "true" ]]; then
+            api_error="$(jq -r '.message // .error // empty' <<< "$approval_response")"
+            report_unapproved "${api_error:-Tailscale did not confirm both routes as enabled.}"
+          fi
+
+          echo "approved=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Tailscale Exit Node route approval"
+            echo
+            echo "- Status: **approved**"
+            echo "- Device: $TS_IPV4"
+            echo "- Enabled routes: **0.0.0.0/0, ::/0**"
+            echo "- Credential values: **not logged**"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Configure Agent GitHub access from Sigillo
         id: agent-github-auth
         if: ${{ steps.mode.outputs.ready == 'true' && steps.sigillo.outputs.SIGILLO_CLI_READY == 'true' }}
